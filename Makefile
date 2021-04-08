@@ -1,0 +1,3 @@
+build-image:
+	GOOS=linux GOARCH=amd64 go build -o output/ ./...
+	docker build -t lkysow/consul-ecs .

@@ -32,7 +32,7 @@ Deploys Consul on ECS Fargate along with two example applications.
     lb_ingress_security_group_rule_description = ""
     lb_ingress_security_group_rule_cidr_blocks = ["<ip>/32"]
     ```
-* Run `terraform apply`
+* Run `terraform apply -var-file local.tfvars`
 * Add security group rules that allow ingress into your ECS cluster from the ALBs.
 * Run `terraform output` to get URLs
   * Log in to Consul server with the bootstrap ACL token (default is `57c5d69a-5f19-469b-0543-12a487eecc66`)

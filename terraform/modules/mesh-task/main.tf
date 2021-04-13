@@ -27,6 +27,29 @@ locals {
     sourceVolume  = local.consul_data_volume_name
     containerPath = "/consul"
   }
+  // app_container_with_depends_on is the app's container definition with its dependsOn key
+  // modified to add in dependencies on mesh-init and sidecar-proxy.
+  // We add these dependencies in so that the app doesn't start until the proxy
+  // is ready to serve traffic.
+  app_container_with_depends_on = merge(
+    var.app_container,
+    {
+      dependsOn = flatten(
+        concat(
+          lookup(var.app_container, "dependsOn", []),
+          [
+            {
+              containerName = "mesh-init"
+              condition     = "SUCCESS"
+            },
+            {
+              containerName = "sidecar-proxy"
+              condition     = "HEALTHY"
+            }
+          ]
+      ))
+    }
+  )
 }
 
 resource "aws_ecs_task_definition" "this" {
@@ -50,7 +73,7 @@ resource "aws_ecs_task_definition" "this" {
       concat(
         local.discover_servers_containers,
         [
-          var.app_container,
+          local.app_container_with_depends_on,
           {
             name             = "consul-copy"
             image            = var.consul_image

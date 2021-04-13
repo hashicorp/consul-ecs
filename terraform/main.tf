@@ -53,17 +53,6 @@ module "mesh-app" {
         value = "mesh-app"
       }
     ]
-    # todo: Ideally this should be added by the module.
-    dependsOn = [
-      {
-        containerName = "mesh-init"
-        condition     = "SUCCESS"
-      },
-      {
-        containerName = "sidecar-proxy"
-        condition     = "HEALTHY"
-      }
-    ]
   }
   consul_server_service_name = module.consul_server.service_name
   envoy_image                = var.envoy_image
@@ -106,16 +95,6 @@ module "mesh-client" {
     portMappings = [
       {
         containerPort = 9090
-      }
-    ]
-    dependsOn = [
-      {
-        containerName = "mesh-init"
-        condition     = "SUCCESS"
-      },
-      {
-        containerName = "sidecar-proxy"
-        condition     = "HEALTHY"
       }
     ]
   }

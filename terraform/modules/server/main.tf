@@ -28,37 +28,6 @@ resource "aws_ecs_task_definition" "consul-server" {
   }
   container_definitions = jsonencode([
     {
-      name      = "tls-init"
-      image     = var.consul_image
-      essential = false
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          awslogs-group         = var.cloudwatch_log_group_name
-          awslogs-region        = var.region
-          awslogs-stream-prefix = "consul-server"
-        }
-      },
-      mountPoints = [
-        {
-          sourceVolume  = "consul-data"
-          containerPath = "/consul"
-        }
-      ]
-      entryPoint = ["/bin/sh", "-ec"]
-      command    = [local.consul_server_tls_init_command]
-      secrets = [
-        {
-          name      = "CONSUL_CACERT",
-          valueFrom = "${var.consul_ca_cert_secret_arn}:${var.consul_ca_cert_secret_key}::"
-        },
-        {
-          name      = "CONSUL_CAKEY",
-          valueFrom = "${var.consul_ca_key_secret_arn}:${var.consul_ca_key_secret_key}::"
-        }
-      ]
-    },
-    {
       name      = "consul-server"
       image     = var.consul_image
       essential = true
@@ -83,12 +52,6 @@ resource "aws_ecs_task_definition" "consul-server" {
       },
       entryPoint = ["/bin/sh", "-ec"]
       command    = [local.consul_server_command]
-      secrets = [
-        {
-          name      = "CONSUL_GOSSIP_ENCRYPTION_KEY",
-          valueFrom = "${var.consul_gossip_encryption_secret_arn}:${var.consul_gossip_encryption_secret_key}::"
-        }
-      ]
       mountPoints = [
         {
           sourceVolume  = "consul-data"
@@ -98,12 +61,6 @@ resource "aws_ecs_task_definition" "consul-server" {
       linuxParameters = {
         initProcessEnabled = true
       }
-      dependsOn = [
-        {
-          containerName = "tls-init"
-          condition     = "SUCCESS"
-        },
-      ]
     }
   ])
 }
@@ -117,17 +74,6 @@ resource "aws_iam_policy" "consul-server-execution" {
 {
   "Version": "2012-10-17",
   "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "secretsmanager:GetSecretValue"
-      ],
-      "Resource": [
-        "${var.consul_ca_cert_secret_arn}",
-        "${var.consul_ca_key_secret_arn}",
-        "${var.consul_gossip_encryption_secret_arn}"
-      ]
-    },
     {
       "Effect": "Allow",
       "Action": [
@@ -182,7 +128,6 @@ resource "aws_iam_role" "consul_server_task" {
       },
     ]
   })
-  managed_policy_arns = ["arn:aws:iam::aws:policy/AmazonECS_FullAccess"]
 
   inline_policy {
     name = "exec"
@@ -205,8 +150,6 @@ resource "aws_iam_role" "consul_server_task" {
 }
 
 
-# note: not setting server http port to -1 so it's open for the LB
-# (for now until I figure out lb health checks with certs)
 locals {
   consul_server_command = <<EOF
 ECS_IPV4=$(curl -s $ECS_CONTAINER_METADATA_URI | jq -r '.Networks[0].IPv4Addresses[0]')
@@ -221,23 +164,6 @@ exec consul agent -server \
   -hcl 'telemetry { disable_compat_1.9 = true }' \
   -hcl 'connect { enabled = true }' \
   -hcl 'enable_central_service_config = true' \
-  -hcl='ca_file = "/consul/consul-agent-ca.pem"' \
-  -hcl='cert_file = "/consul/dc1-server-consul-0.pem"' \
-  -hcl='key_file = "/consul/dc1-server-consul-0-key.pem"' \
-  -hcl='auto_encrypt = {allow_tls = true}' \
-  -hcl='ports { https = 8501 }' \
-  -hcl='verify_incoming_rpc = true' \
-  -hcl='verify_outgoing = true' \
-  -hcl='verify_server_hostname = true' \
-  -hcl='acl {enabled = true, default_policy = "deny", down_policy = "extend-cache", tokens { master = "57c5d69a-5f19-469b-0543-12a487eecc66", agent = "57c5d69a-5f19-469b-0543-12a487eecc66" }}' \
-EOF
-
-  consul_server_tls_init_command = <<EOF
-ECS_IPV4=$(curl -s $ECS_CONTAINER_METADATA_URI | jq -r '.Networks[0].IPv4Addresses[0]')
-cd /consul
-echo "$CONSUL_CACERT" > ./consul-agent-ca.pem
-echo "$CONSUL_CAKEY" > ./consul-agent-ca-key.pem
-consul tls cert create -server -additional-ipaddress=$ECS_IPV4
 EOF
 }
 

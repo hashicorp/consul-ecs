@@ -1,21 +1,12 @@
-variable "ca_cert" {}
-variable "ca_key" {}
 variable "tags" {}
-variable "bootstrap_token" {
-  default = "57c5d69a-5f19-469b-0543-12a487eecc66"
-}
 variable "region" {}
 variable "ecs_cluster" {}
 variable "subnets" {}
 variable "vpc_id" {}
 variable "cloudwatch_log_group_name" {}
-variable "consul_ca_cert_secret_arn" {}
-variable "consul_ca_cert_secret_key" {}
-variable "consul_ca_key_secret_arn" {}
-variable "consul_ca_key_secret_key" {}
-variable "consul_gossip_encryption_secret_arn" {}
-variable "consul_gossip_encryption_secret_key" {}
 variable "lb_subnets" {}
 variable "lb_ingress_description" {}
 variable "lb_ingress_cidr_blocks" {}
-variable "consul_image" {}
+variable "consul_image" {
+  default = "hashicorp/consul:1.9.4"
+}

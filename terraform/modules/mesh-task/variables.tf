@@ -1,18 +1,73 @@
-variable "family" {}
-variable "execution_role_arn" {}
-variable "task_role_arn" {}
-variable "port" {}
-variable "consul_image" {}
-variable "consul_ecs_image" {}
-variable "log_group_name" {}
-variable "region" {}
-variable "app_container" {}
-variable "upstreams" {
-  default = ""
+variable "family" {
+  description = "Task definition family (https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html#family)."
+  type        = string
 }
-variable "consul_server_service_name" {}
-variable "envoy_image" {
 
+variable "execution_role_arn" {
+  description = "ARN for task execution role."
+  type        = string
+}
+
+variable "task_role_arn" {
+  description = "ARN for task role."
+  type        = string
+}
+
+variable "port" {
+  description = "Port that application listens on. Can be omitted if application does not listen on a port."
+  default     = 0
+  type        = number
+}
+
+variable "consul_image" {
+  description = "Consul Docker image."
+  default     = "docker.io/hashicorp/consul:1.9.4"
+  type        = string
+}
+
+variable "consul_ecs_image" {
+  description = "consul-ecs Docker image."
+  default     = "ghcr.io/lkysow/consul-ecs:apr12-1"
+  type        = string
+}
+
+variable "log_configuration" {
+  description = "Task definition log configuration object (https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_LogConfiguration.html)."
+  type        = any
+  default     = {}
+}
+
+variable "app_container" {
+  description = "Application container definition (https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html#container_definitions)."
+  type        = any
+}
+
+variable "upstreams" {
+  description = <<-EOT
+  Upstream services this service will call. In the form [{destination_name = $name, local_bind_port = $port}] where
+  destination_name is the name of the upstream service and local_bind_port is the local port that this application should
+  use when calling the upstream service.
+  EOT
+
+  type = list(
+    object({
+      destination_name = string
+      local_bind_port  = number
+    })
+  )
+  default = []
+}
+
+variable "consul_server_service_name" {
+  description = "Name of Consul server ECS service when using dev server."
+  type        = string
+  default     = ""
+}
+
+variable "envoy_image" {
+  description = "Envoy Docker image."
+  type        = string
+  default     = "docker.io/envoyproxy/envoy-alpine:v1.16.2"
 }
 
 variable "dev_server_enabled" {

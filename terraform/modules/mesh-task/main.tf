@@ -1,9 +1,8 @@
 locals {
   discover_server_container = {
-    name             = "discover-servers"
-    image            = var.consul_ecs_image
-    essential        = false
-    logConfiguration = local.log_configuration
+    name      = "discover-servers"
+    image     = var.consul_ecs_image
+    essential = false
     command = [
       "discover-servers",
       "-service-name=${var.consul_server_service_name}",
@@ -12,21 +11,18 @@ locals {
     mountPoints = [
       local.consul_data_mount
     ]
+    environment  = []
+    cpu          = 0
+    portMappings = []
+    volumesFrom  = []
   }
   discover_servers_containers = var.dev_server_enabled ? [local.discover_server_container] : []
-  log_configuration = {
-    logDriver = "awslogs"
-    options = {
-      awslogs-group         = var.log_group_name
-      awslogs-region        = var.region
-      awslogs-stream-prefix = var.family
-    }
-  }
-  consul_data_volume_name = "consul_data"
+  consul_data_volume_name     = "consul_data"
   consul_data_mount = {
     sourceVolume  = local.consul_data_volume_name
     containerPath = "/consul"
   }
+
   // app_container_with_depends_on is the app's container definition with its dependsOn key
   // modified to add in dependencies on mesh-init and sidecar-proxy.
   // We add these dependencies in so that the app doesn't start until the proxy
@@ -50,6 +46,7 @@ locals {
       ))
     }
   )
+  upstreams_flag = join(",", [for upstream in var.upstreams : "${upstream["destination_name"]}:${upstream["local_bind_port"]}"])
 }
 
 resource "aws_ecs_task_definition" "this" {
@@ -64,9 +61,7 @@ resource "aws_ecs_task_definition" "this" {
     name = local.consul_data_volume_name
   }
   tags = {
-    "consul.hashicorp.com/mesh"      = "true"
-    "consul.hashicorp.com/port"      = var.port
-    "consul.hashicorp.com/upstreams" = var.upstreams
+    "consul.hashicorp.com/mesh" = "true"
   }
   container_definitions = jsonencode(
     flatten(
@@ -78,22 +73,26 @@ resource "aws_ecs_task_definition" "this" {
             name             = "consul-copy"
             image            = var.consul_image
             essential        = false
-            logConfiguration = local.log_configuration
+            logConfiguration = var.log_configuration
             command          = ["cp", "/bin/consul", "/consul/consul"]
             mountPoints = [
               local.consul_data_mount
             ]
+            cpu          = 0
+            volumesFrom  = []
+            environment  = []
+            portMappings = []
           },
           {
             name             = "mesh-init"
             image            = var.consul_ecs_image
             essential        = false
-            logConfiguration = local.log_configuration
+            logConfiguration = var.log_configuration
             command = [
               "mesh-init",
               "-envoy-bootstrap-file=/consul/envoy-bootstrap.json",
               "-port=${var.port}",
-              "-upstreams=${var.upstreams}"
+              "-upstreams=${local.upstreams_flag}"
             ]
             mountPoints = [
               local.consul_data_mount
@@ -104,6 +103,10 @@ resource "aws_ecs_task_definition" "this" {
                 condition     = "SUCCESS"
               },
             ]
+            cpu          = 0
+            volumesFrom  = []
+            environment  = []
+            portMappings = []
           },
           {
             name      = "consul-client"
@@ -112,18 +115,21 @@ resource "aws_ecs_task_definition" "this" {
             portMappings = [
               {
                 containerPort = 8300
+                hostPort      = 8300
                 protocol      = "tcp"
               },
               {
                 containerPort = 8300
+                hostPort      = 8300
                 protocol      = "udp"
               },
               {
                 containerPort = 8500
+                hostPort      = 8500
                 protocol      = "tcp"
               },
             ]
-            logConfiguration = local.log_configuration
+            logConfiguration = var.log_configuration
             entryPoint       = ["/bin/sh", "-ec"]
             command = [
               templatefile(
@@ -144,16 +150,21 @@ resource "aws_ecs_task_definition" "this" {
               containerName = "discover-servers"
               condition     = "SUCCESS"
             }] : []
+            cpu         = 0
+            volumesFrom = []
+            environment = []
           },
           {
             name             = "sidecar-proxy"
             image            = var.envoy_image
             essential        = false
-            logConfiguration = local.log_configuration
+            logConfiguration = var.log_configuration
             command          = ["envoy", "--config-path", "/consul/envoy-bootstrap.json"]
             portMappings = [
               {
                 containerPort = 20000
+                hostPort      = 20000
+                protocol      = "tcp"
               },
             ]
             mountPoints = [
@@ -171,6 +182,9 @@ resource "aws_ecs_task_definition" "this" {
               retries  = 3
               timeout  = 5
             }
+            cpu         = 0
+            volumesFrom = []
+            environment = []
           }
         ]
       )

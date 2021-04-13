@@ -1,3 +1,23 @@
+locals {
+  mesh_app_log_configuration = {
+    logDriver = "awslogs"
+    options = {
+      awslogs-group         = aws_cloudwatch_log_group.log_group.name
+      awslogs-region        = var.region
+      awslogs-stream-prefix = "app"
+    }
+  }
+
+  mesh_client_log_configuration = {
+    logDriver = "awslogs"
+    options = {
+      awslogs-group         = aws_cloudwatch_log_group.log_group.name
+      awslogs-region        = var.region
+      awslogs-stream-prefix = "client"
+    }
+  }
+}
+
 module "consul_server" {
   source                    = "./modules/server"
   tags                      = var.tags
@@ -33,20 +53,12 @@ module "mesh-app" {
   port               = "9090"
   consul_image       = var.consul_image
   consul_ecs_image   = var.consul_ecs_image
-  log_group_name     = aws_cloudwatch_log_group.log_group.name
-  region             = var.region
+  log_configuration  = local.mesh_app_log_configuration
   app_container = {
-    name      = "mesh-app"
-    image     = "ghcr.io/lkysow/fake-service:v0.21.0"
-    essential = true
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        awslogs-group         = aws_cloudwatch_log_group.log_group.name
-        awslogs-region        = var.region
-        awslogs-stream-prefix = "app"
-      }
-    }
+    name             = "mesh-app"
+    image            = "ghcr.io/lkysow/fake-service:v0.21.0"
+    essential        = true
+    logConfiguration = local.mesh_app_log_configuration
     environment = [
       {
         name  = "NAME"
@@ -66,22 +78,19 @@ module "mesh-client" {
   task_role_arn      = aws_iam_role.mesh_app_task.arn
   consul_image       = var.consul_image
   consul_ecs_image   = var.consul_ecs_image
-  log_group_name     = aws_cloudwatch_log_group.log_group.name
-  region             = var.region
   port               = "9090"
-  upstreams          = "mesh-app:1234"
-  app_container = {
-    name      = "mesh-client"
-    image     = "ghcr.io/lkysow/fake-service:v0.21.0"
-    essential = true
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        awslogs-group         = aws_cloudwatch_log_group.log_group.name
-        awslogs-region        = var.region
-        awslogs-stream-prefix = "mesh-client"
-      }
+  upstreams = [
+    {
+      destination_name = "mesh-app"
+      local_bind_port  = 1234
     }
+  ]
+  log_configuration = local.mesh_client_log_configuration
+  app_container = {
+    name             = "mesh-client"
+    image            = "ghcr.io/lkysow/fake-service:v0.21.0"
+    essential        = true
+    logConfiguration = local.mesh_client_log_configuration
     environment = [
       {
         name  = "NAME"
@@ -95,8 +104,13 @@ module "mesh-client" {
     portMappings = [
       {
         containerPort = 9090
+        hostPort      = 9090
+        protocol      = "tcp"
       }
     ]
+    cpu         = 0
+    mountPoints = []
+    volumesFrom = []
   }
   consul_server_service_name = module.consul_server.service_name
   envoy_image                = var.envoy_image

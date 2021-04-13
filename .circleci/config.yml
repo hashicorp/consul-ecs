@@ -1,0 +1,86 @@
+version: 2.1
+executors:
+  go:
+    docker:
+      - image: docker.mirror.hashicorp.services/circleci/golang:1.14
+    environment:
+      TEST_RESULTS: /tmp/test-results # path to where test results are saved
+      CONSUL_VERSION: 1.9.4 # Consul's OSS version to use in tests
+
+jobs:
+  go-fmt-and-vet:
+    executor: go
+    steps:
+      - checkout
+
+      # Restore go module cache if there is one
+      - restore_cache:
+          keys:
+            - consul-ecs-modcache-v1-{{ checksum "go.mod" }}
+
+      - run: go mod download
+
+      # Save go module cache if the go.mod file has changed
+      - save_cache:
+          key: consul-ecs-modcache-v1-{{ checksum "go.mod" }}
+          paths:
+            - "/go/pkg/mod"
+
+      # check go fmt output because it does not report non-zero when there are fmt changes
+      - run:
+          name: check go fmt
+          command: |
+            files=$(go fmt ./...)
+            if [ -n "$files" ]; then
+              echo "The following file(s) do not conform to go fmt:"
+              echo "$files"
+              exit 1
+            fi
+      - run: go vet ./...
+
+  linters:
+    executor: go
+    steps:
+      - checkout
+      - run: go get -u github.com/hashicorp/lint-consul-retry && lint-consul-retry
+      - run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.31.0
+      - run: golangci-lint run
+
+  test:
+    executor: go
+    environment:
+      TEST_RESULTS: /tmp/test-results
+    parallelism: 1
+    steps:
+      - checkout
+      - run: mkdir -p $TEST_RESULTS
+
+      # Restore go module cache if there is one
+      - restore_cache:
+          keys:
+            - consul-ecs-modcache-v1-{{ checksum "go.mod" }}
+
+      # run go tests with gotestsum
+      - run: |
+          # download and install the consul binary
+          wget https://releases.hashicorp.com/consul/"${CONSUL_VERSION}"/consul_"${CONSUL_VERSION}"_linux_amd64.zip && \
+               unzip consul_"${CONSUL_VERSION}"_linux_amd64.zip -d /home/circleci/bin &&
+               rm consul_"${CONSUL_VERSION}"_linux_amd64.zip
+          PACKAGE_NAMES=$(go list ./...)
+          gotestsum --junitfile $TEST_RESULTS/gotestsum-report.xml -- -p 4 $PACKAGE_NAMES
+
+      - store_test_results:
+          path: /tmp/test-results
+      - store_artifacts:
+          path: /tmp/test-results
+
+workflows:
+  version: 2
+  test-and-build:
+    jobs:
+      - go-fmt-and-vet
+      - linters
+      - test:
+          requires:
+            - go-fmt-and-vet
+            - linters

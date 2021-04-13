@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 
-	cmdController "github.com/hashicorp/consul-ecs/subcommand/controller"
 	cmdDiscoverServers "github.com/hashicorp/consul-ecs/subcommand/discover-servers"
 	cmdMeshInit "github.com/hashicorp/consul-ecs/subcommand/mesh-init"
 	cmdVersion "github.com/hashicorp/consul-ecs/subcommand/version"
@@ -20,9 +19,6 @@ func init() {
 	Commands = map[string]cli.CommandFactory{
 		"version": func() (cli.Command, error) {
 			return &cmdVersion.Command{UI: ui, Version: version.GetHumanVersion()}, nil
-		},
-		"controller": func() (cli.Command, error) {
-			return &cmdController.Command{UI: ui}, nil
 		},
 		"mesh-init": func() (cli.Command, error) {
 			return &cmdMeshInit.Command{UI: ui}, nil

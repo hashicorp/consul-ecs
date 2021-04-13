@@ -25,9 +25,6 @@ type Command struct {
 	UI cli.Ui
 
 	flagEnvoyBootstrapFile string
-	flagTLS                bool
-	flagCACert             string
-	flagTokensJSONFile     string
 	flagPort               int
 	flagUpstreams          string
 

@@ -1,4 +1,12 @@
-variable "ecs_cluster" {}
+variable "ecs_cluster" {
+  description = "Name of pre-existing ECS cluster"
+}
+
+variable "dev_server_enabled" {
+  type        = bool
+  default     = true
+  description = "Whether the Consul dev server running on ECS is enabled"
+}
 
 variable "region" {}
 
@@ -6,9 +14,7 @@ variable "consul_image" {
   default = "docker.io/hashicorp/consul:1.9.4"
 }
 
-variable "consul_ecs_image" {
-  default = "ghcr.io/lkysow/consul-ecs:apr8-2"
-}
+variable "consul_ecs_image" {}
 
 variable "envoy_image" {
   default = "docker.io/envoyproxy/envoy-alpine:v1.16.2"
@@ -17,14 +23,6 @@ variable "envoy_image" {
 variable "vpc_id" {}
 
 variable "tags" {}
-
-variable "gossip_encryption_key" {
-  default = "XwgGoxOzkpEbxddNTaUKr3KukK6L7ZiO/duzPaUfz+8="
-}
-
-variable "bootstrap_token" {
-  default = "57c5d69a-5f19-469b-0543-12a487eecc66"
-}
 
 variable "subnets" {}
 variable "lb_subnets" {}

@@ -1,29 +1,15 @@
-locals {
-  ca_cert = file("${path.module}/tls/consul-agent-ca.pem")
-  ca_key  = file("${path.module}/tls/consul-agent-ca-key.pem")
-}
-
 module "consul_server" {
-  source                              = "./modules/server"
-  ca_cert                             = local.ca_cert
-  ca_key                              = local.ca_key
-  tags                                = var.tags
-  bootstrap_token                     = var.bootstrap_token
-  cloudwatch_log_group_name           = aws_cloudwatch_log_group.log_group.name
-  region                              = var.region
-  ecs_cluster                         = var.ecs_cluster
-  subnets                             = var.subnets
-  vpc_id                              = var.vpc_id
-  consul_ca_cert_secret_arn           = aws_secretsmanager_secret.consul-server.arn
-  consul_ca_cert_secret_key           = "ca_cert"
-  consul_ca_key_secret_arn            = aws_secretsmanager_secret.consul-server.arn
-  consul_ca_key_secret_key            = "ca_key"
-  consul_gossip_encryption_secret_arn = aws_secretsmanager_secret.consul-server.arn
-  consul_gossip_encryption_secret_key = "gossip_encryption_key"
-  lb_subnets                          = var.lb_subnets
-  lb_ingress_description              = var.lb_ingress_security_group_rule_description
-  lb_ingress_cidr_blocks              = var.lb_ingress_security_group_rule_cidr_blocks
-  consul_image                        = var.consul_image
+  source                    = "./modules/server"
+  tags                      = var.tags
+  cloudwatch_log_group_name = aws_cloudwatch_log_group.log_group.name
+  region                    = var.region
+  ecs_cluster               = var.ecs_cluster
+  subnets                   = var.subnets
+  vpc_id                    = var.vpc_id
+  lb_subnets                = var.lb_subnets
+  lb_ingress_description    = var.lb_ingress_security_group_rule_description
+  lb_ingress_cidr_blocks    = var.lb_ingress_security_group_rule_cidr_blocks
+  consul_image              = var.consul_image
 }
 
 resource "aws_ecs_service" "mesh-app" {
@@ -40,21 +26,15 @@ resource "aws_ecs_service" "mesh-app" {
 }
 
 module "mesh-app" {
-  source                              = "./modules/mesh-task"
-  family                              = "mesh-app"
-  execution_role_arn                  = aws_iam_role.mesh-app-execution.arn
-  task_role_arn                       = aws_iam_role.mesh_app_task.arn
-  port                                = "9090"
-  consul_image                        = var.consul_image
-  consul_ecs_image                    = var.consul_ecs_image
-  log_group_name                      = aws_cloudwatch_log_group.log_group.name
-  region                              = var.region
-  consul_ca_cert_secret_arn           = aws_secretsmanager_secret.consul-server.arn
-  consul_ca_cert_secret_key           = "ca_cert"
-  consul_gossip_encryption_secret_arn = aws_secretsmanager_secret.consul-server.arn
-  consul_gossip_encryption_secret_key = "gossip_encryption_key"
-  consul_agent_token_secret_arn       = aws_secretsmanager_secret.consul-agent-token.arn
-  consul_agent_token_secret_key       = "agent_token"
+  source             = "./modules/mesh-task"
+  family             = "mesh-app"
+  execution_role_arn = aws_iam_role.mesh-app-execution.arn
+  task_role_arn      = aws_iam_role.mesh_app_task.arn
+  port               = "9090"
+  consul_image       = var.consul_image
+  consul_ecs_image   = var.consul_ecs_image
+  log_group_name     = aws_cloudwatch_log_group.log_group.name
+  region             = var.region
   app_container = {
     name      = "mesh-app"
     image     = "ghcr.io/lkysow/fake-service:v0.21.0"
@@ -87,25 +67,20 @@ module "mesh-app" {
   }
   consul_server_service_name = module.consul_server.service_name
   envoy_image                = var.envoy_image
+  dev_server_enabled         = var.dev_server_enabled
 }
 
 module "mesh-client" {
-  source                              = "./modules/mesh-task"
-  family                              = "mesh-client"
-  execution_role_arn                  = aws_iam_role.mesh-app-execution.arn
-  task_role_arn                       = aws_iam_role.mesh_app_task.arn
-  consul_image                        = var.consul_image
-  consul_ecs_image                    = var.consul_ecs_image
-  log_group_name                      = aws_cloudwatch_log_group.log_group.name
-  region                              = var.region
-  consul_ca_cert_secret_arn           = aws_secretsmanager_secret.consul-server.arn
-  consul_ca_cert_secret_key           = "ca_cert"
-  consul_gossip_encryption_secret_arn = aws_secretsmanager_secret.consul-server.arn
-  consul_gossip_encryption_secret_key = "gossip_encryption_key"
-  consul_agent_token_secret_arn       = aws_secretsmanager_secret.consul-agent-token.arn
-  consul_agent_token_secret_key       = "agent_token"
-  port                                = "9090"
-  upstreams                           = "mesh-app:1234"
+  source             = "./modules/mesh-task"
+  family             = "mesh-client"
+  execution_role_arn = aws_iam_role.mesh-app-execution.arn
+  task_role_arn      = aws_iam_role.mesh_app_task.arn
+  consul_image       = var.consul_image
+  consul_ecs_image   = var.consul_ecs_image
+  log_group_name     = aws_cloudwatch_log_group.log_group.name
+  region             = var.region
+  port               = "9090"
+  upstreams          = "mesh-app:1234"
   app_container = {
     name      = "mesh-client"
     image     = "ghcr.io/lkysow/fake-service:v0.21.0"
@@ -137,24 +112,16 @@ module "mesh-client" {
       {
         containerName = "mesh-init"
         condition     = "SUCCESS"
+      },
+      {
+        containerName = "sidecar-proxy"
+        condition     = "HEALTHY"
       }
     ]
   }
   consul_server_service_name = module.consul_server.service_name
   envoy_image                = var.envoy_image
-}
-
-module "consul-controller" {
-  source = "./modules/controller"
-
-  consul_agent_token_secret_arn     = aws_secretsmanager_secret.consul-agent-token.arn
-  consul_bootstrap_token_secret_arn = aws_secretsmanager_secret.bootstrap-token.arn
-  consul_ecs_image                  = var.consul_ecs_image
-  consul_server_service_name        = module.consul_server.service_name
-  region                            = var.region
-  cloudwatch_log_group_name         = aws_cloudwatch_log_group.log_group.name
-  ecs_cluster_name                  = var.ecs_cluster
-  subnets                           = var.subnets
+  dev_server_enabled         = var.dev_server_enabled
 }
 
 resource "aws_cloudwatch_log_group" "log_group" {
@@ -282,16 +249,6 @@ resource "aws_iam_policy" "mesh-app-execution" {
 {
   "Version": "2012-10-17",
   "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "secretsmanager:GetSecretValue"
-      ],
-      "Resource": [
-        "${aws_secretsmanager_secret.consul-server.arn}",
-        "${aws_secretsmanager_secret.consul-agent-token.arn}"
-      ]
-    },
     {
       "Effect": "Allow",
       "Action": [

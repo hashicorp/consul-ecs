@@ -1,18 +1,14 @@
 package meshinit
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
@@ -21,9 +17,6 @@ import (
 
 const (
 	flagEnvoyBootstrapFile = "envoy-bootstrap-file"
-	flagTLS                = "tls"
-	flagCACert             = "ca-cert"
-	flagTokensJSONFile     = "tokens-json-file"
 	flagPort               = "port"
 	flagUpstreams          = "upstreams"
 )
@@ -45,10 +38,7 @@ type Command struct {
 func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
 	c.flagSet.StringVar(&c.flagEnvoyBootstrapFile, flagEnvoyBootstrapFile, "", "File to write bootstrap config to")
-	c.flagSet.StringVar(&c.flagCACert, flagCACert, "", "Path to Consul CA cert")
-	c.flagSet.StringVar(&c.flagTokensJSONFile, flagTokensJSONFile, "", "Path to Consul agent's token persistence file")
 	c.flagSet.IntVar(&c.flagPort, flagPort, 0, "Port service runs on")
-	c.flagSet.BoolVar(&c.flagTLS, flagTLS, false, "If Consul has TLS enabled")
 	c.flagSet.StringVar(&c.flagUpstreams, flagUpstreams, "", "Upstreams in form <name>:<port>,...")
 }
 
@@ -73,38 +63,6 @@ func (c *Command) Run(args []string) int {
 
 func (c *Command) realRun(log hclog.Logger) error {
 	cfg := api.DefaultConfig()
-	var token string
-	if c.flagTLS {
-		// okay because localhost
-		cfg.TLSConfig.InsecureSkipVerify = true
-		cfg.Address = "localhost:8501"
-		cfg.Scheme = "https"
-
-		type tokensFile struct {
-			Replication string `json:"replication"`
-		}
-		var tokensFileData tokensFile
-
-		// Read token file. Need to wait for it to be written.
-		err := backoff.RetryNotify(func() error {
-			tokensFileBytes, err := ioutil.ReadFile(c.flagTokensJSONFile)
-			if err != nil {
-				return err
-			}
-			err = json.Unmarshal(tokensFileBytes, &tokensFileData)
-			if err != nil {
-				return backoff.Permanent(err)
-			}
-			return nil
-		}, backoff.NewConstantBackOff(1*time.Second), retryLogger(log))
-		if err != nil {
-			return err
-		}
-
-		cfg.Token = tokensFileData.Replication
-		token = tokensFileData.Replication
-	}
-
 	consulClient, err := api.NewClient(cfg)
 	if err != nil {
 		return fmt.Errorf("constructing consul client: %s", err)
@@ -206,32 +164,19 @@ func (c *Command) realRun(log hclog.Logger) error {
 	log.Info("service registered successfully", "name", serviceName, "id", serviceID)
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
-	cmd := exec.Command("/consul/consul", "connect", "envoy", "-proxy-id", proxyID, "-bootstrap", "-token", token)
-	cmd.Env = append(os.Environ(), "CONSUL_HTTP_SSL_VERIFY=false", "CONSUL_GRPC_ADDR=https://localhost:8502", "CONSUL_HTTP_ADDR=https://localhost:8501")
+	cmd := exec.Command("/consul/consul", "connect", "envoy", "-proxy-id", proxyID, "-bootstrap", "-grpc-addr=localhost:8502")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, string(out))
 	}
 
-	// hack: fix TLS for now to disable cert verification connections to consul client
-	withoutWhitespace := strings.ReplaceAll(string(out), " ", "")
-	withoutWhitespace = strings.ReplaceAll(withoutWhitespace, "\n", "")
-	json := strings.Replace(withoutWhitespace, `"trusted_ca":{"inline_string":""}`, "", 1)
-
-	err = ioutil.WriteFile(c.flagEnvoyBootstrapFile, []byte(json), 0444)
+	err = ioutil.WriteFile(c.flagEnvoyBootstrapFile, []byte(out), 0444)
 	if err != nil {
 		return err
 	}
 
 	log.Info("envoy bootstrap config written", "file", c.flagEnvoyBootstrapFile)
-
 	return nil
-}
-
-func retryLogger(log hclog.Logger) backoff.Notify {
-	return func(err error, duration time.Duration) {
-		log.Error(err.Error(), "retry", duration.String())
-	}
 }
 
 func taskARNToID(arn string) string {

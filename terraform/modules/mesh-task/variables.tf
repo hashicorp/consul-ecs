@@ -14,9 +14,15 @@ variable "task_role_arn" {
 }
 
 variable "port" {
-  description = "Port that application listens on. Can be omitted if application does not listen on a port."
+  description = "Port that application listens on. If application does not listen on a port, set outbound_only to true."
   default     = 0
   type        = number
+}
+
+variable "outbound_only" {
+  description = "Whether application only makes outward calls and so doesn't listen on a port."
+  default     = false
+  type        = bool
 }
 
 variable "consul_image" {
@@ -34,7 +40,7 @@ variable "consul_ecs_image" {
 variable "log_configuration" {
   description = "Task definition log configuration object (https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_LogConfiguration.html)."
   type        = any
-  default     = {}
+  default     = null
 }
 
 variable "app_container" {

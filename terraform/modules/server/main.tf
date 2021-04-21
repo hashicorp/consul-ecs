@@ -1,28 +1,43 @@
+locals {
+  load_balancer = var.load_balancer_enabled ? [{
+    target_group_arn = aws_lb_target_group.this[0].arn
+    container_name   = "consul-server"
+    container_port   = 8500
+  }] : []
+}
+
 resource "aws_ecs_service" "consul-server" {
-  name            = "consul-server"
-  cluster         = var.ecs_cluster
-  task_definition = aws_ecs_task_definition.consul-server.arn
+  name            = var.name
+  cluster         = var.ecs_cluster_arn
+  task_definition = aws_ecs_task_definition.this.arn
   desired_count   = 1
   network_configuration {
     subnets = var.subnets
   }
   launch_type = "FARGATE"
-  load_balancer {
-    target_group_arn = aws_lb_target_group.consul-server.arn
-    container_name   = "consul-server"
-    container_port   = 8500
+  dynamic "load_balancer" {
+    for_each = local.load_balancer
+    content {
+      target_group_arn = load_balancer.value["target_group_arn"]
+      container_name   = load_balancer.value["container_name"]
+      container_port   = load_balancer.value["container_port"]
+    }
   }
   enable_execute_command = true
+
+  depends_on = [
+    aws_iam_role.this_task
+  ]
 }
 
-resource "aws_ecs_task_definition" "consul-server" {
-  family                   = "consul-server"
+resource "aws_ecs_task_definition" "this" {
+  family                   = var.name
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
-  execution_role_arn       = aws_iam_role.consul-server-execution.arn
-  task_role_arn            = aws_iam_role.consul_server_task.arn
+  execution_role_arn       = aws_iam_role.this_execution.arn
+  task_role_arn            = aws_iam_role.this_task.arn
   volume {
     name = "consul-data"
   }
@@ -42,16 +57,9 @@ resource "aws_ecs_task_definition" "consul-server" {
           containerPort = 8500
         }
       ]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          awslogs-group         = var.cloudwatch_log_group_name
-          awslogs-region        = var.region
-          awslogs-stream-prefix = "consul-server"
-        }
-      },
-      entryPoint = ["/bin/sh", "-ec"]
-      command    = [local.consul_server_command]
+      logConfiguration = var.log_configuration
+      entryPoint       = ["/bin/sh", "-ec"]
+      command          = [local.consul_server_command]
       mountPoints = [
         {
           sourceVolume  = "consul-data"
@@ -65,8 +73,8 @@ resource "aws_ecs_task_definition" "consul-server" {
   ])
 }
 
-resource "aws_iam_policy" "consul-server-execution" {
-  name        = "consul-server-temp"
+resource "aws_iam_policy" "this_execution" {
+  name        = "${var.name}_execution"
   path        = "/ecs/"
   description = "Consul server execution"
 
@@ -87,8 +95,8 @@ resource "aws_iam_policy" "consul-server-execution" {
 EOF
 }
 
-resource "aws_iam_role" "consul-server-execution" {
-  name = "consul-server-execution-temp"
+resource "aws_iam_role" "this_execution" {
+  name = "${var.name}_execution"
   path = "/ecs/"
 
   assume_role_policy = <<EOF
@@ -108,13 +116,13 @@ resource "aws_iam_role" "consul-server-execution" {
 EOF
 }
 
-resource "aws_iam_role_policy_attachment" "consul-server-execution" {
-  role       = aws_iam_role.consul-server-execution.id
-  policy_arn = aws_iam_policy.consul-server-execution.arn
+resource "aws_iam_role_policy_attachment" "this_execution" {
+  role       = aws_iam_role.this_execution.id
+  policy_arn = aws_iam_policy.this_execution.arn
 }
 
-resource "aws_iam_role" "consul_server_task" {
-  name = "consul-server-temp"
+resource "aws_iam_role" "this_task" {
+  name = "${var.name}_task"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -167,8 +175,9 @@ exec consul agent -server \
 EOF
 }
 
-resource "aws_lb_target_group" "consul-server" {
-  name                 = "consul-server-alb"
+resource "aws_lb_target_group" "this" {
+  count                = var.load_balancer_enabled ? 1 : 0
+  name                 = var.name
   port                 = 8500
   protocol             = "HTTP"
   vpc_id               = var.vpc_id
@@ -183,26 +192,29 @@ resource "aws_lb_target_group" "consul-server" {
   }
 }
 
-resource "aws_lb" "consul-server" {
-  name               = "consul-server"
+resource "aws_lb" "this" {
+  count              = var.load_balancer_enabled ? 1 : 0
+  name               = var.name
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.consul-server-alb-internet.id]
+  security_groups    = [aws_security_group.load_balancer[count.index].id]
   subnets            = var.lb_subnets
 }
 
-resource "aws_lb_listener" "consul-server" {
-  load_balancer_arn = aws_lb.consul-server.arn
+resource "aws_lb_listener" "this" {
+  count             = var.load_balancer_enabled ? 1 : 0
+  load_balancer_arn = aws_lb.this[count.index].arn
   port              = "8500"
   protocol          = "HTTP"
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.consul-server.arn
+    target_group_arn = aws_lb_target_group.this[count.index].arn
   }
 }
 
-resource "aws_security_group" "consul-server-alb-internet" {
-  name   = "consul-server-alb-internet"
+resource "aws_security_group" "load_balancer" {
+  count  = var.load_balancer_enabled ? 1 : 0
+  name   = var.name
   vpc_id = var.vpc_id
 
   ingress {

@@ -3,5 +3,5 @@ output "service_name" {
 }
 
 output "lb_dns_name" {
-  value = aws_lb.consul-server.dns_name
+  value = var.load_balancer_enabled ? aws_lb.this[0].dns_name : ""
 }

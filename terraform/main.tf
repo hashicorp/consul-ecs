@@ -19,17 +19,24 @@ locals {
 }
 
 module "consul_server" {
-  source                    = "./modules/server"
-  tags                      = var.tags
-  cloudwatch_log_group_name = aws_cloudwatch_log_group.log_group.name
-  region                    = var.region
-  ecs_cluster               = var.ecs_cluster
-  subnets                   = var.subnets
-  vpc_id                    = var.vpc_id
-  lb_subnets                = var.lb_subnets
-  lb_ingress_description    = var.lb_ingress_security_group_rule_description
-  lb_ingress_cidr_blocks    = var.lb_ingress_security_group_rule_cidr_blocks
-  consul_image              = var.consul_image
+  source                 = "./modules/server"
+  tags                   = var.tags
+  ecs_cluster_arn        = var.ecs_cluster
+  subnets                = var.subnets
+  vpc_id                 = var.vpc_id
+  load_balancer_enabled  = true
+  lb_subnets             = var.lb_subnets
+  lb_ingress_description = var.lb_ingress_security_group_rule_description
+  lb_ingress_cidr_blocks = var.lb_ingress_security_group_rule_cidr_blocks
+  consul_image           = var.consul_image
+  log_configuration = {
+    logDriver = "awslogs"
+    options = {
+      awslogs-group         = aws_cloudwatch_log_group.log_group.name
+      awslogs-region        = var.region
+      awslogs-stream-prefix = "consul-server"
+    }
+  }
 }
 
 resource "aws_ecs_service" "mesh-app" {
@@ -43,6 +50,9 @@ resource "aws_ecs_service" "mesh-app" {
   launch_type            = "FARGATE"
   propagate_tags         = "TASK_DEFINITION"
   enable_execute_command = true
+  depends_on = [
+    aws_iam_role.mesh_app_task
+  ]
 }
 
 module "mesh-app" {
@@ -138,6 +148,9 @@ resource "aws_ecs_service" "mesh-client" {
     container_port   = 9090
   }
   enable_execute_command = true
+  depends_on = [
+    aws_iam_role.mesh_app_task
+  ]
 }
 
 resource "aws_iam_role" "mesh_app_task" {

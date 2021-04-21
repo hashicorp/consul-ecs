@@ -79,8 +79,7 @@ jobs:
     environment:
       - TEST_RESULTS: /tmp/test-results
     docker:
-      # todo: use a custom image. For now this one has the aws-cli that we need.
-      - image: docker.mirror.hashicorp.services/hashicorpdev/consul-helm-test:0.9.0
+      - image: ghcr.io/lkysow/consul-ecs-test:0.1.0
     steps:
       - checkout
 

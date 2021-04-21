@@ -151,3 +151,6 @@ workflows:
           requires:
             - go-fmt-and-vet
             - linters
+      - acceptance:
+          requires:
+            - test

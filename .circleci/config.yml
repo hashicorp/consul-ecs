@@ -89,7 +89,7 @@ jobs:
             aws configure --profile default set aws_access_key_id "$AWS_ACCESS_KEY_ID"
             aws configure --profile default set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
             #aws configure set role_arn "$AWS_ROLE_ARN"
-            aws configure set source_profile default
+            #aws configure set source_profile default
 
             echo "unset AWS_ACCESS_KEY_ID" >> $BASH_ENV
             echo "unset AWS_SECRET_ACCESS_KEY" >> $BASH_ENV
@@ -145,12 +145,12 @@ workflows:
   version: 2
   test-and-build:
     jobs:
-      - go-fmt-and-vet
-      - linters
-      - test:
-          requires:
-            - go-fmt-and-vet
-            - linters
-      - acceptance:
-          requires:
-            - test
+#      - go-fmt-and-vet
+#      - linters
+#      - test:
+#          requires:
+#            - go-fmt-and-vet
+#            - linters
+      - acceptance
+#          requires:
+#            - test

@@ -6,7 +6,7 @@ locals {
   }] : []
 }
 
-resource "aws_ecs_service" "consul-server" {
+resource "aws_ecs_service" "this" {
   name            = var.name
   cluster         = var.ecs_cluster_arn
   task_definition = aws_ecs_task_definition.this.arn
@@ -59,7 +59,7 @@ resource "aws_ecs_task_definition" "this" {
       ]
       logConfiguration = var.log_configuration
       entryPoint       = ["/bin/sh", "-ec"]
-      command          = [local.consul_server_command]
+      command          = [replace(local.consul_server_command, "\r", "")]
       mountPoints = [
         {
           sourceVolume  = "consul-data"

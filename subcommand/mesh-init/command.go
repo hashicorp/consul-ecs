@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
@@ -74,9 +76,9 @@ func (c *Command) realRun(log hclog.Logger) error {
 	serviceName := taskMeta.Family
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
 
-	for i := 0; i < 3; i++ {
-		log.Info("attempting to register svc")
-		err = consulClient.Agent().ServiceRegister(&api.AgentServiceRegistration{
+	err = backoff.RetryNotify(func() error {
+		log.Info("registering service")
+		return consulClient.Agent().ServiceRegister(&api.AgentServiceRegistration{
 			ID:   serviceID,
 			Name: serviceName,
 			Port: c.flagPort,
@@ -86,14 +88,9 @@ func (c *Command) realRun(log hclog.Logger) error {
 				"source":   "consul-ecs",
 			},
 		})
-		if err != nil {
-			log.Error("registering svc", "err", err.Error())
-		} else {
-			break
-		}
-	}
+	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(log))
 	if err != nil {
-		return fmt.Errorf("unable to register service: %s", err)
+		return err
 	}
 
 	var upstreams []api.Upstream
@@ -118,9 +115,10 @@ func (c *Command) realRun(log hclog.Logger) error {
 
 	// Register the proxy.
 	proxyID := fmt.Sprintf("%s-sidecar-proxy", serviceID)
-	for i := 0; i < 3; i++ {
-		log.Info("attempting to register svc proxy", "arn", taskMeta.TaskARN)
-		err = consulClient.Agent().ServiceRegister(&api.AgentServiceRegistration{
+
+	err = backoff.RetryNotify(func() error {
+		log.Info("registering proxy")
+		return consulClient.Agent().ServiceRegister(&api.AgentServiceRegistration{
 			ID:   proxyID,
 			Name: fmt.Sprintf("%s-sidecar-proxy", serviceName),
 			Port: 20000,
@@ -149,19 +147,15 @@ func (c *Command) realRun(log hclog.Logger) error {
 				"source":   "consul-ecs",
 			},
 		})
-		if err != nil {
-			log.Error("registering proxy", "err", err.Error())
-		} else {
-			break
-		}
-	}
+	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(log))
 	if err != nil {
-		return fmt.Errorf("unable to register sidecar proxy: %s", err)
+		return err
 	}
-	log.Info("service registered successfully", "name", serviceName, "id", serviceID)
+
+	log.Info("service and proxy registered successfully", "name", serviceName, "id", serviceID)
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
-	cmd := exec.Command("/consul/consul", "connect", "envoy", "-proxy-id", proxyID, "-bootstrap", "-grpc-addr=localhost:8502")
+	cmd := exec.Command("consul", "connect", "envoy", "-proxy-id", proxyID, "-bootstrap", "-grpc-addr=localhost:8502")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, string(out))
@@ -190,4 +184,10 @@ func (c *Command) Synopsis() string {
 
 func (c *Command) Help() string {
 	return ""
+}
+
+func retryLogger(log hclog.Logger) backoff.Notify {
+	return func(err error, duration time.Duration) {
+		log.Error(err.Error(), "retry", duration.String())
+	}
 }

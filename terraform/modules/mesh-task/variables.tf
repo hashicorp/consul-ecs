@@ -27,13 +27,13 @@ variable "outbound_only" {
 
 variable "consul_image" {
   description = "Consul Docker image."
-  default     = "docker.io/hashicorp/consul:1.9.4"
+  default     = "docker.io/hashicorp/consul:1.9.5"
   type        = string
 }
 
 variable "consul_ecs_image" {
   description = "consul-ecs Docker image."
-  default     = "ghcr.io/lkysow/consul-ecs:apr12-1"
+  default     = "ghcr.io/lkysow/consul-ecs:apr27-2"
   type        = string
 }
 

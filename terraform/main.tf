@@ -1,3 +1,7 @@
+provider "aws" {
+  region = var.region
+}
+
 locals {
   mesh_app_log_configuration = {
     logDriver = "awslogs"

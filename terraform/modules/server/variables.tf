@@ -25,7 +25,7 @@ variable "lb_ingress_cidr_blocks" {
 }
 variable "consul_image" {
   type    = string
-  default = "hashicorp/consul:1.9.4"
+  default = "hashicorp/consul:1.9.5"
 }
 
 variable "log_configuration" {
@@ -37,5 +37,5 @@ variable "log_configuration" {
 variable "name" {
   description = "Name to be used on all the resources as identifier"
   type        = string
-  default     = "consul_server"
+  default     = "consul-server"
 }

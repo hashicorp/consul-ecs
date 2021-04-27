@@ -11,10 +11,11 @@ locals {
     mountPoints = [
       local.consul_data_mount
     ]
-    environment  = []
-    cpu          = 0
-    portMappings = []
-    volumesFrom  = []
+    environment      = []
+    cpu              = 0
+    portMappings     = []
+    volumesFrom      = []
+    logConfiguration = var.log_configuration
   }
   discover_servers_containers = var.dev_server_enabled ? [local.discover_server_container] : []
   consul_data_volume_name     = "consul_data"
@@ -70,20 +71,6 @@ resource "aws_ecs_task_definition" "this" {
         [
           local.app_container_with_depends_on,
           {
-            name             = "consul-copy"
-            image            = var.consul_image
-            essential        = false
-            logConfiguration = var.log_configuration
-            command          = ["cp", "/bin/consul", "/consul/consul"]
-            mountPoints = [
-              local.consul_data_mount
-            ]
-            cpu          = 0
-            volumesFrom  = []
-            environment  = []
-            portMappings = []
-          },
-          {
             name             = "mesh-init"
             image            = var.consul_ecs_image
             essential        = false
@@ -97,12 +84,12 @@ resource "aws_ecs_task_definition" "this" {
             mountPoints = [
               local.consul_data_mount
             ]
-            dependsOn = [
+            dependsOn = var.dev_server_enabled ? [
               {
-                containerName = "consul-copy"
+                containerName = "discover-servers"
                 condition     = "SUCCESS"
               },
-            ]
+            ] : []
             cpu          = 0
             volumesFrom  = []
             environment  = []

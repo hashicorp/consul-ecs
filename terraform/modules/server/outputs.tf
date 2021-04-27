@@ -1,5 +1,5 @@
 output "service_name" {
-  value = aws_ecs_service.consul-server.name
+  value = aws_ecs_service.this.name
 }
 
 output "lb_dns_name" {

@@ -8,13 +8,25 @@ import (
 )
 
 const (
-	flagVar = "var"
+	flagNoCleanupOnFailure = "no-cleanup-on-failure"
+	flagClusterARN         = "cluster-arn"
+	flagSubnets            = "subnets"
+	flagSuffix             = "suffix"
+	flagRegion             = "region"
+	flagLogGroupName       = "log-group-name"
+	// flagTFTags is named to disambiguate from the --tags flags used
+	// by go test to specify build tags.
+	flagTFTags = "tf-tags"
 )
 
 type TestFlags struct {
-	flagVars map[string]string
-
 	flagNoCleanupOnFailure bool
+	flagClusterARN         string
+	flagSubnets            string
+	flagSuffix             string
+	flagRegion             string
+	flagLogGroupName       string
+	flagTFTags             string
 
 	once sync.Once
 }
@@ -27,11 +39,15 @@ func NewTestFlags() *TestFlags {
 }
 
 func (t *TestFlags) init() {
-	flag.Var((*FlagMapValue)(&t.flagVars), flagVar, "Set a variable in the Terraform configuration, e.g. -var foo=bar. This flag can be set multiple times.")
-
-	flag.BoolVar(&t.flagNoCleanupOnFailure, "no-cleanup-on-failure", false,
+	flag.BoolVar(&t.flagNoCleanupOnFailure, flagNoCleanupOnFailure, false,
 		"If true, the tests will not clean up resources they create when they finish running."+
 			"Note this flag must be run with -failfast flag, otherwise subsequent tests will fail.")
+	flag.StringVar(&t.flagClusterARN, flagClusterARN, "", "ECS Cluster ARN.")
+	flag.StringVar(&t.flagSubnets, flagSubnets, "", "Subnets to deploy into. In TF var form, e.g. '[\"sub1\",\"sub2\"]'.")
+	flag.StringVar(&t.flagSuffix, flagSuffix, "", "Resource suffix.")
+	flag.StringVar(&t.flagRegion, flagRegion, "", "Region.")
+	flag.StringVar(&t.flagLogGroupName, flagLogGroupName, "", "CloudWatch log group name.")
+	flag.StringVar(&t.flagTFTags, flagTFTags, "", "Tags to add to resources. In TF var form, e.g. '{key=val,key2=val2}'.")
 }
 
 func (t *TestFlags) Validate() error {
@@ -41,7 +57,12 @@ func (t *TestFlags) Validate() error {
 
 func (t *TestFlags) TestConfigFromFlags() *config.TestConfig {
 	return &config.TestConfig{
-		Vars:               t.flagVars,
 		NoCleanupOnFailure: t.flagNoCleanupOnFailure,
+		ClusterARN:         t.flagClusterARN,
+		Subnets:            t.flagSubnets,
+		Suffix:             t.flagSuffix,
+		Region:             t.flagRegion,
+		LogGroupName:       t.flagLogGroupName,
+		Tags:               t.flagTFTags,
 	}
 }

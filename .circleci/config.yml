@@ -122,12 +122,12 @@ jobs:
             export tags=$(terraform output -state ../../setup-terraform/terraform.tfstate -json | jq -rc .tags.value)
 
             gotestsum --junitfile "$TEST_RESULTS/gotestsum-report.xml" -- ./... -p 1 -timeout 30m -v -failfast \
-              -var ecs_cluster_arn="$ecs_cluster_arn" \
-              -var private_subnets="$private_subnets" \
-              -var suffix="$suffix" \
-              -var log_group_region="$region" \
-              -var log_group_name="$log_group_name" \
-              -var tags="$tags" \
+              -cluster-arn="$ecs_cluster_arn" \
+              -subnets="$private_subnets" \
+              -suffix="$suffix" \
+              -region="$region" \
+              -log-group-name="$log_group_name" \
+              -tags="$tags" \
 
       - store_test_results:
           path: /tmp/test-results

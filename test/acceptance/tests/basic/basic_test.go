@@ -20,11 +20,8 @@ import (
 // Test the validation that if dev_server_enabled=false then retry_join_url
 // must be set.
 func TestValidation_RetryJoinRequired(t *testing.T) {
-	t.Skip()
-
 	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
-		TerraformDir: "./",
-		Vars:         suite.Config().TFVars(),
+		TerraformDir: "./terraform/retry-join-validate",
 		NoColor:      true,
 	})
 	defer terraform.Destroy(t, terraformOptions)
@@ -33,13 +30,9 @@ func TestValidation_RetryJoinRequired(t *testing.T) {
 	require.Contains(t, err.Error(), "ERROR: retry_join must be set if dev_server_enabled=false so that Consul clients can join the cluster")
 }
 
-type listTasksResponse struct {
-	TaskARNs []string `json:"taskArns"`
-}
-
 func TestBasic(t *testing.T) {
 	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
-		TerraformDir: "./",
+		TerraformDir: "./terraform/basic-install",
 		Vars:         suite.Config().TFVars(),
 		NoColor:      true,
 	})
@@ -52,21 +45,20 @@ func TestBasic(t *testing.T) {
 	}()
 	terraform.InitAndApply(t, terraformOptions)
 
-	// deploy consul server and two apps
-	// get task id of client
-
 	// Wait for consul server to be up.
 	var consulServerTaskARN string
-	retry.RunWith(&retry.Timer{Timeout: 30 * time.Second, Wait: 2 * time.Second}, t, func(r *retry.R) {
+	retry.RunWith(&retry.Timer{Timeout: 3 * time.Minute, Wait: 10 * time.Second}, t, func(r *retry.R) {
 		taskListOut, err := shell.RunCommandAndGetOutputE(t, shell.Command{
 			Command: "aws",
 			Args: []string{
 				"ecs",
 				"list-tasks",
+				"--region",
+				suite.Config().Region,
 				"--cluster",
-				suite.Config().Vars["ecs_cluster_arn"],
+				suite.Config().ClusterARN,
 				"--family",
-				fmt.Sprintf("consul_server_%s", suite.Config().Vars["suffix"]),
+				fmt.Sprintf("consul_server_%s", suite.Config().Suffix),
 			},
 		})
 		r.Check(err)
@@ -88,8 +80,10 @@ func TestBasic(t *testing.T) {
 			Args: []string{
 				"ecs",
 				"execute-command",
+				"--region",
+				suite.Config().Region,
 				"--cluster",
-				suite.Config().Vars["ecs_cluster_arn"],
+				suite.Config().ClusterARN,
 				"--task",
 				consulServerTaskARN,
 				"--container=consul-server",
@@ -100,8 +94,8 @@ func TestBasic(t *testing.T) {
 			Logger: terratestLogger.New(logger.TestLogger{}),
 		})
 		r.Check(err)
-		if !strings.Contains(out, fmt.Sprintf("test_client_%s", suite.Config().Vars["suffix"])) ||
-			!strings.Contains(out, fmt.Sprintf("test_server_%s", suite.Config().Vars["suffix"])) {
+		if !strings.Contains(out, fmt.Sprintf("test_client_%s", suite.Config().Suffix)) ||
+			!strings.Contains(out, fmt.Sprintf("test_server_%s", suite.Config().Suffix)) {
 			r.Errorf("services not yet registered, got %q", out)
 		}
 	})
@@ -112,10 +106,12 @@ func TestBasic(t *testing.T) {
 		Args: []string{
 			"ecs",
 			"list-tasks",
+			"--region",
+			suite.Config().Region,
 			"--cluster",
-			suite.Config().Vars["ecs_cluster_arn"],
+			suite.Config().ClusterARN,
 			"--family",
-			fmt.Sprintf("test_client_%s", suite.Config().Vars["suffix"]),
+			fmt.Sprintf("test_client_%s", suite.Config().Suffix),
 		},
 	})
 
@@ -123,14 +119,16 @@ func TestBasic(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(taskListOut), &tasks))
 	require.Len(t, tasks.TaskARNs, 1)
 
-	retry.RunWith(&retry.Timer{Timeout: 1 * time.Minute, Wait: 2 * time.Second}, t, func(r *retry.R) {
+	retry.RunWith(&retry.Timer{Timeout: 3 * time.Minute, Wait: 10 * time.Second}, t, func(r *retry.R) {
 		curlOut, err := shell.RunCommandAndGetOutputE(t, shell.Command{
 			Command: "aws",
 			Args: []string{
 				"ecs",
 				"execute-command",
+				"--region",
+				suite.Config().Region,
 				"--cluster",
-				suite.Config().Vars["ecs_cluster_arn"],
+				suite.Config().ClusterARN,
 				"--task",
 				tasks.TaskARNs[0],
 				"--container=basic",
@@ -145,4 +143,21 @@ func TestBasic(t *testing.T) {
 			r.Errorf("response was unexpected: %q", curlOut)
 		}
 	})
+
+	logger.Log(t, "Test successful!")
+}
+
+func mergeMaps(a map[string]interface{}, b map[string]interface{}) map[string]interface{} {
+	m := make(map[string]interface{})
+	for k, v := range a {
+		m[k] = v
+	}
+	for k, v := range b {
+		m[k] = v
+	}
+	return m
+}
+
+type listTasksResponse struct {
+	TaskARNs []string `json:"taskArns"`
 }

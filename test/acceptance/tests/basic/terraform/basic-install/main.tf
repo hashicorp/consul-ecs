@@ -1,23 +1,22 @@
 variable "ecs_cluster_arn" {
   type        = string
-  default     = ""
   description = "Cluster ARN of ECS cluster."
 }
 
-variable "private_subnets" {
+variable "subnets" {
   type        = list(string)
-  default     = []
-  description = "Private subnets to deploy into."
+  description = "Subnets to deploy into."
 }
 
 variable "suffix" {
   type        = string
+  default     = "nosuffix"
   description = "Suffix to add to all resource names."
 }
 
-variable "log_group_region" {
+variable "region" {
   type        = string
-  description = "Region of cloudwatch log group."
+  description = "Region."
 }
 
 variable "log_group_name" {
@@ -31,17 +30,21 @@ variable "tags" {
   default     = {}
 }
 
+provider "aws" {
+  region = var.region
+}
+
 module "consul_server" {
-  source                = "../../../../terraform/modules/server"
+  source                = "../../../../../../terraform/modules/server"
   load_balancer_enabled = false
   ecs_cluster_arn       = var.ecs_cluster_arn
-  subnets               = var.private_subnets
+  subnets               = var.subnets
   name                  = "consul_server_${var.suffix}"
   log_configuration = {
     logDriver = "awslogs"
     options = {
       awslogs-group         = var.log_group_name
-      awslogs-region        = var.log_group_region
+      awslogs-region        = var.region
       awslogs-stream-prefix = "consul_server_${var.suffix}"
     }
   }
@@ -55,7 +58,7 @@ resource "aws_ecs_service" "test_client" {
   task_definition = module.test_client.task_definition_arn
   desired_count   = 1
   network_configuration {
-    subnets = var.private_subnets
+    subnets = var.subnets
   }
   launch_type            = "FARGATE"
   propagate_tags         = "TASK_DEFINITION"
@@ -69,7 +72,7 @@ resource "aws_ecs_service" "test_client" {
 }
 
 module "test_client" {
-  source             = "../../../../terraform/modules/mesh-task"
+  source             = "../../../../../../terraform/modules/mesh-task"
   family             = "test_client_${var.suffix}"
   execution_role_arn = aws_iam_role.this_execution.arn
   task_role_arn      = aws_iam_role.this_task.arn
@@ -99,7 +102,7 @@ module "test_client" {
     logDriver = "awslogs"
     options = {
       awslogs-group         = var.log_group_name
-      awslogs-region        = var.log_group_region
+      awslogs-region        = var.region
       awslogs-stream-prefix = "test_client_${var.suffix}"
     }
   }
@@ -112,7 +115,7 @@ resource "aws_ecs_service" "test_server" {
   task_definition = module.test_server.task_definition_arn
   desired_count   = 1
   network_configuration {
-    subnets = var.private_subnets
+    subnets = var.subnets
   }
   launch_type            = "FARGATE"
   propagate_tags         = "TASK_DEFINITION"
@@ -126,7 +129,7 @@ resource "aws_ecs_service" "test_server" {
 }
 
 module "test_server" {
-  source             = "../../../../terraform/modules/mesh-task"
+  source             = "../../../../../../terraform/modules/mesh-task"
   family             = "test_server_${var.suffix}"
   execution_role_arn = aws_iam_role.this_execution.arn
   task_role_arn      = aws_iam_role.this_task.arn
@@ -141,7 +144,7 @@ module "test_server" {
     logDriver = "awslogs"
     options = {
       awslogs-group         = var.log_group_name
-      awslogs-region        = var.log_group_region
+      awslogs-region        = var.region
       awslogs-stream-prefix = "test_server_${var.suffix}"
     }
   }

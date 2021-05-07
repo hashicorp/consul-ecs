@@ -16,7 +16,17 @@ variable "app_container" {}
 variable "upstreams" {
   default = ""
 }
-variable "consul_server_service_name" {}
+variable "consul_server_service_name" {
+  default = ""
+}
 variable "envoy_image" {
 
+}
+variable "retry_join_url" {
+  default = []
+  type    = list(string)
+}
+
+variable "datacenter" {
+  type = string
 }

@@ -1,6 +1,8 @@
 variable "ecs_cluster" {}
 
-variable "region" {}
+variable "region" {
+  default = "us-east-1"
+}
 
 variable "consul_image" {
   default = "docker.io/hashicorp/consul:1.9.4"
@@ -17,14 +19,6 @@ variable "envoy_image" {
 variable "vpc_id" {}
 
 variable "tags" {}
-
-variable "gossip_encryption_key" {
-  default = "XwgGoxOzkpEbxddNTaUKr3KukK6L7ZiO/duzPaUfz+8="
-}
-
-variable "bootstrap_token" {
-  default = "57c5d69a-5f19-469b-0543-12a487eecc66"
-}
 
 variable "subnets" {}
 variable "lb_subnets" {}

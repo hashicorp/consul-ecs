@@ -1,6 +1,5 @@
-
 resource "aws_secretsmanager_secret" "consul-server" {
-  name                    = "consul-server"
+  name                    = "consul-server-hcp-test"
   recovery_window_in_days = 0
   tags                    = var.tags
 }
@@ -8,14 +7,13 @@ resource "aws_secretsmanager_secret" "consul-server" {
 resource "aws_secretsmanager_secret_version" "consul-server" {
   secret_id = aws_secretsmanager_secret.consul-server.id
   secret_string = jsonencode({
-    ca_cert               = local.ca_cert
-    ca_key                = local.ca_key // todo: only needed be ECS servers
-    gossip_encryption_key = var.gossip_encryption_key
+    ca_cert               = base64decode(hcp_consul_cluster.this.consul_ca_file)
+    gossip_encryption_key = jsondecode(base64decode(hcp_consul_cluster.this.consul_config_file))["encrypt"]
   })
 }
 
 resource "aws_secretsmanager_secret" "consul-agent-token" {
-  name                    = "consul-agent-token"
+  name                    = "consul-agent-token-hcp-test"
   recovery_window_in_days = 0
   tags                    = var.tags
 }
@@ -27,7 +25,7 @@ resource "aws_secretsmanager_secret_version" "consul-agent-token" {
 }
 
 resource "aws_secretsmanager_secret" "bootstrap-token" {
-  name                    = "bootstrap-token"
+  name                    = "bootstrap-token-hcp-test"
   recovery_window_in_days = 0
   tags                    = var.tags
 }
@@ -35,6 +33,6 @@ resource "aws_secretsmanager_secret" "bootstrap-token" {
 resource "aws_secretsmanager_secret_version" "bootstrap-token" {
   secret_id = aws_secretsmanager_secret.bootstrap-token.id
   secret_string = jsonencode({
-    token = var.bootstrap_token
+    token = hcp_consul_cluster.this.consul_root_token_secret_id
   })
 }

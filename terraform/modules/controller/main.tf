@@ -1,17 +1,18 @@
 resource "aws_ecs_service" "consul-controller" {
-  name            = "consul-controller"
+  name            = "consul-controller-hcp-test"
   cluster         = var.ecs_cluster_name
   task_definition = aws_ecs_task_definition.consul-controller.arn
   desired_count   = 1
   network_configuration {
-    subnets = var.subnets
+    subnets          = var.subnets
+    assign_public_ip = var.assign_public_ip
   }
   launch_type            = "FARGATE"
   enable_execute_command = true
 }
 
 resource "aws_ecs_task_definition" "consul-controller" {
-  family                   = "consul-controller"
+  family                   = "consul-controller-hcp-test"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = 256
@@ -31,12 +32,17 @@ resource "aws_ecs_task_definition" "consul-controller" {
           awslogs-stream-prefix = "consul-controller"
         }
       },
-      command = [
-        "controller",
-        "-tls=true",
-        "-agent-secret-arn", var.consul_agent_token_secret_arn,
-        "-consul-server-service-name", var.consul_server_service_name,
-      ]
+      command = concat(
+        [
+          "controller",
+          "-tls=true",
+          "-agent-secret-arn", var.consul_agent_token_secret_arn,
+        ],
+        var.consul_server_service_name != "" ? ["-consul-server-service-name", var.consul_server_service_name] : [],
+        var.consul_server_api_hostname != "" ? ["-consul-server-api-hostname", var.consul_server_api_hostname] : [],
+        ["-consul-server-api-scheme", var.consul_server_api_scheme],
+        ["-consul-server-api-port", tostring(var.consul_server_api_port)]
+      )
       linuxParameters = {
         initProcessEnabled = true
       }
@@ -51,7 +57,7 @@ resource "aws_ecs_task_definition" "consul-controller" {
 }
 
 resource "aws_iam_role" "consul-controller" {
-  name = "consul-controller"
+  name = "consul-controller-hcp-test"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -96,7 +102,7 @@ resource "aws_iam_role" "consul-controller" {
 }
 
 resource "aws_iam_policy" "consul-controller-execution" {
-  name        = "consul-controller"
+  name        = "consul-controller-hcp-test"
   path        = "/ecs/"
   description = "Consul controller execution"
 
@@ -127,7 +133,7 @@ EOF
 }
 
 resource "aws_iam_role" "consul-controller-execution" {
-  name = "consul-controller-execution"
+  name = "consul-controller-execution-hcp-test"
   path = "/ecs/"
 
   assume_role_policy = <<EOF

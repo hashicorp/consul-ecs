@@ -1,38 +1,15 @@
-locals {
-  ca_cert = file("${path.module}/tls/consul-agent-ca.pem")
-  ca_key  = file("${path.module}/tls/consul-agent-ca-key.pem")
-}
-
-module "consul_server" {
-  source                              = "./modules/server"
-  ca_cert                             = local.ca_cert
-  ca_key                              = local.ca_key
-  tags                                = var.tags
-  bootstrap_token                     = var.bootstrap_token
-  cloudwatch_log_group_name           = aws_cloudwatch_log_group.log_group.name
-  region                              = var.region
-  ecs_cluster                         = var.ecs_cluster
-  subnets                             = var.subnets
-  vpc_id                              = var.vpc_id
-  consul_ca_cert_secret_arn           = aws_secretsmanager_secret.consul-server.arn
-  consul_ca_cert_secret_key           = "ca_cert"
-  consul_ca_key_secret_arn            = aws_secretsmanager_secret.consul-server.arn
-  consul_ca_key_secret_key            = "ca_key"
-  consul_gossip_encryption_secret_arn = aws_secretsmanager_secret.consul-server.arn
-  consul_gossip_encryption_secret_key = "gossip_encryption_key"
-  lb_subnets                          = var.lb_subnets
-  lb_ingress_description              = var.lb_ingress_security_group_rule_description
-  lb_ingress_cidr_blocks              = var.lb_ingress_security_group_rule_cidr_blocks
-  consul_image                        = var.consul_image
+provider "aws" {
+  region = var.region
 }
 
 resource "aws_ecs_service" "mesh-app" {
-  name            = "mesh-app"
+  name            = "mesh-app-hcp-test"
   cluster         = var.ecs_cluster
   task_definition = module.mesh-app.task_definition_arn
   desired_count   = 1
   network_configuration {
-    subnets = var.subnets
+    subnets          = var.subnets
+    assign_public_ip = true
   }
   launch_type            = "FARGATE"
   propagate_tags         = "TASK_DEFINITION"
@@ -41,13 +18,15 @@ resource "aws_ecs_service" "mesh-app" {
 
 module "mesh-app" {
   source                              = "./modules/mesh-task"
-  family                              = "mesh-app"
+  family                              = "mesh-app-hcp-test"
+  retry_join_url                      = [hcp_consul_cluster.this.consul_private_endpoint_url]
+  datacenter                          = jsondecode(base64decode(hcp_consul_cluster.this.consul_config_file))["datacenter"]
   execution_role_arn                  = aws_iam_role.mesh-app-execution.arn
   task_role_arn                       = aws_iam_role.mesh_app_task.arn
   port                                = "9090"
   consul_image                        = var.consul_image
   consul_ecs_image                    = var.consul_ecs_image
-  log_group_name                      = aws_cloudwatch_log_group.log_group.name
+  log_group_name                      = var.log_group_name
   region                              = var.region
   consul_ca_cert_secret_arn           = aws_secretsmanager_secret.consul-server.arn
   consul_ca_cert_secret_key           = "ca_cert"
@@ -62,7 +41,7 @@ module "mesh-app" {
     logConfiguration = {
       logDriver = "awslogs"
       options = {
-        awslogs-group         = aws_cloudwatch_log_group.log_group.name
+        awslogs-group         = var.log_group_name
         awslogs-region        = var.region
         awslogs-stream-prefix = "app"
       }
@@ -85,18 +64,19 @@ module "mesh-app" {
       }
     ]
   }
-  consul_server_service_name = module.consul_server.service_name
-  envoy_image                = var.envoy_image
+  envoy_image = var.envoy_image
 }
 
 module "mesh-client" {
   source                              = "./modules/mesh-task"
-  family                              = "mesh-client"
+  family                              = "mesh-client-hcp-test"
+  retry_join_url                      = [hcp_consul_cluster.this.consul_private_endpoint_url]
+  datacenter                          = jsondecode(base64decode(hcp_consul_cluster.this.consul_config_file))["datacenter"]
   execution_role_arn                  = aws_iam_role.mesh-app-execution.arn
   task_role_arn                       = aws_iam_role.mesh_app_task.arn
   consul_image                        = var.consul_image
   consul_ecs_image                    = var.consul_ecs_image
-  log_group_name                      = aws_cloudwatch_log_group.log_group.name
+  log_group_name                      = var.log_group_name
   region                              = var.region
   consul_ca_cert_secret_arn           = aws_secretsmanager_secret.consul-server.arn
   consul_ca_cert_secret_key           = "ca_cert"
@@ -105,7 +85,7 @@ module "mesh-client" {
   consul_agent_token_secret_arn       = aws_secretsmanager_secret.consul-agent-token.arn
   consul_agent_token_secret_key       = "agent_token"
   port                                = "9090"
-  upstreams                           = "mesh-app:1234"
+  upstreams                           = "mesh-app-hcp-test:1234"
   app_container = {
     name      = "mesh-client"
     image     = "ghcr.io/lkysow/fake-service:v0.21.0"
@@ -113,7 +93,7 @@ module "mesh-client" {
     logConfiguration = {
       logDriver = "awslogs"
       options = {
-        awslogs-group         = aws_cloudwatch_log_group.log_group.name
+        awslogs-group         = var.log_group_name
         awslogs-region        = var.region
         awslogs-stream-prefix = "mesh-client"
       }
@@ -140,8 +120,7 @@ module "mesh-client" {
       }
     ]
   }
-  consul_server_service_name = module.consul_server.service_name
-  envoy_image                = var.envoy_image
+  envoy_image = var.envoy_image
 }
 
 module "consul-controller" {
@@ -150,25 +129,24 @@ module "consul-controller" {
   consul_agent_token_secret_arn     = aws_secretsmanager_secret.consul-agent-token.arn
   consul_bootstrap_token_secret_arn = aws_secretsmanager_secret.bootstrap-token.arn
   consul_ecs_image                  = var.consul_ecs_image
-  consul_server_service_name        = module.consul_server.service_name
   region                            = var.region
-  cloudwatch_log_group_name         = aws_cloudwatch_log_group.log_group.name
+  cloudwatch_log_group_name         = var.log_group_name
   ecs_cluster_name                  = var.ecs_cluster
   subnets                           = var.subnets
+  consul_server_api_hostname        = hcp_consul_cluster.this.consul_private_endpoint_url
+  consul_server_api_port            = 443
+  consul_server_api_scheme          = "https"
+  assign_public_ip                  = true
 }
-
-resource "aws_cloudwatch_log_group" "log_group" {
-  name = var.log_group_name
-}
-
 
 resource "aws_ecs_service" "mesh-client" {
-  name            = "mesh-client"
+  name            = "mesh-client-hcp-test"
   cluster         = var.ecs_cluster
   task_definition = module.mesh-client.task_definition_arn
   desired_count   = 1
   network_configuration {
-    subnets = var.subnets
+    subnets          = var.subnets
+    assign_public_ip = true
   }
   launch_type    = "FARGATE"
   propagate_tags = "TASK_DEFINITION"
@@ -181,7 +159,7 @@ resource "aws_ecs_service" "mesh-client" {
 }
 
 resource "aws_iam_role" "mesh_app_task" {
-  name = "mesh-app"
+  name = "mesh-app-hcp-test"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -228,7 +206,7 @@ resource "aws_lb" "mesh-client" {
 }
 
 resource "aws_security_group" "mesh-client-alb" {
-  name   = "mesh-client-alb"
+  name   = "mesh-client-alb-hcp-test"
   vpc_id = var.vpc_id
 
   ingress {
@@ -247,8 +225,23 @@ resource "aws_security_group" "mesh-client-alb" {
   }
 }
 
+# allow ingress from LB into ECS cluster.
+resource "aws_security_group_rule" "example" {
+  type                     = "ingress"
+  from_port                = 9090
+  to_port                  = 9090
+  protocol                 = "tcp"
+  security_group_id        = data.aws_security_group.default.id
+  source_security_group_id = aws_security_group.mesh-client-alb.id
+}
+
+data "aws_security_group" "default" {
+  vpc_id = var.vpc_id
+  name   = "default"
+}
+
 resource "aws_lb_target_group" "mesh-client" {
-  name                 = "mesh-client-alb"
+  name                 = "mesh-client-alb-hcp-test"
   port                 = 9090
   protocol             = "HTTP"
   vpc_id               = var.vpc_id
@@ -274,7 +267,7 @@ resource "aws_lb_listener" "mesh-client" {
 }
 
 resource "aws_iam_policy" "mesh-app-execution" {
-  name        = "mesh-app"
+  name        = "mesh-app-hcp-test"
   path        = "/ecs/"
   description = "mesh-app execution"
 
@@ -306,7 +299,7 @@ EOF
 }
 
 resource "aws_iam_role" "mesh-app-execution" {
-  name = "mesh-app-execution"
+  name = "mesh-app-execution-hcp-test"
   path = "/ecs/"
 
   assume_role_policy = <<EOF

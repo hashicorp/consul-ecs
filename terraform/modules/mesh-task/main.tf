@@ -1,17 +1,20 @@
 locals {
-  consul_client_command = <<EOF
+  consul_client_command = <<EOT
 ECS_IPV4=$(curl -s $ECS_CONTAINER_METADATA_URI | jq -r '.Networks[0].IPv4Addresses[0]')
+TASK_ID=$(curl -s $ECS_CONTAINER_METADATA_URI | jq -r '.DockerId')
 echo "$CONSUL_CACERT" > /tmp/consul-ca-cert.pem
 echo "acl { tokens { agent = \"$AGENT_TOKEN\"} }"  > /tmp/acl-config.hcl
-SERVER_IP=$(cat /consul/server-ip)
 
 exec consul agent \
+  -datacenter "${var.datacenter}" \
   -advertise "$ECS_IPV4" \
+  -node "$TASK_ID" \
   -data-dir /consul/data \
   -encrypt "$CONSUL_GOSSIP_ENCRYPTION_KEY" \
   -config-file /tmp/acl-config.hcl \
   -client 0.0.0.0 \
-  -retry-join "$SERVER_IP" \
+  %{~for url in var.retry_join_url}  -retry-join "${url}" \
+  %{~endfor~}
   -hcl 'telemetry { disable_compat_1.9 = true }' \
   -hcl 'leave_on_terminate = true' \
   -hcl 'ports { grpc = 8502 }' \
@@ -24,7 +27,7 @@ exec consul agent \
   -hcl 'ports {https = 8501}' \
   -hcl 'ports {http = -1}' \
   -hcl='acl {enabled = true, default_policy = "deny", down_policy = "extend-cache", enable_token_persistence = true}' \
-EOF
+EOT
 }
 
 resource "aws_ecs_task_definition" "mesh-app" {
@@ -57,26 +60,6 @@ resource "aws_ecs_task_definition" "mesh-app" {
         }
       }
       command = ["cp", "/bin/consul", "/consul/consul"]
-      mountPoints = [
-        {
-          sourceVolume  = "consul-data"
-          containerPath = "/consul"
-        }
-      ]
-    },
-    {
-      name      = "discover-servers"
-      image     = var.consul_ecs_image
-      essential = false
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          awslogs-group         = var.log_group_name
-          awslogs-region        = var.region
-          awslogs-stream-prefix = var.family
-        }
-      }
-      command = ["discover-servers", "-service-name", var.consul_server_service_name, "-out", "/consul/server-ip"]
       mountPoints = [
         {
           sourceVolume  = "consul-data"
@@ -172,12 +155,6 @@ resource "aws_ecs_task_definition" "mesh-app" {
           valueFrom = "${var.consul_gossip_encryption_secret_arn}:${var.consul_gossip_encryption_secret_key}::"
         }
       ]
-      dependsOn = [
-        {
-          containerName = "discover-servers"
-          condition     = "SUCCESS"
-        },
-      ]
     },
     var.app_container,
     {
@@ -192,7 +169,7 @@ resource "aws_ecs_task_definition" "mesh-app" {
           awslogs-stream-prefix = var.family
         }
       }
-      command = ["envoy", "--config-path", "/consul/envoy-bootstrap.json"]
+      command = ["envoy", "--config-path", "/consul/envoy-bootstrap.json", "--log-level", "debug"]
       portMappings = [
         {
           containerPort = 20000
@@ -211,10 +188,10 @@ resource "aws_ecs_task_definition" "mesh-app" {
         },
       ]
       healthCheck = {
-        command = ["nc", "-z", "127.0.0.1", "20000"]
+        command  = ["nc", "-z", "127.0.0.1", "20000"]
         interval = 30
-        retries = 3
-        timeout = 5
+        retries  = 3
+        timeout  = 5
       }
     }
   ])

@@ -25,6 +25,9 @@ const (
 	flagTLS                     = "tls"
 	flagAgentSecretARN          = "agent-secret-arn"
 	flagConsulServerServiceName = "consul-server-service-name"
+	flagConsulServerAPIHostname = "consul-server-api-hostname"
+	flagConsulServerAPIPort     = "consul-server-api-port"
+	flagConsulServerAPIScheme   = "consul-server-api-scheme"
 	aclTokenEnvVar              = "CONSUL_HTTP_TOKEN"
 )
 
@@ -33,6 +36,9 @@ type Command struct {
 	flagTLS                     bool
 	flagAgentSecretARN          string
 	flagConsulServerServiceName string
+	flagConsulServerAPIHostname string
+	flagConsulServerAPIScheme   string
+	flagConsulServerAPIPort     int
 
 	ecsClient *ecs.ECS
 	log       hclog.Logger
@@ -46,6 +52,9 @@ func (c *Command) init() {
 	c.flagSet.BoolVar(&c.flagTLS, flagTLS, false, "If Consul has TLS enabled")
 	c.flagSet.StringVar(&c.flagAgentSecretARN, flagAgentSecretARN, "", "ARN of AWS Secrets Manager secret")
 	c.flagSet.StringVar(&c.flagConsulServerServiceName, flagConsulServerServiceName, "", "Name of Consul server ECS service")
+	c.flagSet.StringVar(&c.flagConsulServerAPIHostname, flagConsulServerAPIHostname, "", "API hostname for consul server, e.g. example.com")
+	c.flagSet.StringVar(&c.flagConsulServerAPIScheme, flagConsulServerAPIScheme, "", "Scheme for API, e.g. http or https")
+	c.flagSet.IntVar(&c.flagConsulServerAPIPort, flagConsulServerAPIPort, 8500, "Port for API")
 
 	c.log = hclog.New(nil)
 }
@@ -79,57 +88,61 @@ func (c *Command) realRun() error {
 	}
 	c.ecsClient = ecs.New(clientSession)
 
-	// Discover server IP.
-	var serverIP string
-	taskARNs, err := c.ecsClient.ListTasks(&ecs.ListTasksInput{
-		Cluster:     aws.String(cluster),
-		ServiceName: aws.String(c.flagConsulServerServiceName),
-	})
-	if err != nil {
-		return fmt.Errorf("listing task arns: %s", err)
-	}
-	if len(taskARNs.TaskArns) == 0 {
-		return fmt.Errorf("no tasks for service %s found", c.flagConsulServerServiceName)
-	}
-	err = backoff.RetryNotify(func() error {
-		tasks, err := c.ecsClient.DescribeTasks(&ecs.DescribeTasksInput{
-			Cluster: aws.String(cluster),
-			Tasks:   taskARNs.TaskArns,
+	var serverURL string
+	if c.flagConsulServerAPIHostname != "" {
+		serverURL = fmt.Sprintf("%s://%s:%d", c.flagConsulServerAPIScheme, c.flagConsulServerAPIHostname, c.flagConsulServerAPIPort)
+	} else {
+		// Discover server IP.
+		taskARNs, err := c.ecsClient.ListTasks(&ecs.ListTasksInput{
+			Cluster:     aws.String(cluster),
+			ServiceName: aws.String(c.flagConsulServerServiceName),
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("listing task arns: %s", err)
 		}
-		if len(tasks.Tasks) == 0 {
-			return fmt.Errorf("task describe came back with 0 tasks")
+		if len(taskARNs.TaskArns) == 0 {
+			return fmt.Errorf("no tasks for service %s found", c.flagConsulServerServiceName)
 		}
-		taskARN := *tasks.Tasks[0].TaskArn
+		err = backoff.RetryNotify(func() error {
+			tasks, err := c.ecsClient.DescribeTasks(&ecs.DescribeTasksInput{
+				Cluster: aws.String(cluster),
+				Tasks:   taskARNs.TaskArns,
+			})
+			if err != nil {
+				return err
+			}
+			if len(tasks.Tasks) == 0 {
+				return fmt.Errorf("task describe came back with 0 tasks")
+			}
+			taskARN := *tasks.Tasks[0].TaskArn
 
-		for _, container := range tasks.Tasks[0].Containers {
-			if *container.Name == "consul-server" {
-				if len(container.NetworkInterfaces) == 0 {
-					return fmt.Errorf("container %q in task %q has no network interfaces", *container.Name, taskARN)
-				}
-				for _, netInterface := range container.NetworkInterfaces {
-					if netInterface.PrivateIpv4Address == nil || *netInterface.PrivateIpv4Address == "" {
-						return fmt.Errorf("container %q in task %q has network interface with no private ipv4 address set", *container.Name, taskARN)
+			for _, container := range tasks.Tasks[0].Containers {
+				if *container.Name == "consul-server" {
+					if len(container.NetworkInterfaces) == 0 {
+						return fmt.Errorf("container %q in task %q has no network interfaces", *container.Name, taskARN)
 					}
-					serverIP = *netInterface.PrivateIpv4Address
+					for _, netInterface := range container.NetworkInterfaces {
+						if netInterface.PrivateIpv4Address == nil || *netInterface.PrivateIpv4Address == "" {
+							return fmt.Errorf("container %q in task %q has network interface with no private ipv4 address set", *container.Name, taskARN)
+						}
+						serverURL = fmt.Sprintf("http://%s:8500", *netInterface.PrivateIpv4Address)
+						break
+					}
+				}
+				if serverURL != "" {
 					break
 				}
 			}
-			if serverIP != "" {
-				break
+			if serverURL == "" {
+				return fmt.Errorf("task %s has no consul-server container", taskARN)
 			}
+			return nil
+		}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
+		if err != nil {
+			return err
 		}
-		if serverIP == "" {
-			return fmt.Errorf("task %s has no consul-server container", taskARN)
-		}
-		return nil
-	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
-	if err != nil {
-		return err
+		c.log.Info("discovered server url", "url", serverURL)
 	}
-	c.log.Info("discovered server ip", "ip", serverIP)
 
 	// Ensure agent secret created.
 	// todo: create agent token
@@ -162,7 +175,7 @@ func (c *Command) realRun() error {
 
 	// Reconcile in a loop.
 	for {
-		err := c.reconcile(cluster, serverIP)
+		err := c.reconcile(cluster, serverURL)
 		if err != nil {
 			c.log.Error(err.Error())
 		}
@@ -173,7 +186,7 @@ func (c *Command) realRun() error {
 // todo: memory leak
 var seen = make(map[string]bool)
 
-func (c *Command) reconcile(cluster string, serverIP string) error {
+func (c *Command) reconcile(cluster string, serverURL string) error {
 	// List tasks.
 	taskARNs, err := c.ecsClient.ListTasks(&ecs.ListTasksInput{
 		Cluster: aws.String(cluster),
@@ -192,7 +205,7 @@ func (c *Command) reconcile(cluster string, serverIP string) error {
 	}
 
 	consulSvrClient, err := api.NewClient(&api.Config{
-		Address: fmt.Sprintf("https://%s:8501", serverIP),
+		Address: serverURL,
 		Token:   os.Getenv(aclTokenEnvVar),
 		TLSConfig: api.TLSConfig{
 			InsecureSkipVerify: true, //todo

@@ -10,7 +10,7 @@ import (
 	"github.com/mitchellh/cli"
 )
 
-// Commands is the mapping of all available consul-k8s commands.
+// Commands is the mapping of all available consul-ecs commands.
 var Commands map[string]cli.CommandFactory
 
 func init() {

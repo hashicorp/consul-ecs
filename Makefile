@@ -8,22 +8,17 @@ GIT_COMMIT?=$(shell git rev-parse --short HEAD)
 CI_DEV_DOCKER_NAMESPACE?=hashicorpdev
 CI_DEV_DOCKER_IMAGE_NAME?=consul-ecs
 CI_DEV_DOCKER_WORKDIR?=.
-CONSUL_K8S_IMAGE_VERSION?=latest
+CONSUL_ECS_IMAGE_VERSION?=latest
 ################
-
-build-image:
-	GOOS=linux GOARCH=amd64 go build -o output/ ./...
-	docker build -t lkysow/consul-ecs .
-
 
 # In CircleCI, the linux binary will be attached from a previous step at pkg/bin/linux_amd64/. This make target
 # should only run in CI and not locally.
 ci.dev-docker:
-	@echo "Pulling consul-ecs container image - $(CONSUL_K8S_IMAGE_VERSION)"
-	@docker pull hashicorp/$(CI_DEV_DOCKER_IMAGE_NAME):$(CONSUL_K8S_IMAGE_VERSION) >/dev/null
-	@echo "Building consul-k8s Development container - $(CI_DEV_DOCKER_IMAGE_NAME)"
+	@echo "Pulling consul-ecs container image - $(CONSUL_ECS_IMAGE_VERSION)"
+	@docker pull hashicorp/$(CI_DEV_DOCKER_IMAGE_NAME):$(CONSUL_ECS_IMAGE_VERSION) >/dev/null
+	@echo "Building consul-ecs Development container - $(CI_DEV_DOCKER_IMAGE_NAME)"
 	@docker build -t '$(CI_DEV_DOCKER_NAMESPACE)/$(CI_DEV_DOCKER_IMAGE_NAME):$(GIT_COMMIT)' \
-	--build-arg CONSUL_K8S_IMAGE_VERSION=$(CONSUL_K8S_IMAGE_VERSION) \
+	--build-arg CONSUL_ECS_IMAGE_VERSION=$(CONSUL_ECS_IMAGE_VERSION) \
 	--label COMMIT_SHA=$(CIRCLE_SHA1) \
 	--label PULL_REQUEST=$(CIRCLE_PULL_REQUEST) \
 	--label CIRCLE_BUILD_URL=$(CIRCLE_BUILD_URL) \

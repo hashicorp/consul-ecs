@@ -11,6 +11,17 @@ CI_DEV_DOCKER_WORKDIR?=.
 CONSUL_ECS_IMAGE_VERSION?=latest
 ################
 
+DEV_PUSH?=0
+ifeq ($(DEV_PUSH),1)
+DEV_PUSH_ARG=
+else
+DEV_PUSH_ARG=--no-push
+endif
+
+
+dev-tree:
+	@$(SHELL) $(CURDIR)/build-support/scripts/dev.sh $(DEV_PUSH_ARG)
+
 # In CircleCI, the linux binary will be attached from a previous step at pkg/bin/linux_amd64/. This make target
 # should only run in CI and not locally.
 ci.dev-docker:

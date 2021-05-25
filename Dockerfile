@@ -7,7 +7,7 @@ ENV HASHICORP_RELEASES=https://releases.hashicorp.com
 
 # Set up certificates, base tools, and software.
 RUN set -eux && \
-    apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils libc6-compat iptables && \
+    apk add --no-cache ca-certificates curl gnupg && \
     BUILD_GPGKEY=C874011F0AB405110D02105534365D9472D7468F; \
     found=''; \
     for server in \

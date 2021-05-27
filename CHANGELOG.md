@@ -2,6 +2,9 @@
 
 ## 0.1.2 (May 25, 2021)
 
+IMPROVEMENTS
+* Fix Docker image to build off of `hashicorp/consul:1.9.5`
+
 ## 0.1.1 (May 24, 2021)
 
 IMPROVEMENTS

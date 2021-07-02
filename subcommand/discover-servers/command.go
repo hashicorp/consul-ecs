@@ -79,6 +79,7 @@ func (c *Command) realRun(log hclog.Logger) error {
 	if err != nil {
 		return err
 	}
+	clientSession.Handlers.Build.PushBackNamed(awsutil.UserAgentHandler("discover"))
 	c.ecsClient = ecs.New(clientSession)
 
 	var taskARNs *ecs.ListTasksOutput

@@ -19,7 +19,7 @@ We know that our customers are making decisions and plans based on what we are d
 
 **Why does your roadmap not have specific dates?**
 
-Because the highest priority for us to put out a secure and operationally stable product, we can't provide specific target dates for features. The roadmap is subject to change at any time, and roadmap issues in this repository do not guarantee a feature will be launched as proposed.
+Because the highest priority for us is to put out a secure and operationally stable product, we can't provide specific target dates for features. The roadmap is subject to change at any time, and roadmap issues in this repository do not guarantee a feature will be launched as proposed.
 
 **What are the roadmap categories?**
 * *Recently Shipped* - These are the features, enhancements or bug fixes that we recently delivered.

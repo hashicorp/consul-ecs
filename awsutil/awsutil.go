@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"runtime"
 	"os"
 	"strings"
+
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/hashicorp/consul-ecs/version"
 )
 
 const ecsMetadataURIEnvVar = "ECS_CONTAINER_METADATA_URI_V4"
@@ -44,4 +48,15 @@ func ECSTaskMetadata() (ECSTaskMeta, error) {
 		return metadataResp, fmt.Errorf("unmarshalling metadata uri response: %s", err)
 	}
 	return metadataResp, nil
+}
+
+func UserAgentHandler(caller string) request.NamedHandler {
+	return request.NamedHandler{
+		Name: "UserAgentHandler",
+		Fn: func(r *request.Request) {
+			userAgent := r.HTTPRequest.Header.Get("User-Agent")
+			r.HTTPRequest.Header.Set("User-Agent",
+				fmt.Sprintf("consul-ecs-%s/%s (%s) %s", caller, version.Version, runtime.GOOS, userAgent))
+		},
+	}
 }

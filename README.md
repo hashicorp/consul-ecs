@@ -15,7 +15,7 @@ Knowing about our upcoming features and priorities helps our users plan. This re
 ## Roadmap FAQs
 **Why did you build this public facing roadmap?**
 
-We know that our customers are making decisions and plans based on what we are developing, and we want to provide our customers the insights they need to plan.
+We know that our users and customers are making decisions and plans based on what we are developing, and we want to provide our users and customers the insights they need to plan.
 
 **Why does your roadmap not have specific dates?**
 

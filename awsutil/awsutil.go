@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"runtime"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/hashicorp/consul-ecs/version"
 )
 
-const ecsMetadataURIEnvVar = "ECS_CONTAINER_METADATA_URI_V4"
+const ECSMetadataURIEnvVar = "ECS_CONTAINER_METADATA_URI_V4"
 
 type ECSTaskMeta struct {
 	Cluster string `json:"Cluster"`
@@ -32,9 +32,9 @@ func (e ECSTaskMeta) TaskID() string {
 func ECSTaskMetadata() (ECSTaskMeta, error) {
 	var metadataResp ECSTaskMeta
 
-	metadataURI := os.Getenv(ecsMetadataURIEnvVar)
+	metadataURI := os.Getenv(ECSMetadataURIEnvVar)
 	if metadataURI == "" {
-		return metadataResp, fmt.Errorf("%s env var not set", ecsMetadataURIEnvVar)
+		return metadataResp, fmt.Errorf("%s env var not set", ECSMetadataURIEnvVar)
 	}
 	resp, err := http.Get(fmt.Sprintf("%s/task", metadataURI))
 	if err != nil {

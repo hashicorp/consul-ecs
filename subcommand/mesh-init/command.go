@@ -205,7 +205,7 @@ func (c *Command) realRun(log hclog.Logger) error {
 		return fmt.Errorf("%s: %s", err, string(out))
 	}
 
-	err = ioutil.WriteFile(c.flagEnvoyBootstrapFile, []byte(out), 0444)
+	err = ioutil.WriteFile(c.flagEnvoyBootstrapFile, out, 0444)
 	if err != nil {
 		return err
 	}
@@ -216,7 +216,8 @@ func (c *Command) realRun(log hclog.Logger) error {
 
 // getActiveRoot returns the currently active root
 // from the roots list, otherwise returns error.
-// Borrowed from consul-k8s: https://github.com/hashicorp/consul-k8s/blob/e9d866ddc1a1c070bc78901471d8f198096472ed/subcommand/get-consul-client-ca/command.go#L104-L118
+// Borrowed from consul-k8s:
+// https://github.com/hashicorp/consul-k8s/blob/e9d866ddc1a1c070bc78901471d8f198096472ed/subcommand/get-consul-client-ca/command.go#L104-L118
 func getActiveRoot(roots *api.CARootList) (string, error) {
 	if roots == nil {
 		return "", fmt.Errorf("ca root list is nil")

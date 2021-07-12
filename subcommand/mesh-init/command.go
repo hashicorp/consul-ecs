@@ -178,6 +178,9 @@ func (c *Command) realRun(log hclog.Logger) error {
 
 			return nil
 		}, backoff.NewConstantBackOff(1*time.Second), retryLogger(log))
+		if err != nil {
+			return err
+		}
 
 		caRootFile, err = ioutil.TempFile("", "")
 		if err != nil {

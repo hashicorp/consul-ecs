@@ -75,7 +75,9 @@ func TestRun(t *testing.T) {
 				}
 			})
 			require.NoError(t, err)
-			defer server.Stop()
+			t.Cleanup(func() {
+				_ = server.Stop()
+			})
 			server.WaitForLeader(t)
 			consulClient, err := api.NewClient(&api.Config{Address: server.HTTPAddr})
 			require.NoError(t, err)
@@ -86,10 +88,11 @@ func TestRun(t *testing.T) {
 			taskMetadataResponse := `{"Cluster": "test", "TaskARN": "arn:aws:ecs:us-east-1:123456789:task/test/abcdef", "Family": "test-service"}`
 			ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
-					w.Write([]byte(taskMetadataResponse))
+					_, err := w.Write([]byte(taskMetadataResponse))
+					require.NoError(t, err)
 				}
 			}))
-			defer ecsMetadataServer.Close()
+			t.Cleanup(ecsMetadataServer.Close)
 			os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
 
 			ui := cli.NewMockUi()

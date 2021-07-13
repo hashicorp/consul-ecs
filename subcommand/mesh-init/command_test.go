@@ -64,6 +64,15 @@ func TestRun(t *testing.T) {
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
+			var (
+				taskARN          = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+				expectedTaskMeta = map[string]string{
+					"task-id":  "abcdef",
+					"task-arn": taskARN,
+					"source":   "consul-ecs",
+				}
+			)
+
 			// Set up Consul server.
 			server, err := testutil.NewTestServerConfigT(t, func(cfg *testutil.TestServerConfig) {
 				if c.tls {
@@ -85,7 +94,7 @@ func TestRun(t *testing.T) {
 			os.Setenv("CONSUL_HTTP_ADDR", server.HTTPAddr)
 
 			// Set up ECS container metadata server.
-			taskMetadataResponse := `{"Cluster": "test", "TaskARN": "arn:aws:ecs:us-east-1:123456789:task/test/abcdef", "Family": "test-service"}`
+			taskMetadataResponse := fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "test-service"}`, taskARN)
 			ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
 					_, err := w.Write([]byte(taskMetadataResponse))
@@ -102,6 +111,7 @@ func TestRun(t *testing.T) {
 
 			envoyBootstrapFile, err := ioutil.TempFile("", "")
 			require.NoError(t, err)
+			defer os.Remove(envoyBootstrapFile.Name())
 
 			cmdArgs := []string{"-envoy-bootstrap-file", envoyBootstrapFile.Name()}
 			if c.servicePort != 0 {
@@ -120,11 +130,7 @@ func TestRun(t *testing.T) {
 				ID:      "test-service-abcdef",
 				Service: "test-service",
 				Port:    c.servicePort,
-				Meta: map[string]string{
-					"task-id":  "abcdef",
-					"task-arn": "arn:aws:ecs:us-east-1:123456789:task/test/abcdef",
-					"source":   "consul-ecs",
-				},
+				Meta:    expectedTaskMeta,
 			}
 
 			expectedProxyServiceRegistration := &api.AgentService{
@@ -138,11 +144,7 @@ func TestRun(t *testing.T) {
 					LocalServicePort:       c.servicePort,
 					Upstreams:              c.expUpstreams,
 				},
-				Meta: map[string]string{
-					"task-id":  "abcdef",
-					"task-arn": "arn:aws:ecs:us-east-1:123456789:task/test/abcdef",
-					"source":   "consul-ecs",
-				},
+				Meta: expectedTaskMeta,
 			}
 
 			agentServiceIgnoreFields := cmpopts.IgnoreFields(api.AgentService{},

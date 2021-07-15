@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -36,7 +35,6 @@ func TestRun(t *testing.T) {
 		servicePort  int
 		upstreams    string
 		expUpstreams []api.Upstream
-		tls          bool
 	}{
 		"basic service": {},
 		"service with port": {
@@ -57,9 +55,6 @@ func TestRun(t *testing.T) {
 				},
 			},
 		},
-		"tls enabled": {
-			tls: true,
-		},
 	}
 
 	for name, c := range cases {
@@ -74,15 +69,7 @@ func TestRun(t *testing.T) {
 			)
 
 			// Set up Consul server.
-			server, err := testutil.NewTestServerConfigT(t, func(cfg *testutil.TestServerConfig) {
-				if c.tls {
-					// If TLS is enabled, we need to enable Connect on the test agent
-					// so that the Connect CA is provisioned and we can query the roots.
-					cfg.Connect = map[string]interface{}{
-						"enabled": true,
-					}
-				}
-			})
+			server, err := testutil.NewTestServerConfigT(t, nil)
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				_ = server.Stop()
@@ -119,9 +106,6 @@ func TestRun(t *testing.T) {
 			}
 			if c.upstreams != "" {
 				cmdArgs = append(cmdArgs, "-upstreams", c.upstreams)
-			}
-			if c.tls {
-				cmdArgs = append(cmdArgs, "-tls")
 			}
 			code := cmd.Run(cmdArgs)
 			require.Equal(t, code, 0)
@@ -161,13 +145,6 @@ func TestRun(t *testing.T) {
 			envoyBootstrapContents, err := ioutil.ReadFile(envoyBootstrapFile.Name())
 			require.NoError(t, err)
 			require.NotEmpty(t, envoyBootstrapContents)
-
-			// If TLS is enabled, we want to make sure that Envoy has the CA it needs to talk to the client in its config.
-			if c.tls {
-				caRoots, _, err := consulClient.Connect().CARoots(nil)
-				require.NoError(t, err)
-				require.Contains(t, string(envoyBootstrapContents), strings.Replace(caRoots.Roots[0].RootCertPEM, "\n", "\\n", -1))
-			}
 		})
 	}
 }

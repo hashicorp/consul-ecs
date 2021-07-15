@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -22,7 +21,6 @@ const (
 	flagEnvoyBootstrapFile = "envoy-bootstrap-file"
 	flagPort               = "port"
 	flagUpstreams          = "upstreams"
-	flagTLS                = "tls"
 )
 
 type Command struct {
@@ -31,7 +29,6 @@ type Command struct {
 	flagEnvoyBootstrapFile string
 	flagPort               int
 	flagUpstreams          string
-	flagTLS                bool
 
 	flagSet *flag.FlagSet
 	once    sync.Once
@@ -42,7 +39,6 @@ func (c *Command) init() {
 	c.flagSet.StringVar(&c.flagEnvoyBootstrapFile, flagEnvoyBootstrapFile, "", "File to write bootstrap config to")
 	c.flagSet.IntVar(&c.flagPort, flagPort, 0, "Port service runs on")
 	c.flagSet.StringVar(&c.flagUpstreams, flagUpstreams, "", "Upstreams in form <name>:<port>,...")
-	c.flagSet.BoolVar(&c.flagTLS, flagTLS, false, "Whether to enable TLS")
 }
 
 func (c *Command) Run(args []string) int {
@@ -158,51 +154,8 @@ func (c *Command) realRun(log hclog.Logger) error {
 
 	log.Info("service and proxy registered successfully", "name", serviceName, "id", serviceID)
 
-	// Grab CA root from the Consul server if TLS is enabled.
-	var caRootFile *os.File
-	if c.flagTLS {
-		log.Info("retrieving CA roots from Consul")
-		var activeRoot string
-		err = backoff.RetryNotify(func() error {
-			caRoots, _, err := consulClient.Agent().ConnectCARoots(nil)
-			if err != nil {
-				log.Error("error retrieving CA roots from Consul", "err", err)
-				return err
-			}
-
-			activeRoot, err = getActiveRoot(caRoots)
-			if err != nil {
-				log.Error("could not get an active root", "err", err)
-				return err
-			}
-
-			return nil
-		}, backoff.NewConstantBackOff(1*time.Second), retryLogger(log))
-		if err != nil {
-			return err
-		}
-
-		caRootFile, err = ioutil.TempFile("", "")
-		if err != nil {
-			log.Error("failed to create temp file", "err", err)
-			return err
-		}
-
-		err = ioutil.WriteFile(caRootFile.Name(), []byte(activeRoot), 0644)
-		if err != nil {
-			log.Error("error writing CA file", "err", err)
-			return err
-		}
-	}
-
 	// Run consul envoy -bootstrap to generate bootstrap file.
-	envoyBootstrapCmdArgs := []string{"connect", "envoy", "-proxy-id", proxyID, "-bootstrap"}
-	if c.flagTLS {
-		envoyBootstrapCmdArgs = append(envoyBootstrapCmdArgs, "-ca-file", caRootFile.Name(), "-grpc-addr=https://localhost:8502")
-	} else {
-		envoyBootstrapCmdArgs = append(envoyBootstrapCmdArgs, "-grpc-addr=localhost:8502")
-	}
-	cmd := exec.Command("consul", envoyBootstrapCmdArgs...)
+	cmd := exec.Command("consul", "connect", "envoy", "-proxy-id", proxyID, "-bootstrap", "-grpc-addr=localhost:8502")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, string(out))
@@ -215,29 +168,6 @@ func (c *Command) realRun(log hclog.Logger) error {
 
 	log.Info("envoy bootstrap config written", "file", c.flagEnvoyBootstrapFile)
 	return nil
-}
-
-// getActiveRoot returns the currently active root
-// from the roots list, otherwise returns error.
-// Borrowed from consul-k8s:
-// https://github.com/hashicorp/consul-k8s/blob/e9d866ddc1a1c070bc78901471d8f198096472ed/subcommand/get-consul-client-ca/command.go#L104-L118
-func getActiveRoot(roots *api.CARootList) (string, error) {
-	if roots == nil {
-		return "", fmt.Errorf("ca root list is nil")
-	}
-	if roots.Roots == nil {
-		return "", fmt.Errorf("ca roots is nil")
-	}
-	if len(roots.Roots) == 0 {
-		return "", fmt.Errorf("the list of root CAs is empty")
-	}
-
-	for _, root := range roots.Roots {
-		if root.Active {
-			return root.RootCertPEM, nil
-		}
-	}
-	return "", fmt.Errorf("none of the roots were active")
 }
 
 func taskARNToID(arn string) string {

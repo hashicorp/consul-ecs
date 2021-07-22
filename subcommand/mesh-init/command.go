@@ -161,7 +161,7 @@ func (c *Command) realRun(log hclog.Logger) error {
 		return fmt.Errorf("%s: %s", err, string(out))
 	}
 
-	err = ioutil.WriteFile(c.flagEnvoyBootstrapFile, []byte(out), 0444)
+	err = ioutil.WriteFile(c.flagEnvoyBootstrapFile, out, 0444)
 	if err != nil {
 		return err
 	}

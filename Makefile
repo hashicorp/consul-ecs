@@ -2,6 +2,11 @@ SHELL = bash
 
 GIT_COMMIT?=$(shell git rev-parse --short HEAD)
 
+DEV_IMAGE?=consul-ecs-dev
+GIT_COMMIT?=$(shell git rev-parse --short HEAD)
+GIT_DIRTY?=$(shell test -n "`git status --porcelain`" && echo "+CHANGES" || true)
+GIT_DESCRIBE?=$(shell git describe --tags --always)
+
 ################
 # CI Variables #
 ################
@@ -17,7 +22,6 @@ DEV_PUSH_ARG=
 else
 DEV_PUSH_ARG=--no-push
 endif
-
 
 dev-tree:
 	@$(SHELL) $(CURDIR)/build-support/scripts/dev.sh $(DEV_PUSH_ARG)
@@ -41,9 +45,9 @@ ifeq ($(CIRCLE_BRANCH), master)
 	@docker tag $(CI_DEV_DOCKER_NAMESPACE)/$(CI_DEV_DOCKER_IMAGE_NAME):$(GIT_COMMIT) $(CI_DEV_DOCKER_NAMESPACE)/$(CI_DEV_DOCKER_IMAGE_NAME):latest
 	@docker push $(CI_DEV_DOCKER_NAMESPACE)/$(CI_DEV_DOCKER_IMAGE_NAME):latest
 endif
-ifeq ($(CIRCLE_BRANCH), crd-controller-base)
-	@docker tag $(CI_DEV_DOCKER_NAMESPACE)/$(CI_DEV_DOCKER_IMAGE_NAME):$(GIT_COMMIT) $(CI_DEV_DOCKER_NAMESPACE)/$(CI_DEV_DOCKER_IMAGE_NAME):crd-controller-base-latest
-	@docker push $(CI_DEV_DOCKER_NAMESPACE)/$(CI_DEV_DOCKER_IMAGE_NAME):crd-controller-base-latest
-endif
 
-.PHONY: build-image ci.dev-docker
+dev-docker:
+	@$(SHELL) $(CURDIR)/build-support/scripts/build-local.sh -o linux -a amd64
+	@docker build -t '$(DEV_IMAGE)' --build-arg 'GIT_COMMIT=$(GIT_COMMIT)' --build-arg 'GIT_DIRTY=$(GIT_DIRTY)' --build-arg 'GIT_DESCRIBE=$(GIT_DESCRIBE)' -f $(CURDIR)/build-support/docker/Dev.dockerfile $(CURDIR)
+
+.PHONY: build-image ci.dev-docker dev-docker

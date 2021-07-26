@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/go-hclog"
@@ -26,7 +27,7 @@ type Command struct {
 	flagServiceName string
 	flagOutputFile  string
 
-	ecsClient *ecs.ECS
+	ecsClient ecsiface.ECSAPI
 	log       hclog.Logger
 
 	flagSet *flag.FlagSet
@@ -75,12 +76,14 @@ func (c *Command) realRun(log hclog.Logger) error {
 	c.log.Info("cluster name determined", "cluster", cluster)
 
 	// Set up ECS client.
-	clientSession, err := session.NewSession()
-	if err != nil {
-		return err
+	if c.ecsClient == nil { // allow client mock
+		clientSession, err := session.NewSession()
+		if err != nil {
+			return err
+		}
+		clientSession.Handlers.Build.PushBackNamed(awsutil.UserAgentHandler("discover"))
+		c.ecsClient = ecs.New(clientSession)
 	}
-	clientSession.Handlers.Build.PushBackNamed(awsutil.UserAgentHandler("discover"))
-	c.ecsClient = ecs.New(clientSession)
 
 	var taskARNs *ecs.ListTasksOutput
 	err = backoff.RetryNotify(func() error {

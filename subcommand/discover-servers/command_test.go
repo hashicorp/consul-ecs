@@ -1,4 +1,4 @@
-package meshinit
+package discoverservers
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/subcommand/discover-servers/mocks"
@@ -50,8 +51,16 @@ func TestDiscoverServers(t *testing.T) {
 			task.Containers = nil
 			return []*ecs.Task{task}
 		},
+		"no-consul-server-container": func(task *ecs.Task) []*ecs.Task {
+			task.Containers[0].Name = aws.String("not-the-server-container")
+			return []*ecs.Task{task}
+		},
 		"no-network-interfaces": func(task *ecs.Task) []*ecs.Task {
 			task.Containers[0].NetworkInterfaces = nil
+			return []*ecs.Task{task}
+		},
+		"no-ipv4-addresses": func(task *ecs.Task) []*ecs.Task {
+			task.Containers[0].NetworkInterfaces[0].PrivateIpv4Address = nil
 			return []*ecs.Task{task}
 		},
 		"valid-tasks": func(task *ecs.Task) []*ecs.Task {

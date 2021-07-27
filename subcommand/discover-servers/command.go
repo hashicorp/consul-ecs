@@ -1,4 +1,4 @@
-package meshinit
+package discoverservers
 
 import (
 	"flag"

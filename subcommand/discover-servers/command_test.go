@@ -81,8 +81,11 @@ func TestDiscoverServers(t *testing.T) {
 					require.NoError(t, err)
 				}
 			}))
-			t.Cleanup(ecsMetadataServer.Close)
 			os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
+			t.Cleanup(func() {
+				os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
+				ecsMetadataServer.Close()
+			})
 
 			ui := cli.NewMockUi()
 			cmd := Command{
@@ -99,7 +102,9 @@ func TestDiscoverServers(t *testing.T) {
 
 			serverIpFile, err := ioutil.TempFile("", "")
 			require.NoError(t, err)
-			defer os.Remove(serverIpFile.Name())
+			t.Cleanup(func() {
+				os.Remove(serverIpFile.Name())
+			})
 
 			cmdArgs := []string{"-service-name", "test-consul-server", "-out", serverIpFile.Name()}
 			code := cmd.Run(cmdArgs)

@@ -73,6 +73,7 @@ func TestRun(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				_ = server.Stop()
+				os.Unsetenv("CONSUL_HTTP_ADDR")
 			})
 			server.WaitForLeader(t)
 			consulClient, err := api.NewClient(&api.Config{Address: server.HTTPAddr})
@@ -88,8 +89,11 @@ func TestRun(t *testing.T) {
 					require.NoError(t, err)
 				}
 			}))
-			t.Cleanup(ecsMetadataServer.Close)
 			os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
+			t.Cleanup(func() {
+				os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
+				ecsMetadataServer.Close()
+			})
 
 			ui := cli.NewMockUi()
 			cmd := Command{
@@ -98,7 +102,9 @@ func TestRun(t *testing.T) {
 
 			envoyBootstrapFile, err := ioutil.TempFile("", "")
 			require.NoError(t, err)
-			defer os.Remove(envoyBootstrapFile.Name())
+			t.Cleanup(func() {
+				os.Remove(envoyBootstrapFile.Name())
+			})
 
 			cmdArgs := []string{"-envoy-bootstrap-file", envoyBootstrapFile.Name()}
 			if c.servicePort != 0 {

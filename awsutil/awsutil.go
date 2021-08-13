@@ -19,6 +19,16 @@ type ECSTaskMeta struct {
 	Cluster string `json:"Cluster"`
 	TaskARN string `json:"TaskARN"`
 	Family  string `json:"Family"`
+	Containers []ECSTaskMetaContainer `json:"Containers"`
+}
+
+type ECSTaskMetaContainer struct {
+	Name string `json:"Name"`
+	Health struct {
+		Status string `json:"status"`
+		StatusSince string `json:"statusSince"`
+		ExitCode int `json:"exitCode"`
+	} `json:"Health"`
 }
 
 func (e ECSTaskMeta) TaskID() string {

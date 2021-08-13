@@ -4,8 +4,10 @@ import (
 	"os"
 
 	cmdDiscoverServers "github.com/hashicorp/consul-ecs/subcommand/discover-servers"
+	cmdHealthSync "github.com/hashicorp/consul-ecs/subcommand/health-sync"
 	cmdMeshInit "github.com/hashicorp/consul-ecs/subcommand/mesh-init"
 	cmdVersion "github.com/hashicorp/consul-ecs/subcommand/version"
+	cmdPglassApp "github.com/hashicorp/consul-ecs/subcommand/pglass-app"
 	"github.com/hashicorp/consul-ecs/version"
 	"github.com/mitchellh/cli"
 )
@@ -25,6 +27,12 @@ func init() {
 		},
 		"discover-servers": func() (cli.Command, error) {
 			return &cmdDiscoverServers.Command{UI: ui}, nil
+		},
+		"health-sync": func() (cli.Command, error) {
+			return &cmdHealthSync.Command{UI: ui}, nil
+		},
+		"pglass-app": func() (cli.Command, error) {
+			return &cmdPglassApp.Command{UI: ui}, nil
 		},
 	}
 }

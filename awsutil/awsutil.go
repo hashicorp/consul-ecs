@@ -18,9 +18,21 @@ import (
 const ECSMetadataURIEnvVar = "ECS_CONTAINER_METADATA_URI_V4"
 
 type ECSTaskMeta struct {
-	Cluster string `json:"Cluster"`
-	TaskARN string `json:"TaskARN"`
-	Family  string `json:"Family"`
+	Cluster    string                 `json:"Cluster"`
+	TaskARN    string                 `json:"TaskARN"`
+	Family     string                 `json:"Family"`
+	Containers []ECSTaskMetaContainer `json:"Containers"`
+}
+
+type ECSTaskMetaContainer struct {
+	Name   string            `json:"Name"`
+	Health ECSTaskMetaHealth `json:"Health"`
+}
+
+type ECSTaskMetaHealth struct {
+	Status      string `json:"status"`
+	StatusSince string `json:"statusSince"`
+	ExitCode    int    `json:"exitCode"`
 }
 
 func (e ECSTaskMeta) TaskID() string {

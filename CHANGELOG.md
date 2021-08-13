@@ -1,7 +1,9 @@
 ## UNRELEASED
 
-## Unreleased
+FEATURES
+* Add a `health-sync` subcommand to sync ECS health checks into Consul [[GH-33](https://github.com/hashicorp/consul-ecs/pull/33)]
 
+## 0.2.0-beta2 (September 30, 2021)
 IMPROVEMENTS
 * Clean up ACL tokens for services/task families that are deleted. [[GH-30](https://github.com/hashicorp/consul-ecs/pull/30)]
 
@@ -22,7 +24,7 @@ FEATURES
   to manage service tokens. [[GH-22](https://github.com/hashicorp/consul-ecs/pull/22)]
 
 IMPROVEMENTS
-* AWS client discovers the current region, if unset, from ECS Task Metadata. 
+* AWS client discovers the current region, if unset, from ECS Task Metadata.
   [[GH-20](https://github.com/hashicorp/consul-ecs/pull/20)]
 
 ## 0.1.2 (May 25, 2021)

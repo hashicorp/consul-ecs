@@ -4,6 +4,7 @@ import (
 	"os"
 
 	cmdController "github.com/hashicorp/consul-ecs/subcommand/acl-controller"
+	cmdHealthSync "github.com/hashicorp/consul-ecs/subcommand/health-sync"
 	cmdMeshInit "github.com/hashicorp/consul-ecs/subcommand/mesh-init"
 	cmdVersion "github.com/hashicorp/consul-ecs/subcommand/version"
 	"github.com/hashicorp/consul-ecs/version"
@@ -25,6 +26,9 @@ func init() {
 		},
 		"acl-controller": func() (cli.Command, error) {
 			return &cmdController.Command{UI: ui}, nil
+		},
+		"health-sync": func() (cli.Command, error) {
+			return &cmdHealthSync.Command{UI: ui}, nil
 		},
 	}
 }

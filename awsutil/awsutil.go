@@ -29,6 +29,22 @@ func (e ECSTaskMeta) TaskID() string {
 	return split[len(split)-1]
 }
 
+func (e ECSTaskMeta) Region() string {
+	// Use the region from Task metadata if missing from environment (for EC2).
+	// https://github.com/aws/containers-roadmap/issues/337
+	for _, envKey := range []string{"AWS_REGION", "AWS_DEFAULT_REGION"} {
+		if region := os.Getenv(envKey); region != "" {
+			return region
+		}
+	}
+
+	split := strings.Split(e.TaskARN, ":")
+	if len(split) < 4 {
+		return ""
+	}
+	return split[3]
+}
+
 func ECSTaskMetadata() (ECSTaskMeta, error) {
 	var metadataResp ECSTaskMeta
 

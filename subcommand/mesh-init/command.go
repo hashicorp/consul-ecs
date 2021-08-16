@@ -72,7 +72,7 @@ func (c *Command) realRun(log hclog.Logger) error {
 	}
 
 	// Register the service.
-	taskID := taskARNToID(taskMeta.TaskARN)
+	taskID := taskMeta.TaskID()
 	serviceName := taskMeta.Family
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
 
@@ -168,14 +168,6 @@ func (c *Command) realRun(log hclog.Logger) error {
 
 	log.Info("envoy bootstrap config written", "file", c.flagEnvoyBootstrapFile)
 	return nil
-}
-
-func taskARNToID(arn string) string {
-	split := strings.Split(arn, "/")
-	if len(split) == 0 {
-		return ""
-	}
-	return split[len(split)-1]
 }
 
 func (c *Command) Synopsis() string {

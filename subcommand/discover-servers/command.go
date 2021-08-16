@@ -76,13 +76,17 @@ func (c *Command) realRun(log hclog.Logger) error {
 	c.log.Info("cluster name determined", "cluster", cluster)
 
 	// Set up ECS client.
-	if c.ecsClient == nil { // allow client mock
+	if c.ecsClient == nil { // Allow client mock for unit tests.
+		region := ecsMeta.Region()
+		log.Info("region determined", "region", region)
+
 		clientSession, err := session.NewSession()
 		if err != nil {
 			return err
 		}
 		clientSession.Handlers.Build.PushBackNamed(awsutil.UserAgentHandler("discover"))
-		c.ecsClient = ecs.New(clientSession)
+
+		c.ecsClient = ecs.New(clientSession, aws.NewConfig().WithRegion(region))
 	}
 
 	var taskARNs *ecs.ListTasksOutput

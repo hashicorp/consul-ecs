@@ -3,68 +3,76 @@ package awsutil
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestECSTaskMeta(t *testing.T) {
+func TestNewSession(t *testing.T) {
 	taskRegion := "bogus-east-1"
 	nonTaskRegion := "some-other-region"
-	ecsMeta := ECSTaskMeta{
-		Cluster: "test",
-		TaskARN: fmt.Sprintf("arn:aws:ecs:%s:123456789:task/test/abcdef", taskRegion),
-		Family:  "task",
-	}
+	taskArn := fmt.Sprintf("arn:aws:ecs:%s:123456789:task/test/abcdef", taskRegion)
 
-	cases := []struct {
-		name         string
+	cases := map[string]struct {
 		env          map[string]string
 		expectRegion string
+		taskArn      string
+		expectError  string
 	}{
-		{
-			name:         "no-env",
-			env:          nil,
+		"no-env": {
 			expectRegion: taskRegion,
+			taskArn:      taskArn,
 		},
-		{
-			name:         "aws-region",
+		"no-env-and-invalid-task-arn": {
+			taskArn:     "invalid-task-arn",
+			expectError: "unable to determine AWS region from Task metadata",
+		},
+		"aws-region": {
 			env:          map[string]string{"AWS_REGION": nonTaskRegion},
-			expectRegion: nonTaskRegion,
-		},
-		{
-			name: "aws-default-region",
-			env: map[string]string{
-				// "AWS_DEFAULT_REGION is only read if AWS_SDK_LOAD_CONFIG is also set,
-				// and AWS_REGION is not also set."
-				"AWS_DEFAULT_REGION":  nonTaskRegion,
-				"AWS_SDK_LOAD_CONFIG": "1",
-			},
-			expectRegion: nonTaskRegion,
-		},
-		{
-			name: "aws-region-and-default-region",
-			env: map[string]string{
-				"AWS_REGION":          nonTaskRegion,
-				"AWS_DEFAULT_REGION":  "should-not-use-this-one",
-				"AWS_SDK_LOAD_CONFIG": "1",
-			},
+			taskArn:      taskArn,
 			expectRegion: nonTaskRegion,
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			os.Clearenv()
-			for k, v := range c.env {
-				require.NoError(t, os.Setenv(k, v))
+	// Restore the environment after these test cases.
+	environ := os.Environ()
+	t.Cleanup(func() { restoreEnv(t, environ) })
+
+	for testName, c := range cases {
+		t.Run(testName, func(t *testing.T) {
+			// Ensure external environment doesn't affect us.
+			for _, k := range []string{"AWS_REGION", "AWS_DEFAULT_REGION"} {
+				require.NoError(t, os.Unsetenv(k))
 			}
 
-			require.Equal(t, "abcdef", ecsMeta.TaskID())
+			// Prepare environment for each test case.
+			for k, v := range c.env {
+				require.NoError(t, os.Setenv(k, v))
+				t.Cleanup(func() {
+					require.NoError(t, os.Unsetenv(k))
+				})
+			}
+
+			ecsMeta := ECSTaskMeta{
+				Cluster: "test",
+				TaskARN: c.taskArn,
+				Family:  "task",
+			}
 
 			sess, err := NewSession(ecsMeta, "")
-			require.NoError(t, err)
+
+			// Check an expected error
+			if c.expectError != "" {
+				require.Nil(t, sess)
+				require.Error(t, err)
+				require.Equal(t, c.expectError, err.Error())
+				return
+			}
+
+			// Validate region is pulled correctly from environment or Task metadata.
 			require.Equal(t, c.expectRegion, *sess.Config.Region)
 
 			// Ensure the User-Agent request handler was added.
@@ -72,5 +80,26 @@ func TestECSTaskMeta(t *testing.T) {
 			foundHandler := sess.Handlers.Build.Swap("UserAgentHandler", request.NamedHandler{})
 			require.True(t, foundHandler)
 		})
+	}
+}
+
+func TestECSTaskMeta(t *testing.T) {
+	ecsMeta := ECSTaskMeta{
+		Cluster: "test",
+		TaskARN: "arn:aws:ecs:us-east-1:123456789:task/test/abcdef",
+		Family:  "task",
+	}
+	require.Equal(t, "abcdef", ecsMeta.TaskID())
+	region, err := ecsMeta.region()
+	require.Nil(t, err)
+	require.Equal(t, "us-east-1", region)
+}
+
+// Helper to restore the environment after a test.
+func restoreEnv(t *testing.T, env []string) {
+	os.Clearenv()
+	for _, keyvalue := range env {
+		pair := strings.SplitN(keyvalue, "=", 2)
+		assert.NoError(t, os.Setenv(pair[0], pair[1]))
 	}
 }

@@ -31,13 +31,15 @@ func (e ECSTaskMeta) TaskID() string {
 	return split[len(split)-1]
 }
 
-func (e ECSTaskMeta) Region() string {
-	// https://github.com/aws/containers-roadmap/issues/337
+func (e ECSTaskMeta) region() (string, error) {
+	// Task ARN: "arn:aws:ecs:us-east-1:000000000000:task/cluster/00000000000000000000000000000000"
+	// https://docs.aws.amazon.com/general/latest/gr/aws-arns-and-namespaces.html
+	// See also: https://github.com/aws/containers-roadmap/issues/337
 	split := strings.Split(e.TaskARN, ":")
 	if len(split) < 4 {
-		return ""
+		return "", fmt.Errorf("unable to determine AWS region from Task metadata")
 	}
-	return split[3]
+	return split[3], nil
 }
 
 func ECSTaskMetadata() (ECSTaskMeta, error) {
@@ -79,14 +81,18 @@ func UserAgentHandler(caller string) request.NamedHandler {
 func NewSession(meta ECSTaskMeta, userAgentCaller string) (*session.Session, error) {
 	clientSession, err := session.NewSession()
 	if err != nil {
-		return clientSession, err
+		return nil, err
 	}
 
 	clientSession.Handlers.Build.PushBackNamed(UserAgentHandler(userAgentCaller))
 
 	cfg := clientSession.Config
 	if cfg.Region == nil || *cfg.Region == "" {
-		cfg.Region = aws.String(meta.Region())
+		region, err := meta.region()
+		if err != nil {
+			return nil, err
+		}
+		cfg.Region = aws.String(region)
 	}
 	return clientSession, nil
 }

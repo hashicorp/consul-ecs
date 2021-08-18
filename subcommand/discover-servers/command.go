@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
 	"github.com/cenkalti/backoff/v4"
@@ -77,16 +76,14 @@ func (c *Command) realRun(log hclog.Logger) error {
 
 	// Set up ECS client.
 	if c.ecsClient == nil { // Allow client mock for unit tests.
-		region := ecsMeta.Region()
-		log.Info("region determined", "region", region)
-
-		clientSession, err := session.NewSession()
+		clientSession, err := awsutil.NewSession(ecsMeta, "discover")
 		if err != nil {
 			return err
 		}
-		clientSession.Handlers.Build.PushBackNamed(awsutil.UserAgentHandler("discover"))
 
-		c.ecsClient = ecs.New(clientSession, aws.NewConfig().WithRegion(region))
+		log.Info("session created", "region", *clientSession.Config.Region)
+
+		c.ecsClient = ecs.New(clientSession)
 	}
 
 	var taskARNs *ecs.ListTasksOutput

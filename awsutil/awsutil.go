@@ -9,7 +9,9 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/hashicorp/consul-ecs/version"
 )
 
@@ -30,14 +32,7 @@ func (e ECSTaskMeta) TaskID() string {
 }
 
 func (e ECSTaskMeta) Region() string {
-	// Use the region from Task metadata if missing from environment (for EC2).
 	// https://github.com/aws/containers-roadmap/issues/337
-	for _, envKey := range []string{"AWS_REGION", "AWS_DEFAULT_REGION"} {
-		if region := os.Getenv(envKey); region != "" {
-			return region
-		}
-	}
-
 	split := strings.Split(e.TaskARN, ":")
 	if len(split) < 4 {
 		return ""
@@ -75,4 +70,23 @@ func UserAgentHandler(caller string) request.NamedHandler {
 				fmt.Sprintf("consul-ecs-%s/%s (%s) %s", caller, version.Version, runtime.GOOS, userAgent))
 		},
 	}
+}
+
+// NewSession prepares a client session.
+// The returned session includes a User-Agent handler to enable AWS to track usage.
+// If the AWS SDK fails to find the region, the region is parsed from Task metadata
+// (on EC2 the region is not typically defined in the environment).
+func NewSession(meta ECSTaskMeta, userAgentCaller string) (*session.Session, error) {
+	clientSession, err := session.NewSession()
+	if err != nil {
+		return clientSession, err
+	}
+
+	clientSession.Handlers.Build.PushBackNamed(UserAgentHandler(userAgentCaller))
+
+	cfg := clientSession.Config
+	if cfg.Region == nil || *cfg.Region == "" {
+		cfg.Region = aws.String(meta.Region())
+	}
+	return clientSession, nil
 }

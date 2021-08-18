@@ -1,13 +1,23 @@
 package awsutil
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/stretchr/testify/require"
 )
 
 func TestECSTaskMeta(t *testing.T) {
+	taskRegion := "bogus-east-1"
+	nonTaskRegion := "some-other-region"
+	ecsMeta := ECSTaskMeta{
+		Cluster: "test",
+		TaskARN: fmt.Sprintf("arn:aws:ecs:%s:123456789:task/test/abcdef", taskRegion),
+		Family:  "task",
+	}
+
 	cases := []struct {
 		name         string
 		env          map[string]string
@@ -16,32 +26,51 @@ func TestECSTaskMeta(t *testing.T) {
 		{
 			name:         "no-env",
 			env:          nil,
-			expectRegion: "bogus-east-1",
+			expectRegion: taskRegion,
 		},
 		{
 			name:         "aws-region",
-			env:          map[string]string{"AWS_REGION": "region-from-aws-region"},
-			expectRegion: "region-from-aws-region",
+			env:          map[string]string{"AWS_REGION": nonTaskRegion},
+			expectRegion: nonTaskRegion,
 		},
 		{
-			name:         "aws-default-region",
-			env:          map[string]string{"AWS_DEFAULT_REGION": "region-from-aws-default-region"},
-			expectRegion: "region-from-aws-default-region",
+			name: "aws-default-region",
+			env: map[string]string{
+				// "AWS_DEFAULT_REGION is only read if AWS_SDK_LOAD_CONFIG is also set,
+				// and AWS_REGION is not also set."
+				"AWS_DEFAULT_REGION":  nonTaskRegion,
+				"AWS_SDK_LOAD_CONFIG": "1",
+			},
+			expectRegion: nonTaskRegion,
+		},
+		{
+			name: "aws-region-and-default-region",
+			env: map[string]string{
+				"AWS_REGION":          nonTaskRegion,
+				"AWS_DEFAULT_REGION":  "should-not-use-this-one",
+				"AWS_SDK_LOAD_CONFIG": "1",
+			},
+			expectRegion: nonTaskRegion,
 		},
 	}
 
 	for _, c := range cases {
-		os.Clearenv()
-		for k, v := range c.env {
-			require.NoError(t, os.Setenv(k, v))
-		}
+		t.Run(c.name, func(t *testing.T) {
+			os.Clearenv()
+			for k, v := range c.env {
+				require.NoError(t, os.Setenv(k, v))
+			}
 
-		ecsMeta := ECSTaskMeta{
-			Cluster: "test",
-			TaskARN: "arn:aws:ecs:bogus-east-1:123456789:task/test/abcdef",
-			Family:  "task",
-		}
-		require.Equal(t, "abcdef", ecsMeta.TaskID())
-		require.Equal(t, c.expectRegion, ecsMeta.Region())
+			require.Equal(t, "abcdef", ecsMeta.TaskID())
+
+			sess, err := NewSession(ecsMeta, "")
+			require.NoError(t, err)
+			require.Equal(t, c.expectRegion, *sess.Config.Region)
+
+			// Ensure the User-Agent request handler was added.
+			// (Hacky. Only way I could figure out to detect a request handler by name)
+			foundHandler := sess.Handlers.Build.Swap("UserAgentHandler", request.NamedHandler{})
+			require.True(t, foundHandler)
+		})
 	}
 }

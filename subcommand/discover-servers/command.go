@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
 	"github.com/cenkalti/backoff/v4"
@@ -76,12 +75,14 @@ func (c *Command) realRun(log hclog.Logger) error {
 	c.log.Info("cluster name determined", "cluster", cluster)
 
 	// Set up ECS client.
-	if c.ecsClient == nil { // allow client mock
-		clientSession, err := session.NewSession()
+	if c.ecsClient == nil { // Allow client mock for unit tests.
+		clientSession, err := awsutil.NewSession(ecsMeta, "discover")
 		if err != nil {
 			return err
 		}
-		clientSession.Handlers.Build.PushBackNamed(awsutil.UserAgentHandler("discover"))
+
+		log.Info("session created", "region", *clientSession.Config.Region)
+
 		c.ecsClient = ecs.New(clientSession)
 	}
 

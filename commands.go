@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 
-	cmdDiscoverServers "github.com/hashicorp/consul-ecs/subcommand/discover-servers"
 	cmdMeshInit "github.com/hashicorp/consul-ecs/subcommand/mesh-init"
 	cmdVersion "github.com/hashicorp/consul-ecs/subcommand/version"
 	"github.com/hashicorp/consul-ecs/version"
@@ -22,9 +21,6 @@ func init() {
 		},
 		"mesh-init": func() (cli.Command, error) {
 			return &cmdMeshInit.Command{UI: ui}, nil
-		},
-		"discover-servers": func() (cli.Command, error) {
-			return &cmdDiscoverServers.Command{UI: ui}, nil
 		},
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	cmdController "github.com/hashicorp/consul-ecs/subcommand/controller"
 	cmdMeshInit "github.com/hashicorp/consul-ecs/subcommand/mesh-init"
 	cmdVersion "github.com/hashicorp/consul-ecs/subcommand/version"
 	"github.com/hashicorp/consul-ecs/version"
@@ -21,6 +22,9 @@ func init() {
 		},
 		"mesh-init": func() (cli.Command, error) {
 			return &cmdMeshInit.Command{UI: ui}, nil
+		},
+		"controller": func() (cli.Command, error) {
+			return &cmdController.Command{UI: ui}, nil
 		},
 	}
 }

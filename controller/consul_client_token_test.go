@@ -63,7 +63,7 @@ func TestUpsertConsulClientToken(t *testing.T) {
 				c.ACL.DefaultPolicy = "deny"
 			})
 			require.NoError(t, err)
-			defer testServer.Stop()
+			defer func() { _ = testServer.Stop() }()
 			testServer.WaitForLeader(t)
 
 			clientConfig := api.DefaultConfig()

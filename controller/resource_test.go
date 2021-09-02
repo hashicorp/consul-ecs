@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTaskList_List(t *testing.T) {
+func TestTaskLister_List(t *testing.T) {
 	cases := map[string]struct {
 		paginateResults bool
 	}{
@@ -35,13 +35,13 @@ func TestTaskList_List(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Len(t, tasks, 2)
-			require.Equal(t, task1.TaskArn, tasks[0].(*Tasks).Task.TaskArn)
-			require.Equal(t, task2.TaskArn, tasks[1].(*Tasks).Task.TaskArn)
+			require.Equal(t, task1.TaskArn, tasks[0].(*Task).Task.TaskArn)
+			require.Equal(t, task2.TaskArn, tasks[1].(*Task).Task.TaskArn)
 		})
 	}
 }
 
-func TestTaskTokens_Upsert(t *testing.T) {
+func TestTask_Upsert(t *testing.T) {
 	cases := map[string]struct {
 		task                *ecs.Task
 		createExistingToken bool
@@ -51,35 +51,44 @@ func TestTaskTokens_Upsert(t *testing.T) {
 	}{
 		"task without mesh tag": {
 			task: &ecs.Task{
-				TaskArn: pointerToStr("task"),
-				Group:   pointerToStr("service:service"),
+				TaskArn:           pointerToStr("task-arn"),
+				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
 			},
 			existingSecret:     &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)},
 			expectTokenToExist: false,
 		},
 		"task with mesh tag": {
 			task: &ecs.Task{
-				TaskArn: pointerToStr("task"),
-				Group:   pointerToStr("service:service"),
-				Tags:    []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           pointerToStr("task"),
+				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
 			},
 			existingSecret:     &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)},
 			expectTokenToExist: true,
 		},
-		"task with an invalid task group": {
+		"task with an invalid task definition ARN (no / separator)": {
 			task: &ecs.Task{
-				TaskArn: pointerToStr("task"),
-				Group:   pointerToStr("invalid"),
-				Tags:    []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           pointerToStr("task"),
+				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition-service:1"),
+				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
 			},
 			existingSecret: &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)},
-			expectedError:  `could not determine service name: group "invalid" invalid`,
+			expectedError:  `could not determine service name: cannot determine task family from task definition ARN: "arn:aws:ecs:us-east-1:1234567890:task-definition-service:1"`,
+		},
+		"task with an invalid task definition ARN (no revision)": {
+			task: &ecs.Task{
+				TaskArn:           pointerToStr("task"),
+				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service"),
+				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+			},
+			existingSecret: &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)},
+			expectedError:  `could not determine service name: cannot determine task family from task definition ARN: "arn:aws:ecs:us-east-1:1234567890:task-definition/service"`,
 		},
 		"when there is an existing token for the service, we don't create a new one": {
 			task: &ecs.Task{
-				TaskArn: pointerToStr("task"),
-				Group:   pointerToStr("service:service"),
-				Tags:    []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           pointerToStr("task"),
+				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
 			},
 			// When createExistingToken is true, existingSecret will be updated with the value of the created token.
 			existingSecret:      &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)},
@@ -88,9 +97,9 @@ func TestTaskTokens_Upsert(t *testing.T) {
 		},
 		"when the token in the secret doesn't exist in Consul, the secret is updated with the new value": {
 			task: &ecs.Task{
-				TaskArn: pointerToStr("task"),
-				Group:   pointerToStr("service:service"),
-				Tags:    []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           pointerToStr("task"),
+				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
 			},
 			existingSecret: &secretsmanager.GetSecretValueOutput{
 				Name:         pointerToStr("test-service"),
@@ -110,7 +119,7 @@ func TestTaskTokens_Upsert(t *testing.T) {
 				c.ACL.DefaultPolicy = "deny"
 			})
 			require.NoError(t, err)
-			defer testServer.Stop()
+			defer func() { _ = testServer.Stop() }()
 			testServer.WaitForLeader(t)
 
 			clientConfig := api.DefaultConfig()
@@ -132,7 +141,7 @@ func TestTaskTokens_Upsert(t *testing.T) {
 				c.existingSecret.SecretString = pointerToStr(string(secretValue))
 			}
 
-			taskTokens := Tasks{
+			taskTokens := Task{
 				SecretsManagerClient: smClient,
 				ConsulClient:         consulClient,
 				Cluster:              "test-cluster",
@@ -177,6 +186,6 @@ func TestTaskTokens_Upsert(t *testing.T) {
 	}
 }
 
-func TestTaskTokens_Delete(t *testing.T) {}
+func TestTask_Delete(t *testing.T) {}
 
 func pointerToStr(s string) *string { return &s }

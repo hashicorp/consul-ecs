@@ -16,16 +16,16 @@ import (
 )
 
 const (
-	flagAgentSecretARN   = "agent-secret-arn"
-	flagSecretNamePrefix = "secret-name-prefix"
+	flagConsulClientSecretARN = "consul-client-secret-arn"
+	flagSecretNamePrefix      = "secret-name-prefix"
 
 	consulCACertEnvVar = "CONSUL_CACERT_PEM"
 )
 
 type Command struct {
-	UI                   cli.Ui
-	flagAgentSecretARN   string
-	flagSecretNamePrefix string
+	UI                        cli.Ui
+	flagConsulClientSecretARN string
+	flagSecretNamePrefix      string
 
 	log     hclog.Logger
 	flagSet *flag.FlagSet
@@ -34,7 +34,7 @@ type Command struct {
 
 func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
-	c.flagSet.StringVar(&c.flagAgentSecretARN, flagAgentSecretARN, "", "ARN of AWS Secrets Manager secret")
+	c.flagSet.StringVar(&c.flagConsulClientSecretARN, flagConsulClientSecretARN, "", "ARN of AWS Secrets Manager secret for Consul client")
 	c.flagSet.StringVar(&c.flagSecretNamePrefix, flagSecretNamePrefix, "", "The prefix for secret names stored in AWS Secrets Manager")
 
 	c.log = hclog.New(nil)
@@ -84,7 +84,7 @@ func (c *Command) run() error {
 
 	smClient := secretsmanager.New(clientSession, nil)
 
-	err = controller.UpsertConsulClientToken(consulClient, smClient, c.flagAgentSecretARN, c.flagSecretNamePrefix, c.log)
+	err = controller.UpsertConsulClientToken(consulClient, smClient, c.flagConsulClientSecretARN, c.flagSecretNamePrefix, c.log)
 	if err != nil {
 		return err
 	}

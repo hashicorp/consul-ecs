@@ -76,7 +76,7 @@ func (t TaskLister) List() ([]Resource, error) {
 			return nil, fmt.Errorf("describing tasks: %w", err)
 		}
 		for _, task := range tasks.Tasks {
-			resources = append(resources, &Tasks{
+			resources = append(resources, &Task{
 				SecretsManagerClient: t.SecretsManagerClient,
 				ConsulClient:         t.ConsulClient,
 				Cluster:              t.Cluster,
@@ -92,7 +92,7 @@ func (t TaskLister) List() ([]Resource, error) {
 	return resources, nil
 }
 
-type Tasks struct {
+type Task struct {
 	SecretsManagerClient secretsmanageriface.SecretsManagerAPI
 	ConsulClient         *api.Client
 
@@ -103,14 +103,14 @@ type Tasks struct {
 	Log hclog.Logger
 }
 
-// ID returns Task family/Consul service name or error if it cannot be determined from the Task group.
-// It is derived from the group which looks like "service:<service name>".
-func (t *Tasks) ID() (string, error) {
-	groupSplit := strings.Split(*t.Task.Group, ":")
-	if len(groupSplit) != 2 {
-		return "", fmt.Errorf("group %q invalid", *t.Task.Group)
+// ID returns Task definition ARN or error if it cannot be determined from the Task.
+func (t *Task) ID() (string, error) {
+	// This should never be the case, but we are checking it anyway.
+	if t.Task.TaskDefinitionArn == nil {
+		return "", fmt.Errorf("cannot determine ID: task definition ARN is nil")
 	}
-	return groupSplit[1], nil
+
+	return *t.Task.TaskDefinitionArn, nil
 }
 
 // tokenSecretJSON is the struct that represents JSON of the token secrets
@@ -122,8 +122,8 @@ type tokenSecretJSON struct {
 
 // Upsert creates a token for the task if one doesn't already exist
 // and updates the secret with the contents of the token.
-func (t *Tasks) Upsert() error {
-	serviceName, err := t.ID()
+func (t *Task) Upsert() error {
+	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN(*t.Task.TaskDefinitionArn)
 	if err != nil {
 		return fmt.Errorf("could not determine service name: %w", err)
 	}
@@ -161,22 +161,26 @@ func (t *Tasks) Upsert() error {
 		}
 	}
 
-	if currToken == nil {
-		err := t.updateServiceToken(serviceName, secretName)
-		if err != nil {
-			return fmt.Errorf("updating service token: %w", err)
-		}
+	// If there is already a token for this service in Consul, exit early.
+	if currToken != nil {
+		return nil
+	}
+
+	// Otherwise, create one.
+	err = t.updateServiceToken(serviceName, secretName)
+	if err != nil {
+		return fmt.Errorf("updating service token: %w", err)
 	}
 
 	return nil
 }
 
-func (t *Tasks) Delete() error {
+func (t *Task) Delete() error {
 	return nil
 }
 
 // updateServiceToken create a token in Consul and updates AWS secret with token's contents.
-func (t *Tasks) updateServiceToken(serviceName, secretName string) error {
+func (t *Task) updateServiceToken(serviceName, secretName string) error {
 	t.Log.Info("creating service token", "id", serviceName)
 	// Create ACL token for envoy to register the service.
 	serviceToken, _, err := t.ConsulClient.ACL().TokenCreate(&api.ACLToken{
@@ -203,6 +207,20 @@ func (t *Tasks) updateServiceToken(serviceName, secretName string) error {
 	t.Log.Info("secret updated successfully", "name", secretName)
 
 	return nil
+}
+
+// Task definition ARN looks like this: arn:aws:ecs:us-east-1:1234567890:task-definition/service:1
+func (t *Task) parseFamilyNameFromTaskDefinitionARN(taskDefArn string) (string, error) {
+	splits := strings.Split(taskDefArn, "/")
+	if len(splits) != 2 {
+		return "", fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
+	}
+	taskFamilyAndRevision := splits[1]
+	splits = strings.Split(taskFamilyAndRevision, ":")
+	if len(splits) != 2 {
+		return "", fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
+	}
+	return splits[0], nil
 }
 
 func tagValue(tags []*ecs.Tag, key string) string {

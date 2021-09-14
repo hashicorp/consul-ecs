@@ -59,7 +59,8 @@ func (c *Controller) reconcile() error {
 		if _, ok := c.resourceState[resourceID]; !ok {
 			err = resource.Upsert()
 			if err != nil {
-				return fmt.Errorf("upserting resource: %w", err)
+				c.Log.Error("error upserting resource", "err", err)
+				continue
 			}
 			c.resourceState[resourceID] = struct{}{}
 		}

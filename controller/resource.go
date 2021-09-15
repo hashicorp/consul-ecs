@@ -79,14 +79,17 @@ func (t TaskLister) List() ([]Resource, error) {
 			return nil, fmt.Errorf("describing tasks: %w", err)
 		}
 		for _, task := range tasks.Tasks {
-			resources = append(resources, &Task{
-				SecretsManagerClient: t.SecretsManagerClient,
-				ConsulClient:         t.ConsulClient,
-				Cluster:              t.Cluster,
-				Log:                  t.Log,
-				SecretPrefix:         t.SecretPrefix,
-				Task:                 task,
-			})
+			// Add task only if it's not nil.
+			if task != nil {
+				resources = append(resources, &Task{
+					SecretsManagerClient: t.SecretsManagerClient,
+					ConsulClient:         t.ConsulClient,
+					Cluster:              t.Cluster,
+					Log:                  t.Log,
+					SecretPrefix:         t.SecretPrefix,
+					Task:                 *task,
+				})
+			}
 		}
 		if nextToken == nil {
 			break
@@ -101,7 +104,7 @@ type Task struct {
 
 	Cluster      string
 	SecretPrefix string
-	Task         *ecs.Task
+	Task         ecs.Task
 
 	Log hclog.Logger
 }

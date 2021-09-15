@@ -146,7 +146,7 @@ func TestTask_Upsert(t *testing.T) {
 				ConsulClient:         consulClient,
 				Cluster:              "test-cluster",
 				SecretPrefix:         "test",
-				Task:                 c.task,
+				Task:                 *c.task,
 				Log:                  hclog.NewNullLogger(),
 			}
 

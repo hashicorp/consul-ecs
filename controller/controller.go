@@ -23,12 +23,15 @@ type Controller struct {
 
 	// resourceState is the internal Controller's state. The Controller
 	// will periodically update the state to reflect the state of the Resources.
-	resourceState map[string]struct{}
+	// The state stores ResourceIDs that have been successfully upserted
+	// by the controller. If the resource with that ID no longer exists in the source,
+	// the resourceState should not have that resource ID in its internal state either.
+	resourceState map[ResourceID]struct{}
 }
 
 // Run starts the Controller loop. The loop will exit when ctx is canceled.
 func (c *Controller) Run(ctx context.Context) {
-	c.resourceState = make(map[string]struct{})
+	c.resourceState = make(map[ResourceID]struct{})
 
 	for {
 		select {

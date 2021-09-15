@@ -16,6 +16,9 @@ import (
 
 const meshTag = "consul.hashicorp.com/mesh"
 
+// ResourceID represents the ID of the resource.
+type ResourceID string
+
 // ResourceLister is an interface for listing Resources.
 type ResourceLister interface {
 	List() ([]Resource, error)
@@ -24,7 +27,7 @@ type ResourceLister interface {
 // Resource is a generic type that needs to be reconciled by the Controller.
 // It offers Upsert and Delete functions to reconcile itself with an external state.
 type Resource interface {
-	ID() (string, error)
+	ID() (ResourceID, error)
 	Upsert() error
 	Delete() error
 }
@@ -104,13 +107,13 @@ type Task struct {
 }
 
 // ID returns Task definition ARN or error if it cannot be determined from the Task.
-func (t *Task) ID() (string, error) {
+func (t *Task) ID() (ResourceID, error) {
 	// This should never be the case, but we are checking it anyway.
 	if t.Task.TaskDefinitionArn == nil {
 		return "", fmt.Errorf("cannot determine ID: task definition ARN is nil")
 	}
 
-	return *t.Task.TaskDefinitionArn, nil
+	return ResourceID(*t.Task.TaskDefinitionArn), nil
 }
 
 // tokenSecretJSON is the struct that represents JSON of the token secrets

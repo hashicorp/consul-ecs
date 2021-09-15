@@ -1,4 +1,4 @@
-package controller
+package aclcontroller
 
 import (
 	"context"
@@ -109,7 +109,7 @@ func (c *Command) run() error {
 }
 
 func (c *Command) Synopsis() string {
-	return "ECS controller"
+	return "ECS ACL controller"
 }
 
 func (c *Command) Help() string {

@@ -115,6 +115,7 @@ jobs:
           at: .
       - setup_remote_docker
       - run: make ci.dev-docker
+
 workflows:
   version: 2
   test-and-build:
@@ -143,7 +144,7 @@ workflows:
           name: build-distros-arm-arm64
           requires:
             - test
-      # - dev-upload-docker:
-      #     context: consul-ci
-      #     requires:
-      #       - build-distros-amd64
+      - dev-upload-docker:
+          context: consul-ci
+          requires:
+            - build-distros-amd64

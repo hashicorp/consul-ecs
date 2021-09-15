@@ -5,6 +5,7 @@ go 1.15
 require (
 	github.com/aws/aws-sdk-go v1.38.2
 	github.com/cenkalti/backoff/v4 v4.1.0
+	github.com/deckarep/golang-set v1.7.1
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/go-cmp v0.5.6
 	github.com/hashicorp/consul/api v1.8.1

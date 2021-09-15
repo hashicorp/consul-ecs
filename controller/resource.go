@@ -169,14 +169,17 @@ func (t *Task) Upsert() error {
 
 	// If there is already a token for this service in Consul, exit early.
 	if currToken != nil {
+		t.Log.Info("token already exists; skipping token creation", "id", serviceName)
 		return nil
 	}
 
 	// Otherwise, create one.
+	t.Log.Info("creating service token", "id", serviceName)
 	err = t.updateServiceToken(serviceName, secretName)
 	if err != nil {
 		return fmt.Errorf("updating service token: %w", err)
 	}
+	t.Log.Info("service token created successfully", "id", serviceName)
 
 	return nil
 }

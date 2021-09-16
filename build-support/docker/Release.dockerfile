@@ -15,12 +15,8 @@ USER root
 
 # NAME and VERSION are the name of the software in releases.hashicorp.com
 # and the version to download. Example: NAME=consul VERSION=1.2.3.
-ARG NAME
+ARG NAME=consul-ecs
 ARG VERSION
-
-# Set ARGs as ENV so that they can be used in ENTRYPOINT/CMD
-ENV NAME=$NAME
-ENV VERSION=$VERSION
 
 # This is the location of the releases.
 ENV HASHICORP_RELEASES=https://releases.hashicorp.com
@@ -65,4 +61,4 @@ RUN set -eux && \
     rm -rf /root/.gnupg
 
 USER ${NAME}
-ENTRYPOINT ["/bin/${NAME}"]
+ENTRYPOINT ["/bin/consul-ecs"]

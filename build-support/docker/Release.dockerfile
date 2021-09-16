@@ -8,7 +8,7 @@
 
 # We use Consul as a base since we need the Consul binary in our image
 # so we can run consul connect envoy -bootstrap.
-FROM hashicorp/consul:1.9.5
+FROM hashicorp/consul:1.10.2
 
 # Swap to root from user consul in order to build. We step down at end.
 USER root

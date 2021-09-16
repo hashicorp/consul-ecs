@@ -7,6 +7,13 @@ FEATURES
   create the token for the Consul client and then will start a controller
   to manage service tokens. [[GH-22](https://github.com/hashicorp/consul-ecs/pull/22)]
 
+IMPROVMENTS
+* AWS client discovers the current region, if unset, from ECS Task Metadata. 
+  [[GH-20](https://github.com/hashicorp/consul-ecs/pull/20)]
+
+DEPRECATIONS
+* Remove `discover-servers` command. [[GH-21](https://github.com/hashicorp/consul-ecs/pull/21)]
+
 ## 0.1.2 (May 25, 2021)
 
 IMPROVEMENTS

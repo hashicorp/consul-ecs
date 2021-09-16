@@ -1,4 +1,4 @@
-## UNRELEASED
+## 0.2.0-beta1 (September 16, 2021)
 
 FEATURES
 * Add a new command called `acl-controller`. The command will first

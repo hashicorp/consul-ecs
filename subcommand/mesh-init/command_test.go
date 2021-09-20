@@ -1,6 +1,7 @@
 package meshinit
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -35,6 +36,7 @@ func TestRun(t *testing.T) {
 		servicePort  int
 		upstreams    string
 		expUpstreams []api.Upstream
+		checks       api.AgentServiceChecks
 	}{
 		"basic service": {},
 		"service with port": {
@@ -52,6 +54,36 @@ func TestRun(t *testing.T) {
 					DestinationType: "service",
 					DestinationName: "upstream2",
 					LocalBindPort:   1235,
+				},
+			},
+		},
+		"service with checks": {
+			checks: api.AgentServiceChecks{
+				&api.AgentServiceCheck{
+					CheckID:  "api-http",
+					Name:     "HTTP on port 8080",
+					HTTP:     "http://localhost:8080",
+					Interval: "10s",
+					Timeout:  "5s",
+					Header:   map[string][]string{"Content-type": {"application/json"}},
+					Method:   "GET",
+					Notes:    "unittest http check",
+				},
+				&api.AgentServiceCheck{
+					CheckID:  "api-tcp",
+					Name:     "TCP on port 8080",
+					TCP:      "localhost:8080",
+					Interval: "10s",
+					Timeout:  "5s",
+					Notes:    "unittest tcp check",
+				},
+				&api.AgentServiceCheck{
+					CheckID:    "api-grpc",
+					Name:       "GRPC on port 8081",
+					GRPC:       "localhost:8081",
+					GRPCUseTLS: false,
+					Interval:   "10s",
+					Notes:      "unittest grpc check",
 				},
 			},
 		},
@@ -113,6 +145,12 @@ func TestRun(t *testing.T) {
 			if c.upstreams != "" {
 				cmdArgs = append(cmdArgs, "-upstreams", c.upstreams)
 			}
+			if c.checks != nil {
+				healthCheckBytes, err := json.Marshal(c.checks)
+				require.NoError(t, err)
+				cmdArgs = append(cmdArgs, "-checks", string(healthCheckBytes))
+			}
+			t.Logf("cmdArgs: %v", cmdArgs)
 			code := cmd.Run(cmdArgs)
 			require.Equal(t, code, 0)
 
@@ -147,6 +185,22 @@ func TestRun(t *testing.T) {
 			proxyService, _, err := consulClient.Agent().Service("test-service-abcdef-sidecar-proxy", nil)
 			require.NoError(t, err)
 			require.True(t, cmp.Equal(expectedProxyServiceRegistration, proxyService, agentServiceIgnoreFields))
+
+			if c.checks != nil {
+				// Validate the check is present
+				checks, err := consulClient.Agent().Checks()
+				require.NoError(t, err)
+				for _, expCheck := range c.checks {
+					require.Contains(t, checks, expCheck.CheckID)
+				}
+
+				// Ensure health status is "critical".
+				// These tests do not start a listening application, so the checks will not pass.
+				healthStatus, checksInfo, err := consulClient.Agent().AgentHealthServiceByID(service.ID)
+				require.NoError(t, err)
+				require.NotNil(t, checksInfo)
+				require.Equal(t, healthStatus, api.HealthCritical)
+			}
 
 			envoyBootstrapContents, err := ioutil.ReadFile(envoyBootstrapFile.Name())
 			require.NoError(t, err)

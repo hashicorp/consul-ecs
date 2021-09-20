@@ -22,7 +22,7 @@ const (
 	flagEnvoyBootstrapFile = "envoy-bootstrap-file"
 	flagPort               = "port"
 	flagUpstreams          = "upstreams"
-	flagChecks          = "checks"
+	flagChecks             = "checks"
 )
 
 type Command struct {
@@ -31,7 +31,7 @@ type Command struct {
 	flagEnvoyBootstrapFile string
 	flagPort               int
 	flagUpstreams          string
-	flagChecks string
+	flagChecks             string
 
 	flagSet *flag.FlagSet
 	once    sync.Once
@@ -42,7 +42,7 @@ func (c *Command) init() {
 	c.flagSet.StringVar(&c.flagEnvoyBootstrapFile, flagEnvoyBootstrapFile, "", "File to write bootstrap config to")
 	c.flagSet.IntVar(&c.flagPort, flagPort, 0, "Port service runs on")
 	c.flagSet.StringVar(&c.flagUpstreams, flagUpstreams, "", "Upstreams in form <name>:<port>,...")
-	c.flagSet.StringVar(&c.flagChecks, flagChecks, "", "Checks in JSON form")
+	c.flagSet.StringVar(&c.flagChecks, flagChecks, "", "List of Consul checks in JSON form")
 }
 
 func (c *Command) Run(args []string) int {

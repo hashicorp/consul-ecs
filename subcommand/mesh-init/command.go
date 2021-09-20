@@ -1,6 +1,7 @@
 package meshinit
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -21,6 +22,7 @@ const (
 	flagEnvoyBootstrapFile = "envoy-bootstrap-file"
 	flagPort               = "port"
 	flagUpstreams          = "upstreams"
+	flagChecks          = "checks"
 )
 
 type Command struct {
@@ -29,6 +31,7 @@ type Command struct {
 	flagEnvoyBootstrapFile string
 	flagPort               int
 	flagUpstreams          string
+	flagChecks string
 
 	flagSet *flag.FlagSet
 	once    sync.Once
@@ -39,6 +42,7 @@ func (c *Command) init() {
 	c.flagSet.StringVar(&c.flagEnvoyBootstrapFile, flagEnvoyBootstrapFile, "", "File to write bootstrap config to")
 	c.flagSet.IntVar(&c.flagPort, flagPort, 0, "Port service runs on")
 	c.flagSet.StringVar(&c.flagUpstreams, flagUpstreams, "", "Upstreams in form <name>:<port>,...")
+	c.flagSet.StringVar(&c.flagChecks, flagChecks, "", "Checks in JSON form")
 }
 
 func (c *Command) Run(args []string) int {
@@ -75,6 +79,13 @@ func (c *Command) realRun(log hclog.Logger) error {
 	taskID := taskMeta.TaskID()
 	serviceName := taskMeta.Family
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
+	var checks api.AgentServiceChecks
+	if c.flagChecks != "" {
+		err := json.Unmarshal([]byte(c.flagChecks), &checks)
+		if err != nil {
+			return fmt.Errorf("unmarshalling checks: %w", err)
+		}
+	}
 
 	err = backoff.RetryNotify(func() error {
 		log.Info("registering service")
@@ -87,6 +98,7 @@ func (c *Command) realRun(log hclog.Logger) error {
 				"task-arn": taskMeta.TaskARN,
 				"source":   "consul-ecs",
 			},
+			Checks: checks,
 		})
 	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(log))
 	if err != nil {

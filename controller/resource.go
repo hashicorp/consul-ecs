@@ -129,18 +129,17 @@ type tokenSecretJSON struct {
 // Upsert creates a token for the task if one doesn't already exist
 // and updates the secret with the contents of the token.
 func (t *Task) Upsert() error {
-	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN(*t.Task.TaskDefinitionArn)
+	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN()
 	if err != nil {
 		return fmt.Errorf("could not determine service name: %w", err)
 	}
 
-	meshTask := tagValue(t.Task.Tags, meshTag) == "true"
-	if !meshTask {
+	if !t.isMeshTask() {
 		t.Log.Info("skipping non-mesh task", "id", serviceName)
 		return nil
 	}
 
-	secretName := fmt.Sprintf("%s-%s", t.SecretPrefix, serviceName)
+	secretName := t.secretName(serviceName)
 
 	// Get current secret from AWS.
 	currSecretValue, err := t.SecretsManagerClient.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretId: aws.String(secretName)})
@@ -174,17 +173,62 @@ func (t *Task) Upsert() error {
 	}
 
 	// Otherwise, create one.
-	t.Log.Info("creating service token", "id", serviceName)
 	err = t.updateServiceToken(serviceName, secretName)
 	if err != nil {
 		return fmt.Errorf("updating service token: %w", err)
 	}
-	t.Log.Info("service token created successfully", "id", serviceName)
 
 	return nil
 }
 
 func (t *Task) Delete() error {
+	if !t.isMeshTask() {
+		t.Log.Info("skipping non-mesh task", "id", *t.Task.TaskDefinitionArn)
+		return nil
+	}
+
+	tokenList, _, err := t.ConsulClient.ACL().TokenList(nil)
+	if err != nil {
+		return fmt.Errorf("listing tokens: %w", err)
+	}
+
+	var tokenFound bool
+	var serviceName string
+	for _, tokenEntry := range tokenList {
+		token, _, err := t.ConsulClient.ACL().TokenRead(tokenEntry.AccessorID, nil)
+		if err != nil {
+			return fmt.Errorf("reading token: %w", err)
+		}
+
+		serviceName, err = t.parseFamilyNameFromTaskDefinitionARN()
+		if err != nil {
+			return fmt.Errorf("parsing service name: %w", err)
+		}
+
+		if len(token.ServiceIdentities) == 1 && token.ServiceIdentities[0].ServiceName == serviceName {
+			tokenFound = true
+			t.Log.Info("deleting token", "service", serviceName)
+			_, err = t.ConsulClient.ACL().TokenDelete(token.AccessorID, nil)
+			if err != nil {
+				return fmt.Errorf("deleting token: %w", err)
+			}
+			t.Log.Info("token deleted successfully", "service", serviceName)
+
+			secretName := t.secretName(serviceName)
+			t.Log.Info("updating secret", "name", secretName)
+			_, err = t.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
+				SecretId:     aws.String(secretName),
+				SecretString: aws.String(`{}`),
+			})
+			if err != nil {
+				return fmt.Errorf("updating secret: %s", err)
+			}
+			t.Log.Info("secret updated successfully", "name", secretName)
+		}
+	}
+	if !tokenFound {
+		return fmt.Errorf("could not find token for service %q", serviceName)
+	}
 	return nil
 }
 
@@ -199,6 +243,7 @@ func (t *Task) updateServiceToken(serviceName, secretName string) error {
 	if err != nil {
 		return fmt.Errorf("creating envoy token: %s", err)
 	}
+	t.Log.Info("service token created successfully", "id", serviceName)
 
 	serviceSecretValue, err := json.Marshal(tokenSecretJSON{Token: serviceToken.SecretID, AccessorID: serviceToken.AccessorID})
 	if err != nil {
@@ -219,7 +264,8 @@ func (t *Task) updateServiceToken(serviceName, secretName string) error {
 }
 
 // Task definition ARN looks like this: arn:aws:ecs:us-east-1:1234567890:task-definition/service:1
-func (t *Task) parseFamilyNameFromTaskDefinitionARN(taskDefArn string) (string, error) {
+func (t *Task) parseFamilyNameFromTaskDefinitionARN() (string, error) {
+	taskDefArn := *t.Task.TaskDefinitionArn
 	splits := strings.Split(taskDefArn, "/")
 	if len(splits) != 2 {
 		return "", fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
@@ -230,6 +276,14 @@ func (t *Task) parseFamilyNameFromTaskDefinitionARN(taskDefArn string) (string, 
 		return "", fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
 	}
 	return splits[0], nil
+}
+
+func (t *Task) secretName(serviceName string) string {
+	return fmt.Sprintf("%s-%s", t.SecretPrefix, serviceName)
+}
+
+func (t *Task) isMeshTask() bool {
+	return tagValue(t.Task.Tags, meshTag) == "true"
 }
 
 func tagValue(tags []*ecs.Tag, key string) string {

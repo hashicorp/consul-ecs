@@ -186,6 +186,113 @@ func TestTask_Upsert(t *testing.T) {
 	}
 }
 
-func TestTask_Delete(t *testing.T) {}
+func TestTask_Delete(t *testing.T) {
+	cases := map[string]struct {
+		createExistingToken bool
+		task                ecs.Task
+		expectTokenDeleted  bool
+		expectedError       string
+	}{
+		"the token for service doesn't exist in consul": {
+			createExistingToken: false,
+			task: ecs.Task{
+				TaskArn:           pointerToStr("task"),
+				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+			},
+			expectedError: "could not find token for service \"service\"",
+		},
+		"the token for service exists in consul": {
+			createExistingToken: true,
+			task: ecs.Task{
+				TaskArn:           pointerToStr("task"),
+				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+			},
+			expectTokenDeleted: true,
+		},
+		"skips non-mesh services": {
+			createExistingToken: true,
+			task: ecs.Task{
+				TaskArn:           pointerToStr("task"),
+				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+			},
+			expectTokenDeleted: false,
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			existingSecret := &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)}
+			smClient := &mocks.SMClient{Secret: existingSecret}
+			adminToken := "123e4567-e89b-12d3-a456-426614174000"
+			testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
+				c.ACL.Enabled = true
+				c.ACL.Tokens.Master = adminToken
+				c.ACL.DefaultPolicy = "deny"
+			})
+			require.NoError(t, err)
+			defer func() { _ = testServer.Stop() }()
+			testServer.WaitForLeader(t)
+
+			clientConfig := api.DefaultConfig()
+			clientConfig.Address = testServer.HTTPAddr
+			clientConfig.Token = adminToken
+
+			consulClient, err := api.NewClient(clientConfig)
+			require.NoError(t, err)
+
+			// Create existing token in consul and update existing secret.
+			var token *api.ACLToken
+			if c.createExistingToken {
+				token, _, err = consulClient.ACL().TokenCreate(&api.ACLToken{
+					ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "service"}},
+				}, nil)
+				require.NoError(t, err)
+
+				secretValue, err := json.Marshal(tokenSecretJSON{AccessorID: token.AccessorID, Token: token.SecretID})
+				require.NoError(t, err)
+				existingSecret.SecretString = pointerToStr(string(secretValue))
+			}
+
+			anotherToken, _, err := consulClient.ACL().TokenCreate(&api.ACLToken{
+				ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "another-service"}},
+			}, nil)
+			require.NoError(t, err)
+
+			taskTokens := Task{
+				SecretsManagerClient: smClient,
+				ConsulClient:         consulClient,
+				Cluster:              "test-cluster",
+				SecretPrefix:         "test",
+				Task:                 c.task,
+				Log:                  hclog.NewNullLogger(),
+			}
+
+			err = taskTokens.Delete()
+			if c.expectedError != "" {
+				require.EqualError(t, err, c.expectedError)
+			} else {
+				require.NoError(t, err)
+
+				// Check that the token is deleted from Consul.
+				_, _, err = consulClient.ACL().TokenRead(token.AccessorID, nil)
+				if c.expectTokenDeleted {
+					require.EqualError(t, err, "Unexpected response code: 403 (ACL not found)")
+
+					// Check that the secret is updated to an empty string.
+					require.Equal(t, `{}`, *smClient.Secret.SecretString)
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, *existingSecret.SecretString, *smClient.Secret.SecretString)
+				}
+			}
+
+			// Check that the other token is not affected.
+			_, _, err = consulClient.ACL().TokenRead(anotherToken.AccessorID, nil)
+			require.NoError(t, err)
+		})
+	}
+}
 
 func pointerToStr(s string) *string { return &s }

@@ -192,17 +192,16 @@ func (t *Task) Delete() error {
 		return fmt.Errorf("listing tokens: %w", err)
 	}
 
+	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN()
+	if err != nil {
+		return fmt.Errorf("parsing service name: %w", err)
+	}
+
 	var tokenFound bool
-	var serviceName string
 	for _, tokenEntry := range tokenList {
 		token, _, err := t.ConsulClient.ACL().TokenRead(tokenEntry.AccessorID, nil)
 		if err != nil {
 			return fmt.Errorf("reading token: %w", err)
-		}
-
-		serviceName, err = t.parseFamilyNameFromTaskDefinitionARN()
-		if err != nil {
-			return fmt.Errorf("parsing service name: %w", err)
 		}
 
 		if len(token.ServiceIdentities) == 1 && token.ServiceIdentities[0].ServiceName == serviceName {
@@ -215,7 +214,7 @@ func (t *Task) Delete() error {
 			t.Log.Info("token deleted successfully", "service", serviceName)
 
 			secretName := t.secretName(serviceName)
-			t.Log.Info("updating secret", "name", secretName)
+			t.Log.Info("updating secret", "name", secretName, "service", serviceName)
 			_, err = t.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
 				SecretId:     aws.String(secretName),
 				SecretString: aws.String(`{}`),
@@ -223,7 +222,7 @@ func (t *Task) Delete() error {
 			if err != nil {
 				return fmt.Errorf("updating secret: %s", err)
 			}
-			t.Log.Info("secret updated successfully", "name", secretName)
+			t.Log.Info("secret updated successfully", "name", secretName, "service", serviceName)
 		}
 	}
 	if !tokenFound {
@@ -243,7 +242,7 @@ func (t *Task) updateServiceToken(serviceName, secretName string) error {
 	if err != nil {
 		return fmt.Errorf("creating envoy token: %s", err)
 	}
-	t.Log.Info("service token created successfully", "id", serviceName)
+	t.Log.Info("service token created successfully", "service", serviceName)
 
 	serviceSecretValue, err := json.Marshal(tokenSecretJSON{Token: serviceToken.SecretID, AccessorID: serviceToken.AccessorID})
 	if err != nil {

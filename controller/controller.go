@@ -67,7 +67,7 @@ func (c *Controller) reconcile() error {
 		if _, ok := c.resourceState[resourceID]; !ok {
 			err = resource.Upsert()
 			if err != nil {
-				c.Log.Error("error upserting resource", "err", err)
+				c.Log.Error("error upserting resource", "err", err, "id", resourceID)
 				continue
 			}
 			c.resourceState[resourceID] = resource
@@ -82,7 +82,7 @@ func (c *Controller) reconcile() error {
 			if err != nil {
 				// If there's an error, log it but don't delete from internal
 				// state so that we can retry on the next iteration of the 'reconcile' loop.
-				c.Log.Error("error deleting resource", "err", err)
+				c.Log.Error("error deleting resource", "err", err, "id", id)
 				continue
 			}
 

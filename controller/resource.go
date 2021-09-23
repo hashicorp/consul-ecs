@@ -213,21 +213,23 @@ func (t *Task) Delete() error {
 			}
 			t.Log.Info("token deleted successfully", "service", serviceName)
 
-			secretName := t.secretName(serviceName)
-			t.Log.Info("updating secret", "name", secretName, "service", serviceName)
-			_, err = t.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
-				SecretId:     aws.String(secretName),
-				SecretString: aws.String(`{}`),
-			})
-			if err != nil {
-				return fmt.Errorf("updating secret: %s", err)
-			}
-			t.Log.Info("secret updated successfully", "name", secretName, "service", serviceName)
 		}
 	}
 	if !tokenFound {
-		return fmt.Errorf("could not find token for service %q", serviceName)
+		t.Log.Info("token not found in Consul", "service", serviceName)
 	}
+
+	secretName := t.secretName(serviceName)
+	t.Log.Info("updating secret", "name", secretName, "service", serviceName)
+	_, err = t.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
+		SecretId:     aws.String(secretName),
+		SecretString: aws.String(`{}`),
+	})
+	if err != nil {
+		return fmt.Errorf("updating secret: %s", err)
+	}
+	t.Log.Info("secret updated successfully", "name", secretName, "service", serviceName)
+
 	return nil
 }
 

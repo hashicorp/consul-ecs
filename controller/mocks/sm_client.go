@@ -7,7 +7,8 @@ import (
 
 type SMClient struct {
 	secretsmanageriface.SecretsManagerAPI
-	Secret *secretsmanager.GetSecretValueOutput
+	Secret        *secretsmanager.GetSecretValueOutput
+	UpdateSecretF func(input *secretsmanager.UpdateSecretInput) (*secretsmanager.UpdateSecretOutput, error)
 }
 
 func (m *SMClient) GetSecretValue(*secretsmanager.GetSecretValueInput) (*secretsmanager.GetSecretValueOutput, error) {
@@ -17,5 +18,8 @@ func (m *SMClient) GetSecretValue(*secretsmanager.GetSecretValueInput) (*secrets
 func (m *SMClient) UpdateSecret(input *secretsmanager.UpdateSecretInput) (*secretsmanager.UpdateSecretOutput, error) {
 	m.Secret.Name = input.SecretId
 	m.Secret.SecretString = input.SecretString
+	if m.UpdateSecretF != nil {
+		return m.UpdateSecretF(input)
+	}
 	return nil, nil
 }

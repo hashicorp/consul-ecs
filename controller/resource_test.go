@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
@@ -293,6 +294,77 @@ func TestTask_Delete(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// Test deleting the task when the initial call to update the secret in AWS
+// fails.
+func TestTask_DeleteWhenInitialUpdateFails(t *testing.T) {
+	existingSecret := &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)}
+	numCallsUpdateSecret := 0
+	smClient := &mocks.SMClient{
+		Secret: existingSecret,
+		UpdateSecretF: func(input *secretsmanager.UpdateSecretInput) (*secretsmanager.UpdateSecretOutput, error) {
+			if numCallsUpdateSecret == 0 {
+				numCallsUpdateSecret++
+				return nil, errors.New("aws error")
+			}
+			return nil, nil
+		},
+	}
+	adminToken := "123e4567-e89b-12d3-a456-426614174000"
+	testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
+		c.ACL.Enabled = true
+		c.ACL.Tokens.Master = adminToken
+		c.ACL.DefaultPolicy = "deny"
+	})
+	require.NoError(t, err)
+	defer func() { _ = testServer.Stop() }()
+	testServer.WaitForLeader(t)
+
+	clientConfig := api.DefaultConfig()
+	clientConfig.Address = testServer.HTTPAddr
+	clientConfig.Token = adminToken
+
+	consulClient, err := api.NewClient(clientConfig)
+	require.NoError(t, err)
+
+	// Create existing token in consul and update existing secret.
+	token, _, err := consulClient.ACL().TokenCreate(&api.ACLToken{
+		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "service"}},
+	}, nil)
+	require.NoError(t, err)
+
+	secretValue, err := json.Marshal(tokenSecretJSON{AccessorID: token.AccessorID, Token: token.SecretID})
+	require.NoError(t, err)
+	existingSecret.SecretString = pointerToStr(string(secretValue))
+
+	taskTokens := Task{
+		SecretsManagerClient: smClient,
+		ConsulClient:         consulClient,
+		Cluster:              "test-cluster",
+		SecretPrefix:         "test",
+		Task: ecs.Task{
+			TaskArn:           pointerToStr("task"),
+			TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+			Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+		},
+		Log: hclog.NewNullLogger(),
+	}
+
+	// The initial delete call should fail.
+	err = taskTokens.Delete()
+	require.EqualError(t, err, "updating secret: aws error")
+
+	// Now retry the delete.
+	err = taskTokens.Delete()
+	require.NoError(t, err)
+
+	// Check that the token is deleted from Consul.
+	_, _, err = consulClient.ACL().TokenRead(token.AccessorID, nil)
+	require.EqualError(t, err, "Unexpected response code: 403 (ACL not found)")
+
+	// Check that the secret is updated to an empty string.
+	require.Equal(t, `{}`, *smClient.Secret.SecretString)
 }
 
 func pointerToStr(s string) *string { return &s }

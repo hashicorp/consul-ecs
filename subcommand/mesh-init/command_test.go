@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -60,11 +62,12 @@ func TestRun(t *testing.T) {
 		"service with checks": {
 			checks: api.AgentServiceChecks{
 				&api.AgentServiceCheck{
+					// check id should be "api-<type>" for assertions
 					CheckID:  "api-http",
 					Name:     "HTTP on port 8080",
 					HTTP:     "http://localhost:8080",
-					Interval: "10s",
-					Timeout:  "5s",
+					Interval: "20s",
+					Timeout:  "10s",
 					Header:   map[string][]string{"Content-type": {"application/json"}},
 					Method:   "GET",
 					Notes:    "unittest http check",
@@ -82,7 +85,7 @@ func TestRun(t *testing.T) {
 					Name:       "GRPC on port 8081",
 					GRPC:       "localhost:8081",
 					GRPCUseTLS: false,
-					Interval:   "10s",
+					Interval:   "30s",
 					Notes:      "unittest grpc check",
 				},
 			},
@@ -150,7 +153,6 @@ func TestRun(t *testing.T) {
 				require.NoError(t, err)
 				cmdArgs = append(cmdArgs, "-checks", string(healthCheckBytes))
 			}
-			t.Logf("cmdArgs: %v", cmdArgs)
 			code := cmd.Run(cmdArgs)
 			require.Equal(t, code, 0)
 
@@ -186,25 +188,54 @@ func TestRun(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, cmp.Equal(expectedProxyServiceRegistration, proxyService, agentServiceIgnoreFields))
 
-			if c.checks != nil {
-				// Validate the check is present
-				checks, err := consulClient.Agent().Checks()
-				require.NoError(t, err)
-				for _, expCheck := range c.checks {
-					require.Contains(t, checks, expCheck.CheckID)
-				}
-
-				// Ensure health status is "critical".
-				// These tests do not start a listening application, so the checks will not pass.
-				healthStatus, checksInfo, err := consulClient.Agent().AgentHealthServiceByID(service.ID)
-				require.NoError(t, err)
-				require.NotNil(t, checksInfo)
-				require.Equal(t, healthStatus, api.HealthCritical)
-			}
-
 			envoyBootstrapContents, err := ioutil.ReadFile(envoyBootstrapFile.Name())
 			require.NoError(t, err)
 			require.NotEmpty(t, envoyBootstrapContents)
+
+			if c.checks != nil {
+				actualChecks, err := consulClient.Agent().Checks()
+				require.NoError(t, err)
+				for _, expCheck := range c.checks {
+					expectedAgentCheck := toAgentCheck(expCheck)
+					// Check for "critical" status. There is no listening application here, so checks will not pass.
+					expectedAgentCheck.Status = api.HealthCritical
+					// Pull the check type from the CheckID: "api-<type>" -> "<type>"
+					expectedAgentCheck.Type = strings.ReplaceAll(expCheck.CheckID, "api-", "")
+					expectedAgentCheck.ServiceID = expectedServiceRegistration.ID
+					expectedAgentCheck.ServiceName = expectedServiceRegistration.Service
+
+					require.Empty(t, cmp.Diff(actualChecks[expCheck.CheckID], expectedAgentCheck,
+						// Consul bug: the Definition field is always empty in the response
+						cmpopts.IgnoreFields(api.AgentCheck{}, "Node", "Output", "ExposedPort", "Definition", "Namespace")))
+				}
+			}
 		})
+	}
+}
+
+func toAgentCheck(check *api.AgentServiceCheck) *api.AgentCheck {
+	expInterval, _ := time.ParseDuration(check.Interval)
+	expTimeout, _ := time.ParseDuration(check.Timeout)
+	expDeregisterCriticalAfter, _ := time.ParseDuration(check.DeregisterCriticalServiceAfter)
+	return &api.AgentCheck{
+		CheckID: check.CheckID,
+		Name:    check.Name,
+		Notes:   check.Notes,
+		Definition: api.HealthCheckDefinition{
+			// Struct does not have GRPC or TTL fields
+			HTTP:                                   check.HTTP,
+			Header:                                 check.Header,
+			Method:                                 check.HTTP,
+			Body:                                   check.Body,
+			TLSServerName:                          check.TLSServerName,
+			TLSSkipVerify:                          check.TLSSkipVerify,
+			TCP:                                    check.TCP,
+			IntervalDuration:                       expInterval,
+			TimeoutDuration:                        expTimeout,
+			DeregisterCriticalServiceAfterDuration: expDeregisterCriticalAfter,
+			Interval:                               api.ReadableDuration(expInterval),
+			Timeout:                                api.ReadableDuration(expTimeout),
+			DeregisterCriticalServiceAfter:         api.ReadableDuration(expDeregisterCriticalAfter),
+		},
 	}
 }

@@ -110,6 +110,9 @@ type Task struct {
 }
 
 // ID returns Task definition ARN or error if it cannot be determined from the Task.
+// We're using task definition ARN instead of the Task ARN because we consider tasks
+// for the same definition to be equivalent in terms of their Upsert and Delete behavior,
+// and so there's no reason to process subsequent tasks with the same task definition.
 func (t *Task) ID() (ResourceID, error) {
 	// This should never be the case, but we are checking it anyway.
 	if t.Task.TaskDefinitionArn == nil {
@@ -197,7 +200,6 @@ func (t *Task) Delete() error {
 		return fmt.Errorf("parsing service name: %w", err)
 	}
 
-	var tokenFound bool
 	for _, tokenEntry := range tokenList {
 		token, _, err := t.ConsulClient.ACL().TokenRead(tokenEntry.AccessorID, nil)
 		if err != nil {
@@ -205,29 +207,26 @@ func (t *Task) Delete() error {
 		}
 
 		if len(token.ServiceIdentities) == 1 && token.ServiceIdentities[0].ServiceName == serviceName {
-			tokenFound = true
 			t.Log.Info("deleting token", "service", serviceName)
 			_, err = t.ConsulClient.ACL().TokenDelete(token.AccessorID, nil)
 			if err != nil {
 				return fmt.Errorf("deleting token: %w", err)
 			}
 			t.Log.Info("token deleted successfully", "service", serviceName)
-
-			secretName := t.secretName(serviceName)
-			t.Log.Info("updating secret", "name", secretName, "service", serviceName)
-			_, err = t.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
-				SecretId:     aws.String(secretName),
-				SecretString: aws.String(`{}`),
-			})
-			if err != nil {
-				return fmt.Errorf("updating secret: %s", err)
-			}
-			t.Log.Info("secret updated successfully", "name", secretName, "service", serviceName)
 		}
 	}
-	if !tokenFound {
-		return fmt.Errorf("could not find token for service %q", serviceName)
+
+	secretName := t.secretName(serviceName)
+	t.Log.Info("updating secret", "name", secretName, "service", serviceName)
+	_, err = t.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
+		SecretId:     aws.String(secretName),
+		SecretString: aws.String(`{}`),
+	})
+	if err != nil {
+		return fmt.Errorf("updating secret: %s", err)
 	}
+	t.Log.Info("secret updated successfully", "name", secretName, "service", serviceName)
+
 	return nil
 }
 

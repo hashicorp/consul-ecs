@@ -1,3 +1,10 @@
+## Unreleased
+
+FEATURES
+* mesh-init: Add `-checks` option to register service health checks.
+  [[GH-29](https://github.com/hashicorp/consul-ecs/pull/29)]
+
+
 ## 0.2.0-beta1 (September 16, 2021)
 
 BREAKING CHANGES

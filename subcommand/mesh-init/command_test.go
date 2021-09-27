@@ -206,7 +206,7 @@ func TestRun(t *testing.T) {
 					expectedAgentCheck.ServiceName = expectedServiceRegistration.Service
 
 					require.Empty(t, cmp.Diff(actualChecks[expCheck.CheckID], expectedAgentCheck,
-						// Consul bug: the Definition field is always empty in the response
+						// Due to a Consul bug, the Definition field is always empty in the response.
 						cmpopts.IgnoreFields(api.AgentCheck{}, "Node", "Output", "ExposedPort", "Definition", "Namespace")))
 				}
 			}
@@ -214,6 +214,8 @@ func TestRun(t *testing.T) {
 	}
 }
 
+// toAgentCheck translates the request type (AgentServiceCheck) into an "expected"
+// response type (AgentCheck) which we can use in assertions.
 func toAgentCheck(check *api.AgentServiceCheck) *api.AgentCheck {
 	expInterval, _ := time.ParseDuration(check.Interval)
 	expTimeout, _ := time.ParseDuration(check.Timeout)
@@ -223,7 +225,7 @@ func toAgentCheck(check *api.AgentServiceCheck) *api.AgentCheck {
 		Name:    check.Name,
 		Notes:   check.Notes,
 		Definition: api.HealthCheckDefinition{
-			// Struct does not have GRPC or TTL fields
+			// HealthCheckDefinition does not have GRPC or TTL fields.
 			HTTP:                                   check.HTTP,
 			Header:                                 check.Header,
 			Method:                                 check.HTTP,

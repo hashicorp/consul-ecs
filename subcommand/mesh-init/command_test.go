@@ -62,7 +62,7 @@ func TestRun(t *testing.T) {
 		"service with checks": {
 			checks: api.AgentServiceChecks{
 				&api.AgentServiceCheck{
-					// check id should be "api-<type>" for assertions
+					// Check id should be "api-<type>" for assertions.
 					CheckID:  "api-http",
 					Name:     "HTTP on port 8080",
 					HTTP:     "http://localhost:8080",
@@ -200,6 +200,7 @@ func TestRun(t *testing.T) {
 					// Check for "critical" status. There is no listening application here, so checks will not pass.
 					expectedAgentCheck.Status = api.HealthCritical
 					// Pull the check type from the CheckID: "api-<type>" -> "<type>"
+					// because Consul adds the Type field in its response.
 					expectedAgentCheck.Type = strings.ReplaceAll(expCheck.CheckID, "api-", "")
 					expectedAgentCheck.ServiceID = expectedServiceRegistration.ID
 					expectedAgentCheck.ServiceName = expectedServiceRegistration.Service

@@ -188,34 +188,59 @@ func TestTask_Upsert(t *testing.T) {
 
 func TestTask_Delete(t *testing.T) {
 	cases := map[string]struct {
-		createExistingToken bool
-		task                ecs.Task
-		expectTokenDeleted  bool
+		createExistingToken                bool
+		updateExistingSecret               bool
+		task                               ecs.Task
+		expectTokenDeletedAndSecretEmptied bool
 	}{
-		"the token for service doesn't exist in consul": {
-			createExistingToken: false,
+		"the token for service doesn't exist in consul and the secret is empty": {
+			createExistingToken:  false,
+			updateExistingSecret: false,
 			task: ecs.Task{
 				TaskArn:           pointerToStr("task"),
 				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
 				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
 			},
+			expectTokenDeletedAndSecretEmptied: true,
 		},
-		"the token for service exists in consul": {
-			createExistingToken: true,
+		"the token for service doesn't exist in consul and the secret has some value": {
+			createExistingToken:  false,
+			updateExistingSecret: true,
 			task: ecs.Task{
 				TaskArn:           pointerToStr("task"),
 				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
 				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
 			},
-			expectTokenDeleted: true,
+			expectTokenDeletedAndSecretEmptied: true,
+		},
+		"the token for service exists in consul and the secret has the token value": {
+			createExistingToken:  true,
+			updateExistingSecret: true,
+			task: ecs.Task{
+				TaskArn:           pointerToStr("task"),
+				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+			},
+			expectTokenDeletedAndSecretEmptied: true,
+		},
+		"the token for service exists in consul but the secret is empty": {
+			createExistingToken:  true,
+			updateExistingSecret: false,
+			task: ecs.Task{
+				TaskArn:           pointerToStr("task"),
+				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+			},
+			expectTokenDeletedAndSecretEmptied: true,
 		},
 		"skips non-mesh services": {
-			createExistingToken: true,
+			createExistingToken:  true,
+			updateExistingSecret: true,
 			task: ecs.Task{
 				TaskArn:           pointerToStr("task"),
 				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
 			},
-			expectTokenDeleted: false,
+			expectTokenDeletedAndSecretEmptied: false,
 		},
 	}
 
@@ -247,10 +272,17 @@ func TestTask_Delete(t *testing.T) {
 					ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "service"}},
 				}, nil)
 				require.NoError(t, err)
-
-				secretValue, err := json.Marshal(tokenSecretJSON{AccessorID: token.AccessorID, Token: token.SecretID})
-				require.NoError(t, err)
-				existingSecret.SecretString = pointerToStr(string(secretValue))
+			}
+			if c.updateExistingSecret {
+				if token != nil {
+					secretValue, err := json.Marshal(tokenSecretJSON{AccessorID: token.AccessorID, Token: token.SecretID})
+					require.NoError(t, err)
+					existingSecret.SecretString = pointerToStr(string(secretValue))
+				} else {
+					secretValue, err := json.Marshal(tokenSecretJSON{AccessorID: "some-accessor-id", Token: "some-secret-id"})
+					require.NoError(t, err)
+					existingSecret.SecretString = pointerToStr(string(secretValue))
+				}
 			}
 
 			anotherToken, _, err := consulClient.ACL().TokenCreate(&api.ACLToken{
@@ -273,14 +305,14 @@ func TestTask_Delete(t *testing.T) {
 			if c.createExistingToken {
 				// Check that the token is deleted from Consul.
 				_, _, err = consulClient.ACL().TokenRead(token.AccessorID, nil)
-				if c.expectTokenDeleted {
+				if c.expectTokenDeletedAndSecretEmptied {
 					require.EqualError(t, err, "Unexpected response code: 403 (ACL not found)")
 				} else {
 					require.NoError(t, err)
 				}
 			}
 
-			if c.expectTokenDeleted {
+			if c.expectTokenDeletedAndSecretEmptied {
 				// Check that the secret is updated to an empty string.
 				require.Equal(t, `{}`, *smClient.Secret.SecretString)
 			} else {

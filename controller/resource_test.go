@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
 	"github.com/hashicorp/consul-ecs/controller/mocks"
@@ -24,10 +25,10 @@ func TestTaskLister_List(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			task1 := &ecs.Task{
-				TaskArn: pointerToStr("task1"),
+				TaskArn: aws.String("task1"),
 			}
 			task2 := &ecs.Task{
-				TaskArn: pointerToStr("task2"),
+				TaskArn: aws.String("task2"),
 			}
 			tl := TaskLister{ECSClient: &mocks.ECSClient{Tasks: []*ecs.Task{task1, task2}, PaginateResults: c.paginateResults}}
 
@@ -51,59 +52,59 @@ func TestTask_Upsert(t *testing.T) {
 	}{
 		"task without mesh tag": {
 			task: &ecs.Task{
-				TaskArn:           pointerToStr("task-arn"),
-				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				TaskArn:           aws.String("task-arn"),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
 			},
-			existingSecret:     &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)},
+			existingSecret:     &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)},
 			expectTokenToExist: false,
 		},
 		"task with mesh tag": {
 			task: &ecs.Task{
-				TaskArn:           pointerToStr("task"),
-				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
-				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           aws.String("task"),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: aws.String(meshTag), Value: aws.String("true")}},
 			},
-			existingSecret:     &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)},
+			existingSecret:     &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)},
 			expectTokenToExist: true,
 		},
 		"task with an invalid task definition ARN (no / separator)": {
 			task: &ecs.Task{
-				TaskArn:           pointerToStr("task"),
-				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition-service:1"),
-				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           aws.String("task"),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition-service:1"),
+				Tags:              []*ecs.Tag{{Key: aws.String(meshTag), Value: aws.String("true")}},
 			},
-			existingSecret: &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)},
+			existingSecret: &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)},
 			expectedError:  `could not determine service name: cannot determine task family from task definition ARN: "arn:aws:ecs:us-east-1:1234567890:task-definition-service:1"`,
 		},
 		"task with an invalid task definition ARN (no revision)": {
 			task: &ecs.Task{
-				TaskArn:           pointerToStr("task"),
-				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service"),
-				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           aws.String("task"),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service"),
+				Tags:              []*ecs.Tag{{Key: aws.String(meshTag), Value: aws.String("true")}},
 			},
-			existingSecret: &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)},
+			existingSecret: &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)},
 			expectedError:  `could not determine service name: cannot determine task family from task definition ARN: "arn:aws:ecs:us-east-1:1234567890:task-definition/service"`,
 		},
 		"when there is an existing token for the service, we don't create a new one": {
 			task: &ecs.Task{
-				TaskArn:           pointerToStr("task"),
-				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
-				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           aws.String("task"),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: aws.String(meshTag), Value: aws.String("true")}},
 			},
 			// When createExistingToken is true, existingSecret will be updated with the value of the created token.
-			existingSecret:      &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)},
+			existingSecret:      &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)},
 			createExistingToken: true,
 			expectTokenToExist:  true,
 		},
 		"when the token in the secret doesn't exist in Consul, the secret is updated with the new value": {
 			task: &ecs.Task{
-				TaskArn:           pointerToStr("task"),
-				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
-				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           aws.String("task"),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: aws.String(meshTag), Value: aws.String("true")}},
 			},
 			existingSecret: &secretsmanager.GetSecretValueOutput{
-				Name:         pointerToStr("test-service"),
-				SecretString: pointerToStr(`{"accessor_id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","token":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}`),
+				Name:         aws.String("test-service"),
+				SecretString: aws.String(`{"accessor_id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","token":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}`),
 			},
 			expectTokenToExist: true,
 		},
@@ -138,7 +139,7 @@ func TestTask_Upsert(t *testing.T) {
 				require.NoError(t, err)
 				secretValue, err := json.Marshal(tokenSecretJSON{AccessorID: token.AccessorID, Token: token.SecretID})
 				require.NoError(t, err)
-				c.existingSecret.SecretString = pointerToStr(string(secretValue))
+				c.existingSecret.SecretString = aws.String(string(secretValue))
 			}
 
 			taskTokens := Task{
@@ -197,9 +198,9 @@ func TestTask_Delete(t *testing.T) {
 			createExistingToken:  false,
 			updateExistingSecret: false,
 			task: ecs.Task{
-				TaskArn:           pointerToStr("task"),
-				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
-				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           aws.String("task"),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: aws.String(meshTag), Value: aws.String("true")}},
 			},
 			expectTokenDeletedAndSecretEmptied: true,
 		},
@@ -207,9 +208,9 @@ func TestTask_Delete(t *testing.T) {
 			createExistingToken:  false,
 			updateExistingSecret: true,
 			task: ecs.Task{
-				TaskArn:           pointerToStr("task"),
-				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
-				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           aws.String("task"),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: aws.String(meshTag), Value: aws.String("true")}},
 			},
 			expectTokenDeletedAndSecretEmptied: true,
 		},
@@ -217,9 +218,9 @@ func TestTask_Delete(t *testing.T) {
 			createExistingToken:  true,
 			updateExistingSecret: true,
 			task: ecs.Task{
-				TaskArn:           pointerToStr("task"),
-				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
-				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           aws.String("task"),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: aws.String(meshTag), Value: aws.String("true")}},
 			},
 			expectTokenDeletedAndSecretEmptied: true,
 		},
@@ -227,9 +228,9 @@ func TestTask_Delete(t *testing.T) {
 			createExistingToken:  true,
 			updateExistingSecret: false,
 			task: ecs.Task{
-				TaskArn:           pointerToStr("task"),
-				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
-				Tags:              []*ecs.Tag{{Key: pointerToStr(meshTag), Value: pointerToStr("true")}},
+				TaskArn:           aws.String("task"),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: aws.String(meshTag), Value: aws.String("true")}},
 			},
 			expectTokenDeletedAndSecretEmptied: true,
 		},
@@ -237,8 +238,8 @@ func TestTask_Delete(t *testing.T) {
 			createExistingToken:  true,
 			updateExistingSecret: true,
 			task: ecs.Task{
-				TaskArn:           pointerToStr("task"),
-				TaskDefinitionArn: pointerToStr("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				TaskArn:           aws.String("task"),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
 			},
 			expectTokenDeletedAndSecretEmptied: false,
 		},
@@ -246,7 +247,7 @@ func TestTask_Delete(t *testing.T) {
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			existingSecret := &secretsmanager.GetSecretValueOutput{Name: pointerToStr("test-service"), SecretString: pointerToStr(`{}`)}
+			existingSecret := &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}
 			smClient := &mocks.SMClient{Secret: existingSecret}
 			adminToken := "123e4567-e89b-12d3-a456-426614174000"
 			testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
@@ -277,11 +278,11 @@ func TestTask_Delete(t *testing.T) {
 				if token != nil {
 					secretValue, err := json.Marshal(tokenSecretJSON{AccessorID: token.AccessorID, Token: token.SecretID})
 					require.NoError(t, err)
-					existingSecret.SecretString = pointerToStr(string(secretValue))
+					existingSecret.SecretString = aws.String(string(secretValue))
 				} else {
 					secretValue, err := json.Marshal(tokenSecretJSON{AccessorID: "some-accessor-id", Token: "some-secret-id"})
 					require.NoError(t, err)
-					existingSecret.SecretString = pointerToStr(string(secretValue))
+					existingSecret.SecretString = aws.String(string(secretValue))
 				}
 			}
 
@@ -325,5 +326,3 @@ func TestTask_Delete(t *testing.T) {
 		})
 	}
 }
-
-func pointerToStr(s string) *string { return &s }

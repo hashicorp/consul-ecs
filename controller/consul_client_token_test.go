@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
 	"github.com/hashicorp/consul-ecs/controller/mocks"
 	"github.com/hashicorp/consul/api"
@@ -20,34 +21,34 @@ func TestUpsertConsulClientToken(t *testing.T) {
 	}{
 		"when there is no token or policy": {
 			existingSecret: &secretsmanager.GetSecretValueOutput{
-				ARN:          pointerToStr("test-consul-client-token-arn"),
-				Name:         pointerToStr("test-consul-client-token"),
-				SecretString: pointerToStr(`{}`),
+				ARN:          aws.String("test-consul-client-token-arn"),
+				Name:         aws.String("test-consul-client-token"),
+				SecretString: aws.String(`{}`),
 			},
 		},
 		"when there is an existing token and policy for the Consul client, we don't create a new one": {
 			existingSecret: &secretsmanager.GetSecretValueOutput{
-				ARN:          pointerToStr("test-consul-client-token-arn"),
-				Name:         pointerToStr("test-consul-client-token"),
-				SecretString: pointerToStr(`{}`),
+				ARN:          aws.String("test-consul-client-token-arn"),
+				Name:         aws.String("test-consul-client-token"),
+				SecretString: aws.String(`{}`),
 			},
 			createExistingPolicy: true,
 			createExistingToken:  true,
 		},
 		"when there is an existing policy but no token for the Consul client, we update the token": {
 			existingSecret: &secretsmanager.GetSecretValueOutput{
-				ARN:          pointerToStr("test-consul-client-token-arn"),
-				Name:         pointerToStr("test-consul-client-token"),
-				SecretString: pointerToStr(`{}`),
+				ARN:          aws.String("test-consul-client-token-arn"),
+				Name:         aws.String("test-consul-client-token"),
+				SecretString: aws.String(`{}`),
 			},
 			createExistingPolicy: true,
 			createExistingToken:  false,
 		},
 		"when the token in the secret doesn't exist in Consul, the secret is updated with the new value": {
 			existingSecret: &secretsmanager.GetSecretValueOutput{
-				ARN:          pointerToStr("test-consul-client-token-arn"),
-				Name:         pointerToStr("test-consul-client-token"),
-				SecretString: pointerToStr(`{"accessor_id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","token":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}`),
+				ARN:          aws.String("test-consul-client-token-arn"),
+				Name:         aws.String("test-consul-client-token"),
+				SecretString: aws.String(`{"accessor_id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","token":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}`),
 			},
 		},
 	}
@@ -90,7 +91,7 @@ func TestUpsertConsulClientToken(t *testing.T) {
 					require.NoError(t, err)
 					secretValue, err := json.Marshal(tokenSecretJSON{AccessorID: token.AccessorID, Token: token.SecretID})
 					require.NoError(t, err)
-					c.existingSecret.SecretString = pointerToStr(string(secretValue))
+					c.existingSecret.SecretString = aws.String(string(secretValue))
 				}
 			}
 

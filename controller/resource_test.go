@@ -191,6 +191,7 @@ func TestTask_Delete(t *testing.T) {
 	cases := map[string]struct {
 		createExistingToken                bool
 		updateExistingSecret               bool
+		registerConsulService              bool
 		task                               ecs.Task
 		expectTokenDeletedAndSecretEmptied bool
 	}{
@@ -243,6 +244,17 @@ func TestTask_Delete(t *testing.T) {
 			},
 			expectTokenDeletedAndSecretEmptied: false,
 		},
+		"skips if there is a service still registered with Consul": {
+			createExistingToken:   true,
+			updateExistingSecret:  true,
+			registerConsulService: true,
+			task: ecs.Task{
+				TaskArn:           aws.String("task"),
+				TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"),
+				Tags:              []*ecs.Tag{{Key: aws.String(meshTag), Value: aws.String("true")}},
+			},
+			expectTokenDeletedAndSecretEmptied: false,
+		},
 	}
 
 	for name, c := range cases {
@@ -290,6 +302,13 @@ func TestTask_Delete(t *testing.T) {
 				ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "another-service"}},
 			}, nil)
 			require.NoError(t, err)
+
+			if c.registerConsulService {
+				err := consulClient.Agent().ServiceRegister(&api.AgentServiceRegistration{
+					Name: "service",
+				})
+				require.NoError(t, err)
+			}
 
 			taskTokens := Task{
 				SecretsManagerClient: smClient,

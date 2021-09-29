@@ -190,14 +190,23 @@ func (t *Task) Delete() error {
 		return nil
 	}
 
-	tokenList, _, err := t.ConsulClient.ACL().TokenList(nil)
-	if err != nil {
-		return fmt.Errorf("listing tokens: %w", err)
-	}
-
 	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN()
 	if err != nil {
 		return fmt.Errorf("parsing service name: %w", err)
+	}
+
+	services, _, err := t.ConsulClient.Catalog().Service(serviceName, "", nil)
+	if err != nil {
+		return fmt.Errorf("getting service from Consul: %w", err)
+	}
+	if len(services) != 0 {
+		t.Log.Info("skipping because service still exists", "id", *t.Task.TaskDefinitionArn)
+		return nil
+	}
+
+	tokenList, _, err := t.ConsulClient.ACL().TokenList(nil)
+	if err != nil {
+		return fmt.Errorf("listing tokens: %w", err)
 	}
 
 	for _, tokenEntry := range tokenList {

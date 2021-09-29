@@ -110,6 +110,9 @@ type Task struct {
 }
 
 // ID returns Task definition ARN or error if it cannot be determined from the Task.
+// We're using task definition ARN instead of the Task ARN because we consider tasks
+// for the same definition to be equivalent in terms of their Upsert and Delete behavior,
+// and so there's no reason to process subsequent tasks with the same task definition.
 func (t *Task) ID() (ResourceID, error) {
 	// This should never be the case, but we are checking it anyway.
 	if t.Task.TaskDefinitionArn == nil {
@@ -129,18 +132,17 @@ type tokenSecretJSON struct {
 // Upsert creates a token for the task if one doesn't already exist
 // and updates the secret with the contents of the token.
 func (t *Task) Upsert() error {
-	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN(*t.Task.TaskDefinitionArn)
+	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN()
 	if err != nil {
 		return fmt.Errorf("could not determine service name: %w", err)
 	}
 
-	meshTask := tagValue(t.Task.Tags, meshTag) == "true"
-	if !meshTask {
+	if !t.isMeshTask() {
 		t.Log.Info("skipping non-mesh task", "id", serviceName)
 		return nil
 	}
 
-	secretName := fmt.Sprintf("%s-%s", t.SecretPrefix, serviceName)
+	secretName := t.secretName(serviceName)
 
 	// Get current secret from AWS.
 	currSecretValue, err := t.SecretsManagerClient.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretId: aws.String(secretName)})
@@ -174,17 +176,72 @@ func (t *Task) Upsert() error {
 	}
 
 	// Otherwise, create one.
-	t.Log.Info("creating service token", "id", serviceName)
 	err = t.updateServiceToken(serviceName, secretName)
 	if err != nil {
 		return fmt.Errorf("updating service token: %w", err)
 	}
-	t.Log.Info("service token created successfully", "id", serviceName)
 
 	return nil
 }
 
 func (t *Task) Delete() error {
+	if !t.isMeshTask() {
+		t.Log.Info("skipping non-mesh task", "id", *t.Task.TaskDefinitionArn)
+		return nil
+	}
+
+	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN()
+	if err != nil {
+		return fmt.Errorf("parsing service name: %w", err)
+	}
+
+	// If a service still exists in Consul, it could be because this task is
+	// being upgraded (e.g. from task definition version 1 to version 2),
+	// and in that case, we don't want to delete the token prematurely.
+	// In a rare case, if the task family is being deleted permanently,
+	// and we call this function before the service is deregistered, we will also skip
+	// token deletion. That is intentional since it's safer to keep the token in Consul.
+	services, _, err := t.ConsulClient.Catalog().Service(serviceName, "", nil)
+	if err != nil {
+		return fmt.Errorf("getting service from Consul: %w", err)
+	}
+	if len(services) != 0 {
+		t.Log.Info("skipping because service still exists", "id", *t.Task.TaskDefinitionArn)
+		return nil
+	}
+
+	tokenList, _, err := t.ConsulClient.ACL().TokenList(nil)
+	if err != nil {
+		return fmt.Errorf("listing tokens: %w", err)
+	}
+
+	for _, tokenEntry := range tokenList {
+		token, _, err := t.ConsulClient.ACL().TokenRead(tokenEntry.AccessorID, nil)
+		if err != nil {
+			return fmt.Errorf("reading token: %w", err)
+		}
+
+		if len(token.ServiceIdentities) == 1 && token.ServiceIdentities[0].ServiceName == serviceName {
+			t.Log.Info("deleting token", "service", serviceName)
+			_, err = t.ConsulClient.ACL().TokenDelete(token.AccessorID, nil)
+			if err != nil {
+				return fmt.Errorf("deleting token: %w", err)
+			}
+			t.Log.Info("token deleted successfully", "service", serviceName)
+		}
+	}
+
+	secretName := t.secretName(serviceName)
+	t.Log.Info("updating secret", "name", secretName, "service", serviceName)
+	_, err = t.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
+		SecretId:     aws.String(secretName),
+		SecretString: aws.String(`{}`),
+	})
+	if err != nil {
+		return fmt.Errorf("updating secret: %s", err)
+	}
+	t.Log.Info("secret updated successfully", "name", secretName, "service", serviceName)
+
 	return nil
 }
 
@@ -199,6 +256,7 @@ func (t *Task) updateServiceToken(serviceName, secretName string) error {
 	if err != nil {
 		return fmt.Errorf("creating envoy token: %s", err)
 	}
+	t.Log.Info("service token created successfully", "service", serviceName)
 
 	serviceSecretValue, err := json.Marshal(tokenSecretJSON{Token: serviceToken.SecretID, AccessorID: serviceToken.AccessorID})
 	if err != nil {
@@ -219,7 +277,8 @@ func (t *Task) updateServiceToken(serviceName, secretName string) error {
 }
 
 // Task definition ARN looks like this: arn:aws:ecs:us-east-1:1234567890:task-definition/service:1
-func (t *Task) parseFamilyNameFromTaskDefinitionARN(taskDefArn string) (string, error) {
+func (t *Task) parseFamilyNameFromTaskDefinitionARN() (string, error) {
+	taskDefArn := *t.Task.TaskDefinitionArn
 	splits := strings.Split(taskDefArn, "/")
 	if len(splits) != 2 {
 		return "", fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
@@ -230,6 +289,14 @@ func (t *Task) parseFamilyNameFromTaskDefinitionARN(taskDefArn string) (string, 
 		return "", fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
 	}
 	return splits[0], nil
+}
+
+func (t *Task) secretName(serviceName string) string {
+	return fmt.Sprintf("%s-%s", t.SecretPrefix, serviceName)
+}
+
+func (t *Task) isMeshTask() bool {
+	return tagValue(t.Task.Tags, meshTag) == "true"
 }
 
 func tagValue(tags []*ecs.Tag, key string) string {

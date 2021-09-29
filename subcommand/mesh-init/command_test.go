@@ -1,12 +1,15 @@
 package meshinit
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -35,6 +38,7 @@ func TestRun(t *testing.T) {
 		servicePort  int
 		upstreams    string
 		expUpstreams []api.Upstream
+		checks       api.AgentServiceChecks
 	}{
 		"basic service": {},
 		"service with port": {
@@ -52,6 +56,37 @@ func TestRun(t *testing.T) {
 					DestinationType: "service",
 					DestinationName: "upstream2",
 					LocalBindPort:   1235,
+				},
+			},
+		},
+		"service with checks": {
+			checks: api.AgentServiceChecks{
+				&api.AgentServiceCheck{
+					// Check id should be "api-<type>" for assertions.
+					CheckID:  "api-http",
+					Name:     "HTTP on port 8080",
+					HTTP:     "http://localhost:8080",
+					Interval: "20s",
+					Timeout:  "10s",
+					Header:   map[string][]string{"Content-type": {"application/json"}},
+					Method:   "GET",
+					Notes:    "unittest http check",
+				},
+				&api.AgentServiceCheck{
+					CheckID:  "api-tcp",
+					Name:     "TCP on port 8080",
+					TCP:      "localhost:8080",
+					Interval: "10s",
+					Timeout:  "5s",
+					Notes:    "unittest tcp check",
+				},
+				&api.AgentServiceCheck{
+					CheckID:    "api-grpc",
+					Name:       "GRPC on port 8081",
+					GRPC:       "localhost:8081",
+					GRPCUseTLS: false,
+					Interval:   "30s",
+					Notes:      "unittest grpc check",
 				},
 			},
 		},
@@ -113,6 +148,11 @@ func TestRun(t *testing.T) {
 			if c.upstreams != "" {
 				cmdArgs = append(cmdArgs, "-upstreams", c.upstreams)
 			}
+			if c.checks != nil {
+				healthCheckBytes, err := json.Marshal(c.checks)
+				require.NoError(t, err)
+				cmdArgs = append(cmdArgs, "-checks", string(healthCheckBytes))
+			}
 			code := cmd.Run(cmdArgs)
 			require.Equal(t, code, 0)
 
@@ -151,6 +191,54 @@ func TestRun(t *testing.T) {
 			envoyBootstrapContents, err := ioutil.ReadFile(envoyBootstrapFile.Name())
 			require.NoError(t, err)
 			require.NotEmpty(t, envoyBootstrapContents)
+
+			if c.checks != nil {
+				actualChecks, err := consulClient.Agent().Checks()
+				require.NoError(t, err)
+				for _, expCheck := range c.checks {
+					expectedAgentCheck := toAgentCheck(expCheck)
+					// Check for "critical" status. There is no listening application here, so checks will not pass.
+					expectedAgentCheck.Status = api.HealthCritical
+					// Pull the check type from the CheckID: "api-<type>" -> "<type>"
+					// because Consul adds the Type field in its response.
+					expectedAgentCheck.Type = strings.ReplaceAll(expCheck.CheckID, "api-", "")
+					expectedAgentCheck.ServiceID = expectedServiceRegistration.ID
+					expectedAgentCheck.ServiceName = expectedServiceRegistration.Service
+
+					require.Empty(t, cmp.Diff(actualChecks[expCheck.CheckID], expectedAgentCheck,
+						// Due to a Consul bug, the Definition field is always empty in the response.
+						cmpopts.IgnoreFields(api.AgentCheck{}, "Node", "Output", "ExposedPort", "Definition", "Namespace")))
+				}
+			}
 		})
+	}
+}
+
+// toAgentCheck translates the request type (AgentServiceCheck) into an "expected"
+// response type (AgentCheck) which we can use in assertions.
+func toAgentCheck(check *api.AgentServiceCheck) *api.AgentCheck {
+	expInterval, _ := time.ParseDuration(check.Interval)
+	expTimeout, _ := time.ParseDuration(check.Timeout)
+	expDeregisterCriticalAfter, _ := time.ParseDuration(check.DeregisterCriticalServiceAfter)
+	return &api.AgentCheck{
+		CheckID: check.CheckID,
+		Name:    check.Name,
+		Notes:   check.Notes,
+		Definition: api.HealthCheckDefinition{
+			// HealthCheckDefinition does not have GRPC or TTL fields.
+			HTTP:                                   check.HTTP,
+			Header:                                 check.Header,
+			Method:                                 check.HTTP,
+			Body:                                   check.Body,
+			TLSServerName:                          check.TLSServerName,
+			TLSSkipVerify:                          check.TLSSkipVerify,
+			TCP:                                    check.TCP,
+			IntervalDuration:                       expInterval,
+			TimeoutDuration:                        expTimeout,
+			DeregisterCriticalServiceAfterDuration: expDeregisterCriticalAfter,
+			Interval:                               api.ReadableDuration(expInterval),
+			Timeout:                                api.ReadableDuration(expTimeout),
+			DeregisterCriticalServiceAfter:         api.ReadableDuration(expDeregisterCriticalAfter),
+		},
 	}
 }

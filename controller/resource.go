@@ -195,6 +195,12 @@ func (t *Task) Delete() error {
 		return fmt.Errorf("parsing service name: %w", err)
 	}
 
+	// If a service still exists in Consul, it could be because this task is
+	// being upgraded (e.g. from task definition version 1 to version 2),
+	// and in that case, we don't want to delete the token prematurely.
+	// In a rare case, if the task family is being deleted permanently,
+	// and we call this function before the service is deregistered, we will also skip
+	// token deletion. That is intentional since it's safer to keep the token in Consul.
 	services, _, err := t.ConsulClient.Catalog().Service(serviceName, "", nil)
 	if err != nil {
 		return fmt.Errorf("getting service from Consul: %w", err)

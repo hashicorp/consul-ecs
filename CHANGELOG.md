@@ -1,9 +1,11 @@
 ## Unreleased
 
+IMPROVEMENTS
+* Clean up ACL tokens for services/task families that are deleted. [[GH-30](https://github.com/hashicorp/consul-ecs/pull/30)]
+
 FEATURES
 * mesh-init: Add `-checks` option to register service health checks.
   [[GH-29](https://github.com/hashicorp/consul-ecs/pull/29)]
-
 
 ## 0.2.0-beta1 (September 16, 2021)
 

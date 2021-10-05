@@ -1,6 +1,6 @@
 ## UNRELEASED
 
-## Unreleased
+## 0.2.0-beta2 (September 30, 2021)
 
 IMPROVEMENTS
 * Clean up ACL tokens for services/task families that are deleted. [[GH-30](https://github.com/hashicorp/consul-ecs/pull/30)]

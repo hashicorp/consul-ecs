@@ -88,7 +88,7 @@ function main {
 
    if is_set "${do_git}"
    then
-      status_stage "==> Commiting Dev Mode Changes"
+      status_stage "==> Committing Dev Mode Changes"
       commit_dev_mode "${sdir}" || return 1
 
       if is_set "${do_push}"

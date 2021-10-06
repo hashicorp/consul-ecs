@@ -559,7 +559,7 @@ function git_push_ref {
 
       # upstream branch for this branch does not track the remote we need to push to
       # basically this checks that the upstream (could be something like origin/master) references the correct remote
-      # if it doesn't then the string modification wont apply and the var will reamin unchanged and equal to itself.
+      # if it doesn't then the string modification wont apply and the var will remain unchanged and equal to itself.
       if test "${upstream#${remote}/}" == "${upstream}"
       then
          err "ERROR: Upstream branch '${upstream}' does not track the correct remote '${remote}' - cannot push"

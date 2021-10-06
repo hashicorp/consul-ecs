@@ -19,14 +19,14 @@ import (
 
 const (
 	flagContainerNames = "container-names"
-	// The rate limit is about 40 per second, so 1 second pulling seems reasonable
+	// pollingInterval is how often we poll the container health endpoint.
+	// The rate limit is about 40 per second, so 1 second polling seems reasonable.
 	pollInterval = 1 * time.Second
 )
 
 type Command struct {
 	UI                 cli.Ui
 	flagContainerNames string
-	consulClient       *api.Client
 	log                hclog.Logger
 	flagSet            *flag.FlagSet
 	once               sync.Once
@@ -47,27 +47,30 @@ func (c *Command) Run(args []string) int {
 	// There is nothing to do, so successfully exit
 	if len(c.flagContainerNames) == 0 {
 		c.UI.Error(fmt.Sprintf("-%v doesn't have a value. exiting", flagContainerNames))
-		return 0
+		return 1
 	}
 
-	if err := c.realRun(); err != nil {
-		c.log.Error(err.Error())
+	consulClient, err := api.NewClient(api.DefaultConfig())
+	if err != nil {
+		c.UI.Error(fmt.Sprintf("constructing consul client: %s", err))
+		return 1
+	}
+
+	// This context will eventually be passed to `ignoreSIGTERM` so it can
+	// immediately update the statuses in Consul and cancel the loop that
+	// repeatedly calls `syncChecks`.
+	ctx := context.Background()
+
+	if err := c.realRun(ctx, consulClient); err != nil {
+		c.log.Error("error running main", "err", err)
 		return 1
 	}
 
 	return 0
 }
 
-func (c *Command) realRun() error {
-	ctx := context.Background()
-
+func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
 	c.ignoreSIGTERM()
-
-	consulClient, err := api.NewClient(api.DefaultConfig())
-	if err != nil {
-		return fmt.Errorf("constructing consul client: %s", err)
-	}
-	c.consulClient = consulClient
 
 	taskMeta, err := awsutil.ECSTaskMetadata()
 	if err != nil {
@@ -77,13 +80,13 @@ func (c *Command) realRun() error {
 	// Duplicate code from mesh-init. Service ID must match here and in mesh-init.
 	serviceName := taskMeta.Family
 
-	currentStatuses := map[string]string{}
+	currentStatuses := make(map[string]string)
 	parsedContainerNames := strings.Split(c.flagContainerNames, ",")
 
 	for {
 		select {
 		case <-time.After(pollInterval):
-			currentStatuses = c.syncChecks(currentStatuses, serviceName, parsedContainerNames)
+			currentStatuses = c.syncChecks(consulClient, currentStatuses, serviceName, parsedContainerNames)
 		case <-ctx.Done():
 			return nil
 		}
@@ -97,7 +100,7 @@ func (c *Command) ignoreSIGTERM() {
 	// And, print when we receive the SIGTERM
 	go func() {
 		for sig := range sigs {
-			c.log.Info("signal received", "signal", sig)
+			c.log.Info("signal received, ignoring", "signal", sig)
 		}
 	}()
 }
@@ -106,19 +109,28 @@ func (c *Command) ignoreSIGTERM() {
 // updates the Consul TTL checks for the containers specified in
 // `parsedContainerNames`. Checks are only updated if they have changed since
 // the last invocation of this function.
-func (c *Command) syncChecks(currentStatuses map[string]string, serviceName string, parsedContainerNames []string) map[string]string {
+func (c *Command) syncChecks(consulClient *api.Client, currentStatuses map[string]string, serviceName string, parsedContainerNames []string) map[string]string {
 	taskMeta, err := awsutil.ECSTaskMetadata()
 	if err != nil {
-		c.log.Error(err.Error())
+		c.log.Error("unable to get task metadata", "err", err)
 		return currentStatuses
 	}
+
 	containersToSync, missingContainers := findContainersToSync(parsedContainerNames, taskMeta)
 	for _, name := range missingContainers {
-		c.UI.Warn(fmt.Sprintf("container %s not found in task metadata", name))
+		checkID := makeCheckID(serviceName, taskMeta.TaskID(), name)
+		c.log.Debug("marking container as unhealthy since it wasn't found in the task metadata", "name", name)
+		err = updateConsulHealthStatus(consulClient, checkID, "UNHEALTHY")
+		if err != nil {
+			c.log.Warn("failed to update Consul health status for missing container", "error", err, "container", name)
+		} else {
+			c.log.Info("Container health check updated in Consul for missing container", "container", name)
+			currentStatuses[name] = api.HealthCritical
+		}
 	}
 
 	for _, container := range containersToSync {
-		c.log.Info("Updating Consul TTL check from ECS container health",
+		c.log.Debug("Updating Consul TTL check from ECS container health",
 			"name", container.Name,
 			"status", container.Health.Status,
 			"statusSince", container.Health.StatusSince,
@@ -127,11 +139,18 @@ func (c *Command) syncChecks(currentStatuses map[string]string, serviceName stri
 
 		previousStatus := currentStatuses[container.Name]
 		if container.Health.Status != previousStatus {
-			err = c.updateConsulHealthStatus(serviceName, container)
+			checkID := makeCheckID(serviceName, taskMeta.TaskID(), container.Name)
+			err = updateConsulHealthStatus(consulClient, checkID, container.Health.Status)
+
 			if err != nil {
-				c.log.Info(fmt.Sprintf("failed to update Consul health status: %s", err.Error()))
+				c.log.Warn("failed to update Consul health status", "error", err)
 			} else {
-				c.log.Info(fmt.Sprintf("Container %s health check updated in Consul", container.Name))
+				c.log.Info("Container health check updated in Consul",
+					"name", container.Name,
+					"status", container.Health.Status,
+					"statusSince", container.Health.StatusSince,
+					"exitCode", container.Health.ExitCode,
+				)
 				currentStatuses[container.Name] = container.Health.Status
 			}
 		}
@@ -140,19 +159,22 @@ func (c *Command) syncChecks(currentStatuses map[string]string, serviceName stri
 	return currentStatuses
 }
 
-func findContainersToSync(containerNames []string, taskMeta awsutil.ECSTaskMeta) ([]*awsutil.ECSTaskMetaContainer, []string) {
-	ecsContainers := []*awsutil.ECSTaskMetaContainer{}
-	missing := []string{}
+func findContainersToSync(containerNames []string, taskMeta awsutil.ECSTaskMeta) ([]awsutil.ECSTaskMetaContainer, []string) {
+	var ecsContainers []awsutil.ECSTaskMetaContainer
+	var missing []string
 
-ContainerNames:
 	for _, container := range containerNames {
+		found := false
 		for _, ecsContainer := range taskMeta.Containers {
 			if ecsContainer.Name == container {
-				ecsContainers = append(ecsContainers, &ecsContainer)
-				continue ContainerNames
+				ecsContainers = append(ecsContainers, ecsContainer)
+				found = true
+				break
 			}
 		}
-		missing = append(missing, container)
+		if !found {
+			missing = append(missing, container)
+		}
 	}
 	return ecsContainers, missing
 }
@@ -166,21 +188,18 @@ func ecsHealthToConsulHealth(ecsHealth string) string {
 	return api.HealthPassing
 }
 
-func makeCheckID(serviceName, containerName string) string {
-	return fmt.Sprintf("%s-%s-ecs-health-sync", serviceName, containerName)
+func makeCheckID(serviceName, taskID, containerName string) string {
+	return fmt.Sprintf("%s-%s-%s-consul-ecs", serviceName, taskID, containerName)
 }
 
-func (c *Command) updateConsulHealthStatus(serviceName string, container *awsutil.ECSTaskMetaContainer) error {
-	ecsHealthStatus := container.Health.Status
-
+func updateConsulHealthStatus(consulClient *api.Client, checkID string, ecsHealthStatus string) error {
 	consulHealthStatus := ecsHealthToConsulHealth(ecsHealthStatus)
-	checkID := makeCheckID(serviceName, container.Name)
 
-	reason := fmt.Sprintf("ECS health status is %q for container %q", ecsHealthStatus, container.Name)
+	reason := fmt.Sprintf("ECS health status is %q for task %q", ecsHealthStatus, checkID)
 
-	err := c.consulClient.Agent().UpdateTTL(checkID, reason, consulHealthStatus)
+	err := consulClient.Agent().UpdateTTL(checkID, reason, consulHealthStatus)
 	if err != nil {
-		return fmt.Errorf("updating health check: %w", err)
+		return err
 	}
 
 	return nil

@@ -4,7 +4,7 @@ GO_BUILD_CONTAINER_DEFAULT="consul-ecs-build-go"
 # Whether to colorize shell output
 COLORIZE=${COLORIZE-1}
 
-# determine GOPATH and the first GOPATH to use for intalling binaries
+# determine GOPATH and the first GOPATH to use for installing binaries
 GOPATH=${GOPATH:-$(go env GOPATH)}
 case $(uname) in
     CYGWIN*)

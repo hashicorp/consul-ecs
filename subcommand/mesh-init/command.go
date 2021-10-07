@@ -79,11 +79,14 @@ func (c *Command) realRun(log hclog.Logger) error {
 	taskID := taskMeta.TaskID()
 	serviceName := taskMeta.Family
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
-	var checks api.AgentServiceChecks
-	if c.flagChecks != "" {
-		err := json.Unmarshal([]byte(c.flagChecks), &checks)
-		if err != nil {
-			return fmt.Errorf("unmarshalling checks: %w", err)
+	checks, err := parseChecks(taskID, c.flagChecks)
+	if err != nil {
+		return fmt.Errorf("parsing checks: %w", err)
+	}
+
+	for _, check := range checks {
+		if check.CheckID != "" {
+			check.CheckID = strings.Replace(check.CheckID, "TASK_ID", taskID, 1)
 		}
 	}
 
@@ -180,6 +183,29 @@ func (c *Command) realRun(log hclog.Logger) error {
 
 	log.Info("envoy bootstrap config written", "file", c.flagEnvoyBootstrapFile)
 	return nil
+}
+
+// parseChecks parses the json encoded Consul checks it recieves in flagChecks
+// and then replaces TASK_ID in the CheckID with taskID. This is
+// required for the health checks that are constructed via terraform and may be
+// helpful in other situations too.
+func parseChecks(taskID, flagChecks string) (api.AgentServiceChecks, error) {
+	var checks api.AgentServiceChecks
+
+	if flagChecks != "" {
+		err := json.Unmarshal([]byte(flagChecks), &checks)
+		if err != nil {
+			return checks, fmt.Errorf("unmarshalling checks: %w", err)
+		}
+	}
+
+	for _, check := range checks {
+		if check.CheckID != "" {
+			check.CheckID = strings.Replace(check.CheckID, "TASK_ID", taskID, 1)
+		}
+	}
+
+	return checks, nil
 }
 
 func (c *Command) Synopsis() string {

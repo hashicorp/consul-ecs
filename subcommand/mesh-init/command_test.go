@@ -242,3 +242,50 @@ func toAgentCheck(check *api.AgentServiceCheck) *api.AgentCheck {
 		},
 	}
 }
+
+func TestParseChecksWithoutTaskIDReplacement(t *testing.T) {
+	taskID := "doesnt-matter"
+	checks := api.AgentServiceChecks{
+		&api.AgentServiceCheck{
+			// Check id should be "api-<type>" for assertions.
+			CheckID:  "api-http",
+			Name:     "HTTP on port 8080",
+			HTTP:     "http://localhost:8080",
+			Interval: "20s",
+			Timeout:  "10s",
+			Header:   map[string][]string{"Content-type": {"application/json"}},
+			Method:   "GET",
+			Notes:    "unittest http check",
+		},
+	}
+
+	healthCheckBytes, err := json.Marshal(checks)
+	require.NoError(t, err)
+	parsed, err := parseChecks(taskID, string(healthCheckBytes))
+	require.NoError(t, err)
+	require.Equal(t, checks, parsed)
+}
+
+func TestParseChecksWithTaskIDReplacement(t *testing.T) {
+	taskID := "task-id"
+	checks := api.AgentServiceChecks{
+		&api.AgentServiceCheck{
+			// Check id should be "api-<type>" for assertions.
+			CheckID:  "api-TASK_ID-http",
+			Name:     "HTTP on port 8080",
+			HTTP:     "http://localhost:8080",
+			Interval: "20s",
+			Timeout:  "10s",
+			Header:   map[string][]string{"Content-type": {"application/json"}},
+			Method:   "GET",
+			Notes:    "unittest http check",
+		},
+	}
+
+	healthCheckBytes, err := json.Marshal(checks)
+	require.NoError(t, err)
+	parsed, err := parseChecks(taskID, string(healthCheckBytes))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(parsed))
+	require.Equal(t, "api-task-id-http", parsed[0].CheckID)
+}

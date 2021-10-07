@@ -23,6 +23,7 @@ const (
 	flagPort               = "port"
 	flagUpstreams          = "upstreams"
 	flagChecks             = "checks"
+	flagDefaultChecks      = "default-checks"
 )
 
 type Command struct {
@@ -32,6 +33,7 @@ type Command struct {
 	flagPort               int
 	flagUpstreams          string
 	flagChecks             string
+	flagDefaultChecks      string
 
 	flagSet *flag.FlagSet
 	once    sync.Once
@@ -43,6 +45,7 @@ func (c *Command) init() {
 	c.flagSet.IntVar(&c.flagPort, flagPort, 0, "Port service runs on")
 	c.flagSet.StringVar(&c.flagUpstreams, flagUpstreams, "", "Upstreams in form <name>:<port>,...")
 	c.flagSet.StringVar(&c.flagChecks, flagChecks, "", "List of Consul checks in JSON form")
+	c.flagSet.StringVar(&c.flagDefaultChecks, flagDefaultChecks, "", "A comma separated list of container names that need Consul TTL checks")
 }
 
 func (c *Command) Run(args []string) int {
@@ -79,12 +82,11 @@ func (c *Command) realRun(log hclog.Logger) error {
 	taskID := taskMeta.TaskID()
 	serviceName := taskMeta.Family
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
-	var checks api.AgentServiceChecks
-	if c.flagChecks != "" {
-		err := json.Unmarshal([]byte(c.flagChecks), &checks)
-		if err != nil {
-			return fmt.Errorf("unmarshalling checks: %w", err)
-		}
+
+	checks, err := constructChecks(serviceID, c.flagChecks, c.flagDefaultChecks)
+
+	if err != nil {
+		return err
 	}
 
 	err = backoff.RetryNotify(func() error {
@@ -194,4 +196,33 @@ func retryLogger(log hclog.Logger) backoff.Notify {
 	return func(err error, duration time.Duration) {
 		log.Error(err.Error(), "retry", duration.String())
 	}
+}
+
+func constructChecks(serviceID, checks, defaultChecks string) (api.AgentServiceChecks, error) {
+	var serviceChecks api.AgentServiceChecks
+
+	if checks != "" {
+		err := json.Unmarshal([]byte(checks), &serviceChecks)
+		if err != nil {
+			return serviceChecks, fmt.Errorf("unmarshalling checks: %w", err)
+		}
+	}
+
+	if len(serviceChecks) > 0 && defaultChecks != "" {
+		return serviceChecks, fmt.Errorf("both -%s and -%s can't be passed", flagChecks, flagDefaultChecks)
+	}
+
+	if defaultChecks != "" {
+		defaultCheckContainers := strings.Split(defaultChecks, ",")
+		for _, containerName := range defaultCheckContainers {
+			serviceChecks = append(serviceChecks, &api.AgentServiceCheck{
+				CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName),
+				Name:    "consul ecs synced",
+				Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
+				TTL:     "100000h",
+			})
+		}
+	}
+
+	return serviceChecks, nil
 }

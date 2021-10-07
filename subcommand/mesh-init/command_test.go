@@ -214,6 +214,82 @@ func TestRun(t *testing.T) {
 	}
 }
 
+func TestConstructChecks(t *testing.T) {
+	serviceID := "serviceID"
+
+	_, err := constructChecks(serviceID, "asdf", "asdf")
+	require.Error(t, err)
+
+	argChecks := api.AgentServiceChecks{
+		&api.AgentServiceCheck{
+			// Check id should be "api-<type>" for assertions.
+			CheckID:  "api-http",
+			Name:     "HTTP on port 8080",
+			HTTP:     "http://localhost:8080",
+			Interval: "20s",
+			Timeout:  "10s",
+			Header:   map[string][]string{"Content-type": {"application/json"}},
+			Method:   "GET",
+			Notes:    "unittest http check",
+		},
+		&api.AgentServiceCheck{
+			CheckID:  "api-tcp",
+			Name:     "TCP on port 8080",
+			TCP:      "localhost:8080",
+			Interval: "10s",
+			Timeout:  "5s",
+			Notes:    "unittest tcp check",
+		},
+		&api.AgentServiceCheck{
+			CheckID:    "api-grpc",
+			Name:       "GRPC on port 8081",
+			GRPC:       "localhost:8081",
+			GRPCUseTLS: false,
+			Interval:   "30s",
+			Notes:      "unittest grpc check",
+		},
+	}
+	encodedChecks, err := json.Marshal(argChecks)
+	require.NoError(t, err)
+
+	checks, err := constructChecks(serviceID, string(encodedChecks), "")
+	require.NoError(t, err)
+	require.Equal(t, argChecks, checks)
+
+	containerName1 := "containerName1"
+	containerName2 := "containerName2"
+	expectedChecks := api.AgentServiceChecks{
+		&api.AgentServiceCheck{
+			CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName1),
+			Name:    "consul ecs synced",
+			Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
+			TTL:     "100000h",
+		},
+		&api.AgentServiceCheck{
+			CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName2),
+			Name:    "consul ecs synced",
+			Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
+			TTL:     "100000h",
+		},
+	}
+
+	checks, err = constructChecks(serviceID, "", fmt.Sprintf("%s,%s", containerName1, containerName2))
+	require.NoError(t, err)
+	require.Equal(t, expectedChecks, checks)
+
+	expectedChecks = api.AgentServiceChecks{
+		&api.AgentServiceCheck{
+			CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName1),
+			Name:    "consul ecs synced",
+			Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
+			TTL:     "100000h",
+		},
+	}
+	checks, err = constructChecks(serviceID, "[]", containerName1)
+	require.NoError(t, err)
+	require.Equal(t, expectedChecks, checks)
+}
+
 // toAgentCheck translates the request type (AgentServiceCheck) into an "expected"
 // response type (AgentCheck) which we can use in assertions.
 func toAgentCheck(check *api.AgentServiceCheck) *api.AgentCheck {

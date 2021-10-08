@@ -7,6 +7,9 @@ FEATURES
 ## 0.2.0-beta2 (September 30, 2021)
 IMPROVEMENTS
 * Clean up ACL tokens for services/task families that are deleted. [[GH-30](https://github.com/hashicorp/consul-ecs/pull/30)]
+* Change the owner of `/consul` in the Docker image  to `consul-ecs`. This
+  allows `mesh-init` to run as `consul-ecs` rather than `root`.
+  [[GH-37](https://github.com/hashicorp/consul-ecs/pull/37)]
 
 FEATURES
 * mesh-init: Add `-checks` option to register service health checks.

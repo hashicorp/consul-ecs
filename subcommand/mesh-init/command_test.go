@@ -222,8 +222,7 @@ func TestConstructChecks(t *testing.T) {
 
 	argChecks := api.AgentServiceChecks{
 		&api.AgentServiceCheck{
-			// Check id should be "api-<type>" for assertions.
-			CheckID:  "api-http",
+			CheckID:  "check-1",
 			Name:     "HTTP on port 8080",
 			HTTP:     "http://localhost:8080",
 			Interval: "20s",
@@ -233,7 +232,7 @@ func TestConstructChecks(t *testing.T) {
 			Notes:    "unittest http check",
 		},
 		&api.AgentServiceCheck{
-			CheckID:  "api-tcp",
+			CheckID:  "check-2",
 			Name:     "TCP on port 8080",
 			TCP:      "localhost:8080",
 			Interval: "10s",
@@ -241,7 +240,7 @@ func TestConstructChecks(t *testing.T) {
 			Notes:    "unittest tcp check",
 		},
 		&api.AgentServiceCheck{
-			CheckID:    "api-grpc",
+			CheckID:    "check-3",
 			Name:       "GRPC on port 8081",
 			GRPC:       "localhost:8081",
 			GRPCUseTLS: false,

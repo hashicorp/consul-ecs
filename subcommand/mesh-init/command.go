@@ -19,21 +19,21 @@ import (
 )
 
 const (
-	flagEnvoyBootstrapFile = "envoy-bootstrap-file"
-	flagPort               = "port"
-	flagUpstreams          = "upstreams"
-	flagChecks             = "checks"
-	flagDefaultChecks      = "default-checks"
+	flagEnvoyBootstrapFile   = "envoy-bootstrap-file"
+	flagPort                 = "port"
+	flagUpstreams            = "upstreams"
+	flagChecks               = "checks"
+	flagHealthSyncContainers = "health-sync-containers"
 )
 
 type Command struct {
 	UI cli.Ui
 
-	flagEnvoyBootstrapFile string
-	flagPort               int
-	flagUpstreams          string
-	flagChecks             string
-	flagDefaultChecks      string
+	flagEnvoyBootstrapFile   string
+	flagPort                 int
+	flagUpstreams            string
+	flagChecks               string
+	flagHealthSyncContainers string
 
 	flagSet *flag.FlagSet
 	once    sync.Once
@@ -45,7 +45,7 @@ func (c *Command) init() {
 	c.flagSet.IntVar(&c.flagPort, flagPort, 0, "Port service runs on")
 	c.flagSet.StringVar(&c.flagUpstreams, flagUpstreams, "", "Upstreams in form <name>:<port>,...")
 	c.flagSet.StringVar(&c.flagChecks, flagChecks, "", "List of Consul checks in JSON form")
-	c.flagSet.StringVar(&c.flagDefaultChecks, flagDefaultChecks, "", "A comma separated list of container names that need Consul TTL checks")
+	c.flagSet.StringVar(&c.flagHealthSyncContainers, flagHealthSyncContainers, "", "A comma separated list of container names that need Consul TTL checks")
 }
 
 func (c *Command) Run(args []string) int {
@@ -83,7 +83,7 @@ func (c *Command) realRun(log hclog.Logger) error {
 	serviceName := taskMeta.Family
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
 
-	checks, err := constructChecks(serviceID, c.flagChecks, c.flagDefaultChecks)
+	checks, err := constructChecks(serviceID, c.flagChecks, c.flagHealthSyncContainers)
 
 	if err != nil {
 		return err
@@ -198,24 +198,24 @@ func retryLogger(log hclog.Logger) backoff.Notify {
 	}
 }
 
-func constructChecks(serviceID, checks, defaultChecks string) (api.AgentServiceChecks, error) {
-	var serviceChecks api.AgentServiceChecks
+func constructChecks(serviceID, encodedChecks, encodedHealthSyncContainers string) (api.AgentServiceChecks, error) {
+	var checks api.AgentServiceChecks
 
-	if checks != "" {
-		err := json.Unmarshal([]byte(checks), &serviceChecks)
+	if encodedChecks != "" {
+		err := json.Unmarshal([]byte(encodedChecks), &checks)
 		if err != nil {
-			return serviceChecks, fmt.Errorf("unmarshalling checks: %w", err)
+			return checks, fmt.Errorf("unmarshalling checks: %w", err)
 		}
 	}
 
-	if len(serviceChecks) > 0 && defaultChecks != "" {
-		return serviceChecks, fmt.Errorf("both -%s and -%s can't be passed", flagChecks, flagDefaultChecks)
+	if len(checks) > 0 && encodedHealthSyncContainers != "" {
+		return checks, fmt.Errorf("both -%s and -%s can't be passed", flagChecks, flagHealthSyncContainers)
 	}
 
-	if defaultChecks != "" {
-		defaultCheckContainers := strings.Split(defaultChecks, ",")
+	if encodedHealthSyncContainers != "" {
+		defaultCheckContainers := strings.Split(encodedHealthSyncContainers, ",")
 		for _, containerName := range defaultCheckContainers {
-			serviceChecks = append(serviceChecks, &api.AgentServiceCheck{
+			checks = append(checks, &api.AgentServiceCheck{
 				CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName),
 				Name:    "consul ecs synced",
 				Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
@@ -224,5 +224,5 @@ func constructChecks(serviceID, checks, defaultChecks string) (api.AgentServiceC
 		}
 	}
 
-	return serviceChecks, nil
+	return checks, nil
 }

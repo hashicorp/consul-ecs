@@ -19,23 +19,23 @@ import (
 )
 
 const (
-	flagContainerNames = "container-names"
+	flagHealthSyncContainers = "health-sync-containers"
 	// pollingInterval is how often we poll the container health endpoint.
 	// The rate limit is about 40 per second, so 1 second polling seems reasonable.
 	pollInterval = 1 * time.Second
 )
 
 type Command struct {
-	UI                 cli.Ui
-	flagContainerNames string
-	log                hclog.Logger
-	flagSet            *flag.FlagSet
-	once               sync.Once
+	UI                       cli.Ui
+	flagHealthSyncContainers string
+	log                      hclog.Logger
+	flagSet                  *flag.FlagSet
+	once                     sync.Once
 }
 
 func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
-	c.flagSet.StringVar(&c.flagContainerNames, flagContainerNames, "", "Comma-separated list of container names for which to sync health status into Consul")
+	c.flagSet.StringVar(&c.flagHealthSyncContainers, flagHealthSyncContainers, "", "Comma-separated list of container names for which to sync health status into Consul")
 	c.log = hclog.New(nil)
 }
 
@@ -47,8 +47,8 @@ func (c *Command) Run(args []string) int {
 
 	// We expect this command to be invoked with a list of containers
 	// so error out if the list is empty.
-	if len(c.flagContainerNames) == 0 {
-		c.UI.Error(fmt.Sprintf("-%v doesn't have a value. exiting", flagContainerNames))
+	if len(c.flagHealthSyncContainers) == 0 {
+		c.UI.Error(fmt.Sprintf("-%v doesn't have a value. exiting", flagHealthSyncContainers))
 		return 1
 	}
 
@@ -83,7 +83,7 @@ func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
 	serviceName := taskMeta.Family
 
 	currentStatuses := make(map[string]string)
-	parsedContainerNames := strings.Split(c.flagContainerNames, ",")
+	parsedContainerNames := strings.Split(c.flagHealthSyncContainers, ",")
 
 	for {
 		select {

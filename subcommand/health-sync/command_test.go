@@ -26,7 +26,7 @@ func TestRunWithoutContainerNames(t *testing.T) {
 	}
 	code := cmd.Run(nil)
 	require.Equal(t, 1, code)
-	require.Equal(t, "-container-names doesn't have a value. exiting\n", ui.ErrorWriter.String())
+	require.Equal(t, "-health-sync-containers doesn't have a value. exiting\n", ui.ErrorWriter.String())
 }
 
 func TestEcsHealthToConsulHealth(t *testing.T) {
@@ -222,9 +222,9 @@ func TestRunWithContainerNames(t *testing.T) {
 			ui := cli.NewMockUi()
 			log := hclog.New(nil)
 			cmd := Command{
-				UI:                 ui,
-				log:                log,
-				flagContainerNames: strings.Join(expectSyncContainers, ","),
+				UI:                       ui,
+				log:                      log,
+				flagHealthSyncContainers: strings.Join(expectSyncContainers, ","),
 			}
 
 			// Start the command.

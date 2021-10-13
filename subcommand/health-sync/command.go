@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-multierror"
 	"github.com/mitchellh/cli"
 )
 
@@ -58,10 +59,9 @@ func (c *Command) Run(args []string) int {
 		return 1
 	}
 
-	// This context will eventually be passed to `ignoreSIGTERM` so it can
-	// immediately update the statuses in Consul and cancel the loop that
-	// repeatedly calls `syncChecks`.
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	c.ignoreSIGTERM(cancel)
 
 	if err := c.realRun(ctx, consulClient); err != nil {
 		c.log.Error("error running main", "err", err)
@@ -72,8 +72,6 @@ func (c *Command) Run(args []string) int {
 }
 
 func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
-	c.ignoreSIGTERM()
-
 	taskMeta, err := awsutil.ECSTaskMetadata()
 	if err != nil {
 		return err
@@ -90,12 +88,14 @@ func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
 		case <-time.After(pollInterval):
 			currentStatuses = c.syncChecks(consulClient, currentStatuses, serviceName, parsedContainerNames)
 		case <-ctx.Done():
-			return nil
+			return c.setChecksCritical(consulClient, taskMeta.TaskID(), serviceName, parsedContainerNames)
 		}
 	}
 }
 
-func (c *Command) ignoreSIGTERM() {
+// ignoreSIGTERM logs when the SIGTERM occurs and then calls the cancel context
+// function
+func (c *Command) ignoreSIGTERM(cancel context.CancelFunc) {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM)
 	// Don't need to do anything for now. Just catch the SIGTERM so we don't exit.
@@ -103,6 +103,7 @@ func (c *Command) ignoreSIGTERM() {
 	go func() {
 		for sig := range sigs {
 			c.log.Info("signal received, ignoring", "signal", sig)
+			cancel()
 		}
 	}()
 }
@@ -159,6 +160,28 @@ func (c *Command) syncChecks(consulClient *api.Client, currentStatuses map[strin
 	}
 
 	return currentStatuses
+}
+
+// setChecksCritical sets checks for all of the containers to critical
+func (c *Command) setChecksCritical(consulClient *api.Client, taskID string, serviceName string, parsedContainerNames []string) error {
+	var result error
+
+	for _, containerName := range parsedContainerNames {
+		checkID := makeCheckID(serviceName, taskID, containerName)
+		err := updateConsulHealthStatus(consulClient, checkID, api.HealthCritical)
+
+		if err == nil {
+			c.log.Info("set Consul health status to critical",
+				"container", containerName)
+		} else {
+			c.log.Warn("failed to set Consul health status to critical",
+				"err", err,
+				"container", containerName)
+			result = multierror.Append(result, err)
+		}
+	}
+
+	return result
 }
 
 func findContainersToSync(containerNames []string, taskMeta awsutil.ECSTaskMeta) ([]awsutil.ECSTaskMetaContainer, []string) {

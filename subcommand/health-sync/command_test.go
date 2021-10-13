@@ -248,6 +248,10 @@ func TestRunWithContainerNames(t *testing.T) {
 				assertHealthChecks(t, ecsServiceMetadata, consulClient, c.updatedContainers, c.updatedExpChecks)
 			}
 
+			cancel()
+
+			// Ensure that checks are set to unhealthy after the context is canceled
+			assertHealthChecks(t, ecsServiceMetadata, consulClient, c.initialContainers, sanityChecks)
 		})
 	}
 }

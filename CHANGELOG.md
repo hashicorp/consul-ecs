@@ -2,6 +2,7 @@
 
 FEATURES
 * Add a `health-sync` subcommand to sync ECS health checks into Consul [[GH-33](https://github.com/hashicorp/consul-ecs/pull/33)]
+* Add the `-health-sync-containers` flag to `mesh-init` [[GH-36](https://github.com/hashicorp/consul-ecs/pull/36)]
 
 ## 0.2.0-beta2 (September 30, 2021)
 IMPROVEMENTS

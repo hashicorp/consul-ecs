@@ -16,6 +16,9 @@ const DefaultPollingInterval = 10 * time.Second
 type Controller struct {
 	// Resources lists resources for Controller to reconcile.
 	Resources ResourceLister
+
+	ACLTokens ACLTokenLister
+	Deleter   TokenInfoDeleter
 	// PollingInterval is an interval that Controller will use to reconcile all Resources.
 	PollingInterval time.Duration
 	// Log is the logger used by the Controller.
@@ -55,41 +58,43 @@ func (c *Controller) reconcile() error {
 	if err != nil {
 		return fmt.Errorf("listing resources: %w", err)
 	}
-	currentResourceIDs := make(map[ResourceID]struct{})
+
+	var familyToResource map[string]Resource
+
 	for _, resource := range resources {
-		resourceID, err := resource.ID()
-		if err != nil {
-			return fmt.Errorf("getting resource ID: %w", err)
-		}
+		familyToResource[string(resource.ID())] = resource
+	}
 
-		currentResourceIDs[resourceID] = struct{}{}
+	tokenList, err := c.ACLTokens.TokenList()
 
-		if _, ok := c.resourceState[resourceID]; !ok {
+	if err != nil {
+		return fmt.Errorf("listing tokens: %w", err)
+	}
+
+	for family, resource := range familyToResource {
+		if _, ok := tokenList[family]; !ok {
 			err = resource.Upsert()
+
 			if err != nil {
-				c.Log.Error("error upserting resource", "err", err, "id", resourceID)
-				continue
+				c.Log.Warn("Error inserting token information",
+					"family", family,
+					"err", err)
+				return err
 			}
-			c.resourceState[resourceID] = resource
 		}
 	}
 
-	// Prune any resources in the resource state that no longer exist.
-	for id, resource := range c.resourceState {
-		if _, ok := currentResourceIDs[id]; !ok {
-			// Delete the resource.
-			err = resource.Delete()
+	for family, tokens := range tokenList {
+		if _, ok := familyToResource[family]; !ok {
+			err = c.Deleter.DeleteTokenInfo(family, tokens)
 			if err != nil {
-				// If there's an error, log it but don't delete from internal
-				// state so that we can retry on the next iteration of the 'reconcile' loop.
-				c.Log.Error("error deleting resource", "err", err, "id", id)
-				continue
+				c.Log.Warn("Error deleting token information",
+					"family", family,
+					"err", err)
+				return err
 			}
-
-			// Delete it from internal state.
-			delete(c.resourceState, id)
 		}
 	}
-	c.Log.Info("reconcile finished successfully")
+
 	return nil
 }

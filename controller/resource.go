@@ -24,22 +24,31 @@ type ResourceLister interface {
 	List() ([]Resource, error)
 }
 
+// ACLTokenLister is an interface for listing ACL Tokens.
+type ACLTokenLister interface {
+	TokenList() (map[string][]*api.ACLToken, error)
+}
+
+type TokenInfoDeleter interface {
+	DeleteTokenInfo(string, []*api.ACLToken) error
+}
+
 // Resource is a generic type that needs to be reconciled by the Controller.
 // It offers Upsert and Delete functions to reconcile itself with an external state.
 type Resource interface {
-	ID() (ResourceID, error)
+	ID() ResourceID
 	Upsert() error
-	Delete() error
 }
 
-// TaskLister is an implementation of ResourceLister that lists ECS tasks.
-type TaskLister struct {
-	// ECSClient is the AWS ECS client to be used by the TaskLister.
+// TaskDefinition is an implementation of ResourceLister that lists ECS task
+// definitions.
+type TaskDefinitionLister struct {
+	// ECSClient is the AWS ECS client to be used by the TaskDefinitionLister.
 	ECSClient ecsiface.ECSAPI
-	// SecretsManagerClient is the AWS Secrets Manager client to be used by the TaskLister.
+	// SecretsManagerClient is the AWS Secrets Manager client to be used by the TaskDefinitionLister.
 	SecretsManagerClient secretsmanageriface.SecretsManagerAPI
-	// ConsulClient is the Consul client to be used by the TaskLister.
-	// TaskLister doesn't need to talk to Consul, but it passes this client
+	// ConsulClient is the Consul client to be used by the TaskDefinitionLister.
+	// TaskDefinitionLister doesn't need to talk to Consul, but it passes this client
 	// to each Resource it creates.
 	ConsulClient *api.Client
 
@@ -48,12 +57,13 @@ type TaskLister struct {
 	// SecretPrefix is the prefix to determine names of resources in Consul or AWS.
 	SecretPrefix string
 
-	// Log is the logger for the TaskLister.
+	// Log is the logger for the TaskDefinitionLister.
 	Log hclog.Logger
 }
 
 // List lists all tasks for the Cluster.
-func (t TaskLister) List() ([]Resource, error) {
+func (t TaskDefinitionLister) List() ([]Resource, error) {
+	taskFamilies := make(map[string]struct{})
 	var resources []Resource
 	// nextToken is to handle paginated responses from AWS.
 	var nextToken *string
@@ -79,17 +89,33 @@ func (t TaskLister) List() ([]Resource, error) {
 			return nil, fmt.Errorf("describing tasks: %w", err)
 		}
 		for _, task := range tasks.Tasks {
-			// Add task only if it's not nil.
-			if task != nil {
-				resources = append(resources, &Task{
-					SecretsManagerClient: t.SecretsManagerClient,
-					ConsulClient:         t.ConsulClient,
-					Cluster:              t.Cluster,
-					Log:                  t.Log,
-					SecretPrefix:         t.SecretPrefix,
-					Task:                 *task,
-				})
+			if task == nil {
+				continue
 			}
+
+			if !isMeshTask(task) {
+				continue
+			}
+
+			family, err := parseFamilyNameFromTaskDefinitionARN(task)
+
+			if err != nil {
+				return nil, fmt.Errorf("parsing family from ARN: %w", err)
+			}
+
+			if _, ok := taskFamilies[family]; ok {
+				continue
+			}
+
+			taskFamilies[family] = struct{}{}
+			resources = append(resources, &TaskFamily{
+				SecretsManagerClient: t.SecretsManagerClient,
+				ConsulClient:         t.ConsulClient,
+				Cluster:              t.Cluster,
+				Log:                  t.Log,
+				SecretPrefix:         t.SecretPrefix,
+				TaskFamily:           family,
+			})
 		}
 		if nextToken == nil {
 			break
@@ -98,28 +124,39 @@ func (t TaskLister) List() ([]Resource, error) {
 	return resources, nil
 }
 
-type Task struct {
+// TokenList lists all of the Consul ACL tokens
+func (t TaskDefinitionLister) TokenList() (map[string][]*api.ACLToken, error) {
+	tokens := make(map[string][]*api.ACLToken)
+
+	tokenList, _, err := t.ConsulClient.ACL().TokenList(nil)
+
+	if err != nil {
+		return tokens, fmt.Errorf("reading token list: %w", err)
+	}
+
+	for _, tokenEntry := range tokenList {
+		token, _, err := t.ConsulClient.ACL().TokenRead(tokenEntry.AccessorID, nil)
+		if err != nil {
+			return tokens, fmt.Errorf("reading token: %w", err)
+		}
+		if len(token.ServiceIdentities) == 1 {
+			family := token.ServiceIdentities[0].ServiceName
+			tokens[family] = append(tokens[family], token)
+		}
+	}
+
+	return tokens, nil
+}
+
+type TaskFamily struct {
 	SecretsManagerClient secretsmanageriface.SecretsManagerAPI
 	ConsulClient         *api.Client
 
 	Cluster      string
 	SecretPrefix string
-	Task         ecs.Task
+	TaskFamily   string
 
 	Log hclog.Logger
-}
-
-// ID returns Task definition ARN or error if it cannot be determined from the Task.
-// We're using task definition ARN instead of the Task ARN because we consider tasks
-// for the same definition to be equivalent in terms of their Upsert and Delete behavior,
-// and so there's no reason to process subsequent tasks with the same task definition.
-func (t *Task) ID() (ResourceID, error) {
-	// This should never be the case, but we are checking it anyway.
-	if t.Task.TaskDefinitionArn == nil {
-		return "", fmt.Errorf("cannot determine ID: task definition ARN is nil")
-	}
-
-	return ResourceID(*t.Task.TaskDefinitionArn), nil
 }
 
 // tokenSecretJSON is the struct that represents JSON of the token secrets
@@ -131,18 +168,9 @@ type tokenSecretJSON struct {
 
 // Upsert creates a token for the task if one doesn't already exist
 // and updates the secret with the contents of the token.
-func (t *Task) Upsert() error {
-	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN()
-	if err != nil {
-		return fmt.Errorf("could not determine service name: %w", err)
-	}
-
-	if !t.isMeshTask() {
-		t.Log.Info("skipping non-mesh task", "id", serviceName)
-		return nil
-	}
-
-	secretName := t.secretName(serviceName)
+func (t *TaskFamily) Upsert() error {
+	serviceName := t.TaskFamily
+	secretName := t.secretName()
 
 	// Get current secret from AWS.
 	currSecretValue, err := t.SecretsManagerClient.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretId: aws.String(secretName)})
@@ -176,7 +204,7 @@ func (t *Task) Upsert() error {
 	}
 
 	// Otherwise, create one.
-	err = t.updateServiceToken(serviceName, secretName)
+	err = t.updateServiceToken()
 	if err != nil {
 		return fmt.Errorf("updating service token: %w", err)
 	}
@@ -184,56 +212,22 @@ func (t *Task) Upsert() error {
 	return nil
 }
 
-func (t *Task) Delete() error {
-	if !t.isMeshTask() {
-		t.Log.Info("skipping non-mesh task", "id", *t.Task.TaskDefinitionArn)
-		return nil
-	}
+func (t *TaskFamily) ID() ResourceID {
+	return ResourceID(t.TaskFamily)
+}
 
-	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN()
-	if err != nil {
-		return fmt.Errorf("parsing service name: %w", err)
-	}
-
-	// If a service still exists in Consul, it could be because this task is
-	// being upgraded (e.g. from task definition version 1 to version 2),
-	// and in that case, we don't want to delete the token prematurely.
-	// In a rare case, if the task family is being deleted permanently,
-	// and we call this function before the service is deregistered, we will also skip
-	// token deletion. That is intentional since it's safer to keep the token in Consul.
-	services, _, err := t.ConsulClient.Catalog().Service(serviceName, "", nil)
-	if err != nil {
-		return fmt.Errorf("getting service from Consul: %w", err)
-	}
-	if len(services) != 0 {
-		t.Log.Info("skipping because service still exists", "id", *t.Task.TaskDefinitionArn)
-		return nil
-	}
-
-	tokenList, _, err := t.ConsulClient.ACL().TokenList(nil)
-	if err != nil {
-		return fmt.Errorf("listing tokens: %w", err)
-	}
-
-	for _, tokenEntry := range tokenList {
-		token, _, err := t.ConsulClient.ACL().TokenRead(tokenEntry.AccessorID, nil)
+func (t TaskDefinitionLister) DeleteTokenInfo(serviceName string, tokens []*api.ACLToken) error {
+	secretName := secretName(t.SecretPrefix, serviceName)
+	for _, token := range tokens {
+		_, err := t.ConsulClient.ACL().TokenDelete(token.AccessorID, nil)
 		if err != nil {
-			return fmt.Errorf("reading token: %w", err)
+			return fmt.Errorf("deleting token: %w", err)
 		}
-
-		if len(token.ServiceIdentities) == 1 && token.ServiceIdentities[0].ServiceName == serviceName {
-			t.Log.Info("deleting token", "service", serviceName)
-			_, err = t.ConsulClient.ACL().TokenDelete(token.AccessorID, nil)
-			if err != nil {
-				return fmt.Errorf("deleting token: %w", err)
-			}
-			t.Log.Info("token deleted successfully", "service", serviceName)
-		}
+		t.Log.Info("token deleted successfully", "service", serviceName)
 	}
 
-	secretName := t.secretName(serviceName)
 	t.Log.Info("updating secret", "name", secretName, "service", serviceName)
-	_, err = t.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
+	_, err := t.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
 		SecretId:     aws.String(secretName),
 		SecretString: aws.String(`{}`),
 	})
@@ -246,7 +240,8 @@ func (t *Task) Delete() error {
 }
 
 // updateServiceToken create a token in Consul and updates AWS secret with token's contents.
-func (t *Task) updateServiceToken(serviceName, secretName string) error {
+func (t *TaskFamily) updateServiceToken() error {
+	serviceName := t.TaskFamily
 	t.Log.Info("creating service token", "id", serviceName)
 	// Create ACL token for envoy to register the service.
 	serviceToken, _, err := t.ConsulClient.ACL().TokenCreate(&api.ACLToken{
@@ -263,22 +258,22 @@ func (t *Task) updateServiceToken(serviceName, secretName string) error {
 		return err
 	}
 
-	t.Log.Info("updating secret", "name", secretName)
+	t.Log.Info("updating secret", "name", t.secretName())
 	_, err = t.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
-		SecretId:     aws.String(secretName),
+		SecretId:     aws.String(t.secretName()),
 		SecretString: aws.String(string(serviceSecretValue)),
 	})
 	if err != nil {
 		return fmt.Errorf("updating secret: %s", err)
 	}
-	t.Log.Info("secret updated successfully", "name", secretName)
+	t.Log.Info("secret updated successfully", "name", t.secretName())
 
 	return nil
 }
 
 // Task definition ARN looks like this: arn:aws:ecs:us-east-1:1234567890:task-definition/service:1
-func (t *Task) parseFamilyNameFromTaskDefinitionARN() (string, error) {
-	taskDefArn := *t.Task.TaskDefinitionArn
+func parseFamilyNameFromTaskDefinitionARN(task *ecs.Task) (string, error) {
+	taskDefArn := *task.TaskDefinitionArn
 	splits := strings.Split(taskDefArn, "/")
 	if len(splits) != 2 {
 		return "", fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
@@ -291,12 +286,16 @@ func (t *Task) parseFamilyNameFromTaskDefinitionARN() (string, error) {
 	return splits[0], nil
 }
 
-func (t *Task) secretName(serviceName string) string {
-	return fmt.Sprintf("%s-%s", t.SecretPrefix, serviceName)
+func (t *TaskFamily) secretName() string {
+	return secretName(t.SecretPrefix, t.TaskFamily)
 }
 
-func (t *Task) isMeshTask() bool {
-	return tagValue(t.Task.Tags, meshTag) == "true"
+func secretName(prefix, family string) string {
+	return fmt.Sprintf("%s-%s", prefix, family)
+}
+
+func isMeshTask(task *ecs.Task) bool {
+	return tagValue(task.Tags, meshTag) == "true"
 }
 
 func tagValue(tags []*ecs.Tag, key string) string {

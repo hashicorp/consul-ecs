@@ -89,7 +89,7 @@ func (c *Command) run() error {
 		return err
 	}
 
-	taskTokens := &controller.TaskLister{
+	taskTokens := &controller.TaskDefinitionLister{
 		ECSClient:            ecsClient,
 		SecretsManagerClient: smClient,
 		ConsulClient:         consulClient,
@@ -99,6 +99,8 @@ func (c *Command) run() error {
 	}
 	ctrl := controller.Controller{
 		Resources:       taskTokens,
+		ACLTokens:       taskTokens,
+		Deleter:         taskTokens,
 		PollingInterval: controller.DefaultPollingInterval,
 		Log:             c.log,
 	}

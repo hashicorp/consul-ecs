@@ -19,19 +19,21 @@ import (
 )
 
 const (
-	flagEnvoyBootstrapFile = "envoy-bootstrap-file"
-	flagPort               = "port"
-	flagUpstreams          = "upstreams"
-	flagChecks             = "checks"
+	flagEnvoyBootstrapFile   = "envoy-bootstrap-file"
+	flagPort                 = "port"
+	flagUpstreams            = "upstreams"
+	flagChecks               = "checks"
+	flagHealthSyncContainers = "health-sync-containers"
 )
 
 type Command struct {
 	UI cli.Ui
 
-	flagEnvoyBootstrapFile string
-	flagPort               int
-	flagUpstreams          string
-	flagChecks             string
+	flagEnvoyBootstrapFile   string
+	flagPort                 int
+	flagUpstreams            string
+	flagChecks               string
+	flagHealthSyncContainers string
 
 	flagSet *flag.FlagSet
 	once    sync.Once
@@ -43,6 +45,7 @@ func (c *Command) init() {
 	c.flagSet.IntVar(&c.flagPort, flagPort, 0, "Port service runs on")
 	c.flagSet.StringVar(&c.flagUpstreams, flagUpstreams, "", "Upstreams in form <name>:<port>,...")
 	c.flagSet.StringVar(&c.flagChecks, flagChecks, "", "List of Consul checks in JSON form")
+	c.flagSet.StringVar(&c.flagHealthSyncContainers, flagHealthSyncContainers, "", "A comma separated list of container names that need Consul TTL checks")
 }
 
 func (c *Command) Run(args []string) int {
@@ -79,12 +82,11 @@ func (c *Command) realRun(log hclog.Logger) error {
 	taskID := taskMeta.TaskID()
 	serviceName := taskMeta.Family
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
-	var checks api.AgentServiceChecks
-	if c.flagChecks != "" {
-		err := json.Unmarshal([]byte(c.flagChecks), &checks)
-		if err != nil {
-			return fmt.Errorf("unmarshalling checks: %w", err)
-		}
+
+	checks, err := constructChecks(serviceID, c.flagChecks, c.flagHealthSyncContainers)
+
+	if err != nil {
+		return err
 	}
 
 	err = backoff.RetryNotify(func() error {
@@ -194,4 +196,33 @@ func retryLogger(log hclog.Logger) backoff.Notify {
 	return func(err error, duration time.Duration) {
 		log.Error(err.Error(), "retry", duration.String())
 	}
+}
+
+func constructChecks(serviceID, encodedChecks, encodedHealthSyncContainers string) (api.AgentServiceChecks, error) {
+	var checks api.AgentServiceChecks
+
+	if encodedChecks != "" {
+		err := json.Unmarshal([]byte(encodedChecks), &checks)
+		if err != nil {
+			return checks, fmt.Errorf("unmarshalling checks: %w", err)
+		}
+	}
+
+	if len(checks) > 0 && encodedHealthSyncContainers != "" {
+		return checks, fmt.Errorf("both -%s and -%s can't be passed", flagChecks, flagHealthSyncContainers)
+	}
+
+	if encodedHealthSyncContainers != "" {
+		defaultCheckContainers := strings.Split(encodedHealthSyncContainers, ",")
+		for _, containerName := range defaultCheckContainers {
+			checks = append(checks, &api.AgentServiceCheck{
+				CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName),
+				Name:    "consul ecs synced",
+				Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
+				TTL:     "100000h",
+			})
+		}
+	}
+
+	return checks, nil
 }

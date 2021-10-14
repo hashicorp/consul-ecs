@@ -20,21 +20,10 @@ type Controller struct {
 	PollingInterval time.Duration
 	// Log is the logger used by the Controller.
 	Log hclog.Logger
-
-	// resourceState is the internal Controller's state. The Controller
-	// will periodically update the state to reflect the state of the Resources.
-	// The state stores ResourceIDs that have been successfully upserted
-	// by the controller. If the resource with that ID no longer exists in the source,
-	// the resourceState should not have that resource ID in its internal state either.
-	resourceState map[ResourceID]Resource
 }
 
 // Run starts the Controller loop. The loop will exit when ctx is canceled.
 func (c *Controller) Run(ctx context.Context) {
-	if c.resourceState == nil {
-		c.resourceState = make(map[ResourceID]Resource)
-	}
-
 	for {
 		select {
 		case <-time.After(c.PollingInterval):
@@ -55,41 +44,13 @@ func (c *Controller) reconcile() error {
 	if err != nil {
 		return fmt.Errorf("listing resources: %w", err)
 	}
-	currentResourceIDs := make(map[ResourceID]struct{})
 	for _, resource := range resources {
-		resourceID, err := resource.ID()
+		err = resource.Reconcile()
 		if err != nil {
-			return fmt.Errorf("getting resource ID: %w", err)
-		}
-
-		currentResourceIDs[resourceID] = struct{}{}
-
-		if _, ok := c.resourceState[resourceID]; !ok {
-			err = resource.Upsert()
-			if err != nil {
-				c.Log.Error("error upserting resource", "err", err, "id", resourceID)
-				continue
-			}
-			c.resourceState[resourceID] = resource
+			c.Log.Error("error reconciling resource", "err", err)
 		}
 	}
 
-	// Prune any resources in the resource state that no longer exist.
-	for id, resource := range c.resourceState {
-		if _, ok := currentResourceIDs[id]; !ok {
-			// Delete the resource.
-			err = resource.Delete()
-			if err != nil {
-				// If there's an error, log it but don't delete from internal
-				// state so that we can retry on the next iteration of the 'reconcile' loop.
-				c.Log.Error("error deleting resource", "err", err, "id", id)
-				continue
-			}
-
-			// Delete it from internal state.
-			delete(c.resourceState, id)
-		}
-	}
 	c.Log.Info("reconcile finished successfully")
 	return nil
 }

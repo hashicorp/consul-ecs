@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
+	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/testutil"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
@@ -15,19 +16,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 )
-
-func TestRunWithoutContainerNames(t *testing.T) {
-	ui := cli.NewMockUi()
-	cmd := Command{
-		UI: ui,
-	}
-	code := cmd.Run(nil)
-	require.Equal(t, 1, code)
-	require.Equal(t, "-health-sync-containers doesn't have a value. exiting\n", ui.ErrorWriter.String())
-}
 
 func TestEcsHealthToConsulHealth(t *testing.T) {
 	require.Equal(t, api.HealthPassing, ecsHealthToConsulHealth(ecs.HealthStatusHealthy))
@@ -235,6 +225,10 @@ func TestRunWithContainerNames(t *testing.T) {
 				sanityChecks[container.name] = api.HealthCritical
 			}
 
+			config := config.Config{}
+			config.Mesh.HealthSyncContainers = expectSyncContainers
+			config.Mesh.Service.Name = c.serviceName
+
 			// First sanity check that Consul is in the expected state before we start our command
 			assertHealthChecks(t, expectedServiceName, ecsServiceMetadata, consulClient, c.initialContainers, sanityChecks)
 
@@ -242,10 +236,9 @@ func TestRunWithContainerNames(t *testing.T) {
 			ui := cli.NewMockUi()
 			log := hclog.New(nil)
 			cmd := Command{
-				UI:                       ui,
-				log:                      log,
-				flagHealthSyncContainers: strings.Join(expectSyncContainers, ","),
-				flagServiceName:          c.serviceName,
+				UI:     ui,
+				log:    log,
+				config: config,
 			}
 
 			// Start the command.
@@ -412,7 +405,7 @@ func TestConstructServiceName(t *testing.T) {
 
 	expectedServiceName := "service-name"
 
-	cmd.flagServiceName = expectedServiceName
+	cmd.config.Mesh.Service.Name = expectedServiceName
 	serviceName = cmd.constructServiceName(family)
 	require.Equal(t, expectedServiceName, serviceName)
 }

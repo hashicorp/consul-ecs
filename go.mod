@@ -17,5 +17,6 @@ require (
 	github.com/miekg/dns v1.1.31 // indirect
 	github.com/mitchellh/cli v1.1.2
 	github.com/stretchr/testify v1.6.1
+	github.com/xeipuuv/gojsonschema v1.2.0 // indirect
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9 // indirect
 )

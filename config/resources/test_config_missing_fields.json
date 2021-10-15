@@ -1,0 +1,14 @@
+{
+  "aclTokenSecret": {
+    "configuration": {
+      "prefix": "asdf",
+      "consulClientTokenSecretArn": "ARN"
+    }
+  },
+  "mesh": {
+    "service": {
+      "port": 1234
+    },
+    "bootstrapDir": "/consul/"
+  }
+}

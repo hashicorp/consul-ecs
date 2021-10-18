@@ -25,6 +25,13 @@ ENV HASHICORP_RELEASES=https://releases.hashicorp.com
 RUN addgroup ${NAME} && \
     adduser -S -G ${NAME} ${NAME}
 
+# Changing the owner of /consul to NAME allows mesh-init to run as NAME rather
+# than root. See
+# https://docs.aws.amazon.com/AmazonECS/latest/developerguide/bind-mounts.html
+# for more information
+RUN chown ${NAME}:${NAME} /consul
+VOLUME [ "/consul" ]
+
 # Set up certificates, base tools, and software.
 RUN set -eux && \
     apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils iptables && \

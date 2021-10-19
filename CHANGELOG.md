@@ -4,6 +4,11 @@ FEATURES
 * Add a `health-sync` subcommand to sync ECS health checks into Consul [[GH-33](https://github.com/hashicorp/consul-ecs/pull/33)]
 * Add the `-health-sync-containers` flag to `mesh-init` [[GH-36](https://github.com/hashicorp/consul-ecs/pull/36)]
 
+BREAKING CHANGES
+* `consul-ecs` docker images no longer have the `consul` binary. The
+  mesh-init subcommand still expects the `consul` binary on the
+  `$PATH`. [[GH-40](https://github.com/hashicorp/consul-ecs/pull/40)]
+
 ## 0.2.0-beta2 (September 30, 2021)
 IMPROVEMENTS
 * Clean up ACL tokens for services/task families that are deleted. [[GH-30](https://github.com/hashicorp/consul-ecs/pull/30)]

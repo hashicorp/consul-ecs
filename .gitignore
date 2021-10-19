@@ -1,6 +1,7 @@
 output
 .terraform*
 *.tfstate*
+build-support/docker/Dev.dockerfile
 
 # Output directory for binaries built in CircleCI
 /pkg

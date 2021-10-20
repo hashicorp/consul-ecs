@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -135,13 +136,21 @@ func TestRun(t *testing.T) {
 				UI: ui,
 			}
 
-			envoyBootstrapFile, err := ioutil.TempFile("", "")
+			envoyBootstrapDir, err := ioutil.TempDir("", "")
 			require.NoError(t, err)
+			envoyBootstrapFile := path.Join(envoyBootstrapDir, "envoy.yaml")
+			copyConsulEcsFile := path.Join(envoyBootstrapDir, "consul-ecs")
+
 			t.Cleanup(func() {
-				os.Remove(envoyBootstrapFile.Name())
+				os.Remove(envoyBootstrapFile)
+				os.Remove(copyConsulEcsFile)
+				err := os.Remove(envoyBootstrapDir)
+				if err != nil {
+					t.Logf("warning, failed to cleanup temp dir %s - %s", envoyBootstrapDir, err)
+				}
 			})
 
-			cmdArgs := []string{"-envoy-bootstrap-file", envoyBootstrapFile.Name()}
+			cmdArgs := []string{"-envoy-bootstrap-file", envoyBootstrapFile}
 			if c.servicePort != 0 {
 				cmdArgs = append(cmdArgs, "-port", fmt.Sprintf("%d", c.servicePort))
 			}
@@ -188,9 +197,14 @@ func TestRun(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, cmp.Equal(expectedProxyServiceRegistration, proxyService, agentServiceIgnoreFields))
 
-			envoyBootstrapContents, err := ioutil.ReadFile(envoyBootstrapFile.Name())
+			envoyBootstrapContents, err := ioutil.ReadFile(envoyBootstrapFile)
 			require.NoError(t, err)
 			require.NotEmpty(t, envoyBootstrapContents)
+
+			copyConsulEcsStat, err := os.Stat(copyConsulEcsFile)
+			require.NoError(t, err)
+			require.Equal(t, "consul-ecs", copyConsulEcsStat.Name())
+			require.Equal(t, os.FileMode(0755), copyConsulEcsStat.Mode())
 
 			if c.checks != nil {
 				actualChecks, err := consulClient.Agent().Checks()

@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"os/exec"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -181,6 +183,25 @@ func (c *Command) realRun(log hclog.Logger) error {
 	}
 
 	log.Info("envoy bootstrap config written", "file", c.flagEnvoyBootstrapFile)
+
+	// Copy this binary to a volume for use in the sidecar-proxy container.
+	// This copies to the same place as we write the envoy bootstrap file, for now.
+	ex, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	destDir, _ := path.Split(c.flagEnvoyBootstrapFile)
+	data, err := ioutil.ReadFile(ex)
+	if err != nil {
+		return err
+	}
+	destPath := path.Join(destDir, "consul-ecs")
+	err = ioutil.WriteFile(destPath, data, 0755)
+	if err != nil {
+		return err
+	}
+	log.Info("copied binary", "dest", destPath)
+
 	return nil
 }
 

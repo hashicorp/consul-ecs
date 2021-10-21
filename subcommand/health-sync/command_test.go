@@ -199,7 +199,7 @@ func TestRunWithContainerNames(t *testing.T) {
 			}
 
 			ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
+				if r != nil && r.URL.Path == "/taskWithTags" && r.Method == "GET" {
 					if initialStage {
 						_, err = w.Write([]byte(metadataResponse(t, ecsServiceMetadata, c.initialContainers)))
 					} else {

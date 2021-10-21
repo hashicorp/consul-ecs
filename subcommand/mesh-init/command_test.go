@@ -117,9 +117,9 @@ func TestRun(t *testing.T) {
 			os.Setenv("CONSUL_HTTP_ADDR", server.HTTPAddr)
 
 			// Set up ECS container metadata server.
-			taskMetadataResponse := fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "test-service"}`, taskARN)
+			taskMetadataResponse := fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "test-service", "TaskTags": {}}`, taskARN)
 			ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
+				if r != nil && r.URL.Path == "/taskWithTags" && r.Method == "GET" {
 					_, err := w.Write([]byte(taskMetadataResponse))
 					require.NoError(t, err)
 				}

@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
 	"github.com/aws/aws-sdk-go/service/secretsmanager/secretsmanageriface"
+	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 )
@@ -132,7 +133,7 @@ type tokenSecretJSON struct {
 // Upsert creates a token for the task if one doesn't already exist
 // and updates the secret with the contents of the token.
 func (t *Task) Upsert() error {
-	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN()
+	serviceName, err := t.parseFamilyNameFromTask()
 	if err != nil {
 		return fmt.Errorf("could not determine service name: %w", err)
 	}
@@ -190,7 +191,7 @@ func (t *Task) Delete() error {
 		return nil
 	}
 
-	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN()
+	serviceName, err := t.parseFamilyNameFromTask()
 	if err != nil {
 		return fmt.Errorf("parsing service name: %w", err)
 	}
@@ -276,8 +277,14 @@ func (t *Task) updateServiceToken(serviceName, secretName string) error {
 	return nil
 }
 
-// Task definition ARN looks like this: arn:aws:ecs:us-east-1:1234567890:task-definition/service:1
-func (t *Task) parseFamilyNameFromTaskDefinitionARN() (string, error) {
+func (t *Task) parseFamilyNameFromTask() (string, error) {
+	for _, tag := range t.Task.Tags {
+		if *tag.Key == awsutil.ConsulServiceName {
+			return *tag.Value, nil
+		}
+	}
+
+	// Task definition ARN looks like this: arn:aws:ecs:us-east-1:1234567890:task-definition/service:1
 	taskDefArn := *t.Task.TaskDefinitionArn
 	splits := strings.Split(taskDefArn, "/")
 	if len(splits) != 2 {

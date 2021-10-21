@@ -77,8 +77,7 @@ func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
 		return err
 	}
 
-	// Duplicate code from mesh-init. Service ID must match here and in mesh-init.
-	serviceName := taskMeta.Family
+	serviceName := taskMeta.ServiceName()
 
 	currentStatuses := make(map[string]string)
 	parsedContainerNames := strings.Split(c.flagHealthSyncContainers, ",")

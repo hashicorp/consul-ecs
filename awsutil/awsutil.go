@@ -22,6 +22,7 @@ type ECSTaskMeta struct {
 	TaskARN    string                 `json:"TaskARN"`
 	Family     string                 `json:"Family"`
 	Containers []ECSTaskMetaContainer `json:"Containers"`
+	TaskTags   map[string]string      `json:"TaskTags,omitempty"`
 }
 
 type ECSTaskMetaContainer struct {
@@ -54,6 +55,16 @@ func (e ECSTaskMeta) region() (string, error) {
 	return split[3], nil
 }
 
+const ConsulServiceName = "ConsulServiceName"
+
+func (e ECSTaskMeta) ServiceName() string {
+	if serviceName, ok := e.TaskTags[ConsulServiceName]; ok {
+		return serviceName
+	} else {
+		return e.Family
+	}
+}
+
 func ECSTaskMetadata() (ECSTaskMeta, error) {
 	var metadataResp ECSTaskMeta
 
@@ -61,11 +72,12 @@ func ECSTaskMetadata() (ECSTaskMeta, error) {
 	if metadataURI == "" {
 		return metadataResp, fmt.Errorf("%s env var not set", ECSMetadataURIEnvVar)
 	}
-	resp, err := http.Get(fmt.Sprintf("%s/task", metadataURI))
+	resp, err := http.Get(fmt.Sprintf("%s/taskWithTags", metadataURI))
 	if err != nil {
 		return metadataResp, fmt.Errorf("calling metadata uri: %s", err)
 	}
 	respBytes, err := ioutil.ReadAll(resp.Body)
+	fmt.Println("BODY", fmt.Sprintf("%s/taskWithTags", metadataURI), string(respBytes))
 	if err != nil {
 		return metadataResp, fmt.Errorf("reading metadata uri response body: %s", err)
 	}

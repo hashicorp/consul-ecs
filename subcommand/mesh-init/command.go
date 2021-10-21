@@ -80,7 +80,7 @@ func (c *Command) realRun(log hclog.Logger) error {
 
 	// Register the service.
 	taskID := taskMeta.TaskID()
-	serviceName := taskMeta.Family
+	serviceName := taskMeta.ServiceName()
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
 
 	checks, err := constructChecks(serviceID, c.flagChecks, c.flagHealthSyncContainers)

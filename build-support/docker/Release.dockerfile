@@ -6,12 +6,7 @@
 # binary signatures to match the software and our builds aren't fully
 # reproducible currently.
 
-# We use Consul as a base since we need the Consul binary in our image
-# so we can run consul connect envoy -bootstrap.
-FROM hashicorp/consul:1.10.2
-
-# Swap to root from user consul in order to build. We step down at end.
-USER root
+FROM alpine:3.13
 
 # NAME and VERSION are the name of the software in releases.hashicorp.com
 # and the version to download. Example: NAME=consul VERSION=1.2.3.
@@ -23,13 +18,19 @@ ENV HASHICORP_RELEASES=https://releases.hashicorp.com
 
 # Create a non-root user to run the software.
 RUN addgroup ${NAME} && \
-    adduser -S -G ${NAME} ${NAME}
+    adduser -S -G ${NAME} ${NAME} && \
+    # Changing the owner of /consul to NAME allows mesh-init to run as NAME rather
+    # than root. See
+    # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/bind-mounts.html
+    # for more information
+    mkdir /consul && \
+    chown ${NAME}:${NAME} /consul
 
-# Changing the owner of /consul to NAME allows mesh-init to run as NAME rather
-# than root. See
-# https://docs.aws.amazon.com/AmazonECS/latest/developerguide/bind-mounts.html
-# for more information
-RUN chown ${NAME}:${NAME} /consul
+# This folder will hold the consul binary that comes from the the Consul client
+# container at runtime
+ENV PATH="/bin/consul-inject:${PATH}"
+
+
 VOLUME [ "/consul" ]
 
 # Set up certificates, base tools, and software.

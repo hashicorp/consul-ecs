@@ -15,6 +15,9 @@ type Command struct {
 	UI cli.Ui
 
 	log hclog.Logger
+
+	// unit testing hack
+	pid int
 }
 
 func (c *Command) Help() string {

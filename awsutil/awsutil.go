@@ -25,8 +25,10 @@ type ECSTaskMeta struct {
 }
 
 type ECSTaskMetaContainer struct {
-	Name   string            `json:"Name"`
-	Health ECSTaskMetaHealth `json:"Health"`
+	Name          string            `json:"Name"`
+	Health        ECSTaskMetaHealth `json:"Health"`
+	DesiredStatus string            `json:"DesiredStatus"`
+	KnownStatus   string            `json:"KnownStatus"`
 }
 
 type ECSTaskMetaHealth struct {

@@ -17,14 +17,96 @@ import (
 )
 
 func (c *Command) Run(args []string) int {
-	c.log = hclog.New(nil)
+	// TODO: Make log level a flag
+	c.log = hclog.New(&hclog.LoggerOptions{
+		Name:  "consul-ecs",
+		Level: hclog.Info,
+	})
 
 	if len(args) == 0 {
 		c.UI.Error("command is required")
 		return 1
 	}
 
-	cmd := exec.Command(args[0], args[1:]...)
+	var wg sync.WaitGroup
+	ctx, cancel := context.WithCancel(context.Background())
+
+	defer func() {
+		c.log.Debug("cancelling")
+		cancel()
+		c.log.Debug("waiting for goroutines")
+		wg.Wait()
+		c.log.Debug("done waiting for goroutines")
+	}()
+
+	cmd := c.makeCommand(ctx, args)
+	exitCodeChan := make(chan int, 1)
+	pidChan := make(chan int, 1)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.runCommand(cmd, exitCodeChan, pidChan)
+	}()
+
+	// Wait for the subprocess to start.
+	if pid, ok := <-pidChan; !ok {
+		c.log.Error("could not run command")
+		return -1
+	} else {
+		c.log.Debug("subprocess started", "pid", pid)
+		c.pid = pid // unit testing hack
+	}
+
+	// Forward all signals to the subprocess. Except SIGTERM.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs)
+	defer signal.Stop(sigs)
+
+	// On SIGTERM, spawn a goroutine that monitors for app containers to exit.
+	// This channel lets us know the application containers have exited.
+	appExitedChan := make(chan bool, 1)
+	var once sync.Once
+
+	for {
+		select {
+		case exitCode, ok := <-exitCodeChan:
+			if ok {
+				c.log.Debug("command exited", "exitCode", exitCode)
+				return exitCode
+			}
+			return -1
+		case sig := <-sigs:
+			if sig == syscall.SIGTERM {
+				// start monitoring task metadata
+				c.log.Debug("received", "signal", sig)
+				once.Do(func() {
+					// ehh
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						c.monitorTaskMeta(ctx, appExitedChan)
+					}()
+				})
+			} else if sig == syscall.SIGCHLD || sig == syscall.SIGURG {
+				// do not forward
+			} else {
+				c.log.Debug("forward signal", "sig", sig)
+				if err := cmd.Process.Signal(sig); err != nil {
+					c.log.Debug("forwarding signal", "err", err.Error())
+				}
+			}
+		case <-appExitedChan:
+			c.log.Debug("app containers done")
+			return cmd.ProcessState.ExitCode()
+		}
+	}
+}
+
+func (c *Command) makeCommand(ctx context.Context, args []string) *exec.Cmd {
+	// CommandContext allows cancelling the command.
+	// When cancelled, the process is sent a SIGKILL and is not waited on.
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -32,100 +114,38 @@ func (c *Command) Run(args []string) int {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
 	}
-
-	c.log.Info("Spawning sub-process", "cmd", args)
-	err := cmd.Start()
-	if err != nil {
-		c.log.Error(err.Error())
-		return 1
-	}
-	// unit testing hack
-	c.pid = cmd.Process.Pid
-
-	var wg sync.WaitGroup
-	ctx, cancel := context.WithCancel(context.Background())
-	var killOnce sync.Once
-	killSubprocess := func() {
-		killOnce.Do(func() {
-			c.log.Info("Killing subprocess")
-			// Negative PID signals the process group.
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-		})
-	}
-
-	defer func() {
-		// Ensure goroutines are cancelled before waiting on them.
-		cancel()
-		killSubprocess()
-		wg.Wait()
-	}()
-
-	// Forward all signals to the child process, except certain ones (SIGTERM, SIGCHLD).
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		c.forwardSignals(ctx, cmd.Process)
-	}()
-	// After sigterm, wait for application containers to exit, and call the given cleanup function.
-	go func() {
-		defer wg.Done()
-		c.shutdownAfterSigterm(ctx, killSubprocess)
-	}()
-
-	err = cmd.Wait()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			// Skip logging an error if it's only a non-zero exit code.
-			return exitErr.ExitCode()
-		}
-		c.log.Error(err.Error())
-	}
-	// "returns the exit code of the exited process, or -1
-	// if the process hasn't exited or was terminated by a signal."
-	return cmd.ProcessState.ExitCode()
+	return cmd
 }
 
-func (c *Command) forwardSignals(ctx context.Context, proc *os.Process) {
-	sigs := make(chan os.Signal, 1)
-	// Intercept all signals
-	signal.Notify(sigs)
-	defer signal.Stop(sigs)
+// runCommand Runs the given command, and sends the exit code and process id on the given channels.
+func (c *Command) runCommand(cmd *exec.Cmd, exitCodeCh chan int, pidCh chan int) {
+	defer close(exitCodeCh)
+	defer close(pidCh)
 
-	for {
-		select {
-		case <-ctx.Done():
-			// Allow cancelling this loop.
-			return
-		case sig := <-sigs:
-			if sig == syscall.SIGTERM || sig == syscall.SIGCHLD {
-				// Ignore SIGTERM so that Envoy continues running into Task shutdown
-				c.log.Debug("ignoring", "signal", sig)
-			} else {
-				// Forward all other signals to the child.
-				c.log.Debug("forwarding", "signal", sig)
-				err := proc.Signal(sig)
-				if err != nil {
-					c.log.Error("forwarding", "signal", sig, "err", err.Error())
-				}
-			}
-		}
+	c.log.Debug("starting subprocess", "path", cmd.Path, "args", cmd.Args)
+	if err := cmd.Start(); err != nil {
+		c.log.Debug("cmd.Start() returned error", "err", err.Error())
+		// Channels are closed in defers to indicate that the command did not start.
+		return
+	} else {
+		pidCh <- cmd.Process.Pid
+	}
+
+	if err := cmd.Wait(); err != nil {
+		c.log.Debug("cmd.Wait() returned error", "err", err.Error())
+		exitCodeCh <- cmd.ProcessState.ExitCode()
+	} else {
+		exitCodeCh <- 0
+	}
+	// Kill the process group to try to clean up leftover sub-processes.
+	err := syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+	if err != nil {
+		c.log.Debug("killing process group", "err", err.Error())
 	}
 }
 
-func (c *Command) shutdownAfterSigterm(ctx context.Context, cancel context.CancelFunc) {
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM)
-	defer signal.Stop(sigs)
-
-	// Wait for SIGTERM.
-	var sig os.Signal
-	for sig != syscall.SIGTERM {
-		select {
-		case <-ctx.Done():
-			return
-		case sig = <-sigs:
-		}
-	}
+func (c *Command) monitorTaskMeta(ctx context.Context, done chan bool) {
+	defer close(done)
 
 	// Poll task metadata to wait for application containers to exit.
 	nonAppContainers := []string{"consul-client", "sidecar-proxy", "health-sync", "mesh-init"}
@@ -148,30 +168,28 @@ func (c *Command) shutdownAfterSigterm(ctx context.Context, cancel context.Cance
 			taskMeta, err := awsutil.ECSTaskMetadata()
 			if err != nil {
 				c.log.Error("fetching task metadata", "err", err.Error())
-			} else {
-				var appContainers []awsutil.ECSTaskMetaContainer
-				for _, container := range taskMeta.Containers {
-					if isAppContainer(container) {
-						appContainers = append(appContainers, container)
-					}
+				break // escape this case of the select
+			}
+
+			doneWaiting := true
+			for _, container := range taskMeta.Containers {
+				if !isAppContainer(container) {
+					continue
 				}
 
-				doneWaiting := true
-				for _, container := range appContainers {
-					// We're in Task shutdown, so we'd expect DesiredStatus to be stopped for all containers.
-					if container.DesiredStatus == "STOPPED" && container.KnownStatus == "STOPPED" {
-						c.log.Info("app container has stopped", "name", container.Name, "status", container.KnownStatus)
-					} else {
-						c.log.Info("app container not yet stopped", "name", container.Name, "status", container.KnownStatus)
-						doneWaiting = false
-					}
+				// We're in Task shutdown, so we'd expect DesiredStatus to be stopped for all containers.
+				if container.DesiredStatus == "STOPPED" && container.KnownStatus == "STOPPED" {
+					c.log.Debug("app container has stopped", "name", container.Name, "status", container.KnownStatus)
+				} else {
+					c.log.Debug("app container not yet stopped", "name", container.Name, "status", container.KnownStatus)
+					doneWaiting = false
 				}
+			}
 
-				if doneWaiting {
-					c.log.Info("application container(s) have exited. terminating envoy")
-					cancel()
-					return
-				}
+			if doneWaiting {
+				c.log.Debug("application container(s) have exited. terminating envoy")
+				done <- true
+				return
 			}
 		}
 	}

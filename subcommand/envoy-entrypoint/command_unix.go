@@ -1,7 +1,7 @@
 //go:build !windows
 // +build !windows
 
-package entrypoint
+package envoyentrypoint
 
 import (
 	"context"

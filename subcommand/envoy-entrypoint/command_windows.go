@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package entrypoint
+package envoyentrypoint
 
 // Process handling is different on Windows, and since we intend for this to be the entrypoint
 // of a Docker container, we only need to support Linux.

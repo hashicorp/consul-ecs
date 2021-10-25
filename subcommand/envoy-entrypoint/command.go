@@ -3,8 +3,9 @@
 // This is intended for used as a Docker entrypoint for Envoy:
 // * Run a given command in a subprocess
 // * Forward all signals to the subprocess, except for SIGTERM
+// * Monitor task metadata to terminate Envoy after application containers exit.
 
-package entrypoint
+package envoyentrypoint
 
 import (
 	"github.com/hashicorp/go-hclog"

@@ -1,7 +1,7 @@
 //go:build !windows
 // +build !windows
 
-package entrypoint
+package envoyentrypoint
 
 import (
 	"encoding/json"
@@ -40,14 +40,6 @@ func TestFlagValidation(t *testing.T) {
 	code := cmd.Run(nil)
 	require.Equal(t, code, 1)
 	require.Contains(t, ui.ErrorWriter.String(), "command is required")
-}
-
-func TestRunNoSigterm(t *testing.T) {
-	cmd := Command{
-		UI: cli.NewMockUi(),
-	}
-	code := cmd.Run([]string{"/bin/sh", "-c", "sleep 0"})
-	require.Equal(t, 0, code)
 }
 
 func TestRun(t *testing.T) {

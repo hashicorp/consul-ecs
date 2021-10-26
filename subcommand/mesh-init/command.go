@@ -87,11 +87,7 @@ func (c *Command) realRun(log hclog.Logger) error {
 		return err
 	}
 
-	serviceName, err := c.constructServiceName()
-
-	if err != nil {
-		return err
-	}
+	serviceName := c.constructServiceName(taskMeta.Family)
 
 	// Register the service.
 	taskID := taskMeta.TaskID()
@@ -253,12 +249,12 @@ func constructChecks(serviceID, encodedChecks, encodedHealthSyncContainers strin
 	return checks, nil
 }
 
-func (c *Command) constructServiceName() (string, error) {
+func (c *Command) constructServiceName(family string) string {
 	if c.flagServiceName == "" {
-		return "", fmt.Errorf("-%s is required", flagServiceName)
+		return family
 	}
 
-	return c.flagServiceName, nil
+	return c.flagServiceName
 }
 
 func (c *Command) constructTags() ([]string, error) {

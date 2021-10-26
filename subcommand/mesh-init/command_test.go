@@ -321,15 +321,15 @@ func TestConstructChecks(t *testing.T) {
 
 func TestConstructServiceName(t *testing.T) {
 	cmd := Command{}
+	family := "family"
 
-	_, err := cmd.constructServiceName()
-	require.Error(t, err)
+	serviceName := cmd.constructServiceName(family)
+	require.Equal(t, family, serviceName)
 
 	expectedServiceName := "service-name"
 
 	cmd.flagServiceName = expectedServiceName
-	serviceName, err := cmd.constructServiceName()
-	require.NoError(t, err)
+	serviceName = cmd.constructServiceName(family)
 	require.Equal(t, expectedServiceName, serviceName)
 }
 

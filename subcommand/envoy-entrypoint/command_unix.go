@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/go-hclog"
 )
@@ -32,11 +33,9 @@ func (c *Command) Run(args []string) int {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	defer func() {
-		c.log.Debug("cancelling")
+		c.log.Debug("shutting down")
 		cancel()
-		c.log.Debug("waiting for goroutines")
 		wg.Wait()
-		c.log.Debug("done waiting for goroutines")
 	}()
 
 	cmd := c.makeCommand(ctx, args)
@@ -72,16 +71,14 @@ func (c *Command) Run(args []string) int {
 		select {
 		case exitCode, ok := <-exitCodeChan:
 			if ok {
-				c.log.Debug("command exited", "exitCode", exitCode)
 				return exitCode
 			}
 			return -1
 		case sig := <-sigs:
 			if sig == syscall.SIGTERM {
 				// start monitoring task metadata
-				c.log.Debug("received", "signal", sig)
+				c.log.Info("ignored", "signal", sig)
 				once.Do(func() {
-					// ehh
 					wg.Add(1)
 					go func() {
 						defer wg.Done()
@@ -91,13 +88,11 @@ func (c *Command) Run(args []string) int {
 			} else if sig == syscall.SIGCHLD || sig == syscall.SIGURG {
 				// do not forward
 			} else {
-				c.log.Debug("forward signal", "sig", sig)
 				if err := cmd.Process.Signal(sig); err != nil {
-					c.log.Debug("forwarding signal", "err", err.Error())
+					c.log.Warn("forwarding signal", "err", err.Error())
 				}
 			}
 		case <-appExitedChan:
-			c.log.Debug("app containers done")
 			return cmd.ProcessState.ExitCode()
 		}
 	}
@@ -157,8 +152,13 @@ func (c *Command) monitorTaskMeta(ctx context.Context, done chan bool) {
 		}
 		return true
 	}
+	isStopped := func(container awsutil.ECSTaskMetaContainer) bool {
+		// Check DesiredStatus is stopped to ensure we're in Task shutdown.
+		return container.DesiredStatus == ecs.DesiredStatusStopped &&
+			container.KnownStatus == ecs.DesiredStatusStopped
+	}
 
-	c.log.Info("waiting for application to shutdown")
+	c.log.Info("waiting for application container(s) to stop")
 	for {
 		select {
 		case <-ctx.Done():
@@ -177,17 +177,14 @@ func (c *Command) monitorTaskMeta(ctx context.Context, done chan bool) {
 					continue
 				}
 
-				// We're in Task shutdown, so we'd expect DesiredStatus to be stopped for all containers.
-				if container.DesiredStatus == "STOPPED" && container.KnownStatus == "STOPPED" {
-					c.log.Debug("app container has stopped", "name", container.Name, "status", container.KnownStatus)
-				} else {
+				if !isStopped(container) {
 					c.log.Debug("app container not yet stopped", "name", container.Name, "status", container.KnownStatus)
 					doneWaiting = false
 				}
 			}
 
 			if doneWaiting {
-				c.log.Debug("application container(s) have exited. terminating envoy")
+				c.log.Info("application container(s) have stopped, terminating envoy")
 				done <- true
 				return
 			}

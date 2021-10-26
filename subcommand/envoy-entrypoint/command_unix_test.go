@@ -134,7 +134,7 @@ func TestRun(t *testing.T) {
 							KnownStatus:   "RUNNING",
 						},
 						{
-							Name:          "mesh-init",
+							Name:          "consul-ecs-mesh-init",
 							DesiredStatus: "STOPPED",
 							KnownStatus:   "RUNNING",
 						},
@@ -170,7 +170,7 @@ func TestRun(t *testing.T) {
 				t.Logf("Send sigterm to parent process")
 				err := syscall.Kill(os.Getpid(), syscall.SIGTERM)
 				require.NoError(t, err)
-				time.Sleep(500 * time.Millisecond) // Give it time to react
+				time.Sleep(100 * time.Millisecond) // Give it time to react
 
 				// NOTE: On failure to fetch Task metadata, Envoy should continue running.
 				t.Logf("Check the sub-process is still running")
@@ -203,7 +203,7 @@ func TestRun(t *testing.T) {
 				t.Logf("Send sigint to parent process")
 				err := syscall.Kill(os.Getpid(), syscall.SIGINT)
 				require.NoError(t, err)
-				time.Sleep(500 * time.Millisecond) // Give it time to react
+				time.Sleep(100 * time.Millisecond) // Give it time to react
 
 				t.Logf("Check the sub-process has exited")
 				retry.RunWith(&retry.Timer{Timeout: 2 * time.Second, Wait: 250 * time.Millisecond}, t, func(r *retry.R) {

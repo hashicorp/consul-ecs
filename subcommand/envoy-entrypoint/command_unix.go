@@ -143,7 +143,7 @@ func (c *Command) monitorTaskMeta(ctx context.Context, done chan bool) {
 	defer close(done)
 
 	// Poll task metadata to wait for application containers to exit.
-	nonAppContainers := []string{"consul-client", "sidecar-proxy", "health-sync", "mesh-init"}
+	nonAppContainers := []string{"consul-client", "sidecar-proxy", "health-sync", "consul-ecs-mesh-init"}
 	isAppContainer := func(container awsutil.ECSTaskMetaContainer) bool {
 		for _, ignoreName := range nonAppContainers {
 			if container.Name == ignoreName {

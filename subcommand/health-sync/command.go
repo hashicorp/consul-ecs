@@ -21,6 +21,7 @@ import (
 
 const (
 	flagHealthSyncContainers = "health-sync-containers"
+	flagServiceName          = "service-name"
 	// pollingInterval is how often we poll the container health endpoint.
 	// The rate limit is about 40 per second, so 1 second polling seems reasonable.
 	pollInterval = 1 * time.Second
@@ -29,6 +30,7 @@ const (
 type Command struct {
 	UI                       cli.Ui
 	flagHealthSyncContainers string
+	flagServiceName          string
 	log                      hclog.Logger
 	flagSet                  *flag.FlagSet
 	once                     sync.Once
@@ -37,6 +39,7 @@ type Command struct {
 func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
 	c.flagSet.StringVar(&c.flagHealthSyncContainers, flagHealthSyncContainers, "", "Comma-separated list of container names for which to sync health status into Consul")
+	c.flagSet.StringVar(&c.flagServiceName, flagServiceName, "", "Name of the service that needs health checks synced to Consul. If not provided, the task family will be used as the service name.")
 	c.log = hclog.New(nil)
 }
 
@@ -78,7 +81,7 @@ func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
 	}
 
 	// Duplicate code from mesh-init. Service ID must match here and in mesh-init.
-	serviceName := taskMeta.Family
+	serviceName := c.constructServiceName(taskMeta.Family)
 
 	currentStatuses := make(map[string]string)
 	parsedContainerNames := strings.Split(c.flagHealthSyncContainers, ",")
@@ -223,6 +226,14 @@ func updateConsulHealthStatus(consulClient *api.Client, checkID string, ecsHealt
 	reason := fmt.Sprintf("ECS health status is %q for task %q", ecsHealthStatus, checkID)
 
 	return consulClient.Agent().UpdateTTL(checkID, reason, consulHealthStatus)
+}
+
+func (c *Command) constructServiceName(family string) string {
+	if c.flagServiceName == "" {
+		return family
+	}
+
+	return c.flagServiceName
 }
 
 func (c *Command) Synopsis() string {

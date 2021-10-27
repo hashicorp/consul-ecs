@@ -52,9 +52,9 @@ func (c *Command) init() {
 	c.flagSet.StringVar(&c.flagUpstreams, flagUpstreams, "", "Upstreams in form <name>:<port>,...")
 	c.flagSet.StringVar(&c.flagChecks, flagChecks, "", "List of Consul checks in JSON form")
 	c.flagSet.StringVar(&c.flagHealthSyncContainers, flagHealthSyncContainers, "", "A comma separated list of container names that need Consul TTL checks")
-	c.flagSet.StringVar(&c.flagTags, flagTags, "", "Tags for the Consul service")
-	c.flagSet.StringVar(&c.flagMeta, flagMeta, "", "Metadata for the Consul service")
-	c.flagSet.StringVar(&c.flagServiceName, flagServiceName, "", "Metadata for the Consul service")
+	c.flagSet.StringVar(&c.flagTags, flagTags, "", "Tags for the Consul service as a comma separated string")
+	c.flagSet.StringVar(&c.flagMeta, flagMeta, "", "Metadata for the Consul service as a JSON string")
+	c.flagSet.StringVar(&c.flagServiceName, flagServiceName, "", "Name of the service that will be registered with Consul. If not provided, the task family will be used as the service name.")
 }
 
 func (c *Command) Run(args []string) int {

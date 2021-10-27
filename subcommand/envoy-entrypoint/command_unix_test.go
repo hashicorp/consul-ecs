@@ -13,20 +13,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
 )
 
-// sleepScript is a script used to validate our `entrypoint` command.
+// fakeEnvoyScript is a script used to validate our `entrypoint` command.
 //
 // Why not just a simple 'sleep 120'?
 // * Bash actually ignores SIGINT by default (note: CTRL-C sends SIGINT to the process group, not just the parent)
 // * Tests can be run in different places, so /bin/sh could be any shell with different behavior.
 // Why a background process + wait? Why not just a trap + sleep?
 // * The sleep blocks the trap. Traps are not executed until the current command completes, except for `wait`.
-const sleepScript = `sleep 120 &
+const fakeEnvoyScript = `sleep 120 &
 export SLEEP_PID=$!
 trap "{ echo 'target command was interrupted'; kill $SLEEP_PID; exit 42; }" INT
 wait $SLEEP_PID
@@ -60,21 +61,21 @@ func TestRun(t *testing.T) {
 			exitCode:      0,
 		},
 		"sigint is forwarded": {
-			targetCommand: sleepScript,
+			targetCommand: fakeEnvoyScript,
 			sendSigint:    true,
 			exitCode:      42,
 		},
 		"sigterm is ignored and then sigint is forwarded": {
-			targetCommand: sleepScript,
+			targetCommand: fakeEnvoyScript,
 			sendSigterm:   true,
 			sendSigint:    true,
 			exitCode:      42,
 		},
 		"sigterm is ignored and then exits after the app container": {
-			targetCommand:    sleepScript,
+			targetCommand:    fakeEnvoyScript,
 			sendSigterm:      true,
 			mockTaskMetadata: true,
-			exitCode:         -1,
+			exitCode:         0,
 		},
 	}
 
@@ -91,13 +92,14 @@ func TestRun(t *testing.T) {
 				exitCodeChan <- cliCmd.Run([]string{"/bin/sh", "-c", c.targetCommand})
 			}()
 
-			// Wait for the sub-process to start.
-			// Hack: requires cliCmd to set the `pid` field
-			t.Logf("Wait for sub-process to start")
+			t.Logf("Wait for fake Envoy process to start")
 			retry.RunWith(&retry.Timer{Timeout: 1 * time.Second, Wait: 100 * time.Millisecond}, t, func(r *retry.R) {
-				require.Greater(r, cliCmd.pid, 0)
+				require.NotNil(r, cliCmd.envoyCmd)
+				require.NotNil(r, cliCmd.envoyCmd.Process)
+				require.Greater(r, cliCmd.envoyCmd.Process.Pid, 0)
 			})
-			t.Logf("Sub-process started (pid=%v)", cliCmd.pid)
+			envoyPid := cliCmd.envoyCmd.Process.Pid
+			t.Logf("Fake Envoy process started (pid=%v)", envoyPid)
 
 			// Testing signal handling requires signaling the entrypoint process.
 			// This is awkward since that is the CURRENT process running this test.
@@ -112,41 +114,15 @@ func TestRun(t *testing.T) {
 			ecsMetaRequestCount := 0
 			if c.mockTaskMetadata {
 				// Simulate two requests with the app container running, and the rest with it stopped.
-				meta := awsutil.ECSTaskMeta{
-					Cluster: "test",
-					TaskARN: "abc123",
-					Family:  "test-service",
-					Containers: []awsutil.ECSTaskMetaContainer{
-						{
-							Name:          "some-app-container",
-							DesiredStatus: "STOPPED",
-							KnownStatus:   "RUNNING",
-						},
-						// Mark all the rest of these containers running to check that the entrypoint ignores them.
-						{
-							Name:          "consul-client",
-							DesiredStatus: "STOPPED",
-							KnownStatus:   "RUNNING",
-						},
-						{
-							Name:          "health-sync",
-							DesiredStatus: "STOPPED",
-							KnownStatus:   "RUNNING",
-						},
-						{
-							Name:          "consul-ecs-mesh-init",
-							DesiredStatus: "STOPPED",
-							KnownStatus:   "RUNNING",
-						},
-						{
-							Name:          "sidecar-proxy",
-							DesiredStatus: "STOPPED",
-							KnownStatus:   "RUNNING",
-						},
-					},
-				}
 				ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
+						meta := makeTaskMeta(
+							"some-app-container",
+							"consul-client",
+							"health-sync",
+							"consul-ecs-mesh-init",
+							"sidecar-proxy",
+						)
 						if ecsMetaRequestCount < 2 {
 							meta.Containers[0].KnownStatus = "RUNNING"
 						} else {
@@ -167,17 +143,18 @@ func TestRun(t *testing.T) {
 			}
 
 			if c.sendSigterm {
-				t.Logf("Send sigterm to parent process")
+				t.Logf("Send sigterm to the entrypoint")
 				err := syscall.Kill(os.Getpid(), syscall.SIGTERM)
 				require.NoError(t, err)
 				time.Sleep(100 * time.Millisecond) // Give it time to react
 
 				// NOTE: On failure to fetch Task metadata, Envoy should continue running.
-				t.Logf("Check the sub-process is still running")
-				proc, err := os.FindProcess(cliCmd.pid)
-				require.NoError(t, err, "Failed to find entrypoint sub-process")
+				t.Logf("Check the fake Envoy process is still running")
+				proc, err := os.FindProcess(envoyPid)
+				require.NoError(t, err, "Failed to find fake Envoy process")
 				// A zero-signal lets us check the process is still valid/running.
-				require.NoError(t, proc.Signal(syscall.Signal(0)), "Sigterm was not ignored")
+				require.NoError(t, proc.Signal(syscall.Signal(0)),
+					"Sigterm was not ignored by the entrypoint")
 			}
 
 			// After SIGTERM, the entrypoint begins polling the task metadata server.
@@ -187,30 +164,30 @@ func TestRun(t *testing.T) {
 					// Sanity check. We mock two requests with app container running, and the rest with the app container stopped.
 					require.GreaterOrEqual(r, ecsMetaRequestCount, 3)
 
-					t.Logf("Check the sub-process exits")
-					proc, err := os.FindProcess(cliCmd.pid)
-					require.NoError(r, err, "Failed to find sub-process")
+					t.Logf("Check the fake Envoy process exits")
+					proc, err := os.FindProcess(envoyPid)
+					require.NoError(r, err, "Failed to find fake Envoy process")
 					// A zero-signal checks the validity of the process id.
 					err = proc.Signal(syscall.Signal(0))
-					require.Error(r, err, "Application container exited, but entrypoint did not terminate Envoy")
+					require.Error(r, err, "Application exited, but entrypoint did not terminate fake Envoy")
 					require.Equal(r, os.ErrProcessDone, err)
 				})
 			}
 
 			// Send a SIGINT to the entrypoint. This should be forwarded along to the sub-process,
-			// which causes the sleepScript to exit.
+			// which causes the fakeEnvoyScript to exit.
 			if c.sendSigint {
-				t.Logf("Send sigint to parent process")
+				t.Logf("Send sigint to entrypoint")
 				err := syscall.Kill(os.Getpid(), syscall.SIGINT)
 				require.NoError(t, err)
 				time.Sleep(100 * time.Millisecond) // Give it time to react
 
-				t.Logf("Check the sub-process has exited")
+				t.Logf("Check the fake Envoy process has exited")
 				retry.RunWith(&retry.Timer{Timeout: 2 * time.Second, Wait: 250 * time.Millisecond}, t, func(r *retry.R) {
-					proc, err := os.FindProcess(cliCmd.pid)
-					require.NoError(r, err, "Failed to find entrypoint sub-process")
+					proc, err := os.FindProcess(envoyPid)
+					require.NoError(r, err, "Failed to find fake Envoy process")
 					err = proc.Signal(syscall.Signal(0))
-					require.Error(r, err, "Sigint was not forwarded to entrypoint sub-process")
+					require.Error(r, err, "Sigint was not forwarded to fake Envoy process")
 					require.Equal(r, os.ErrProcessDone, err)
 				})
 			}
@@ -220,5 +197,26 @@ func TestRun(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, c.exitCode, exitCode)
 		})
+	}
+}
+
+// makeTaskMeta returns task metadata with the given container names.
+// All containers are put in DesiredStatus=STOPPED and KnownStatus=RUNNING,
+// to allow us to simulate task shutdown.
+func makeTaskMeta(containerNames ...string) awsutil.ECSTaskMeta {
+	var containers []awsutil.ECSTaskMetaContainer
+	for _, name := range containerNames {
+		containers = append(containers, awsutil.ECSTaskMetaContainer{
+			Name:          name,
+			DesiredStatus: ecs.DesiredStatusStopped,
+			KnownStatus:   ecs.DesiredStatusRunning,
+		})
+	}
+
+	return awsutil.ECSTaskMeta{
+		Cluster:    "test",
+		TaskARN:    "abc123",
+		Family:     "test-service",
+		Containers: containers,
 	}
 }

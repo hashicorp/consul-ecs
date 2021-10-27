@@ -345,3 +345,50 @@ func TestTask_Delete(t *testing.T) {
 		})
 	}
 }
+
+func TestParseServiceNameFromTaskDefinitionARN(t *testing.T) {
+	validARN := "arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"
+	cases := map[string]struct {
+		task        ecs.Task
+		serviceName string
+	}{
+		"invalid ARN": {
+			task: ecs.Task{
+				TaskDefinitionArn: aws.String("invalid"),
+			},
+			serviceName: "",
+		},
+		"parsing from the ARN": {
+			task: ecs.Task{
+				TaskDefinitionArn: aws.String(validARN),
+			},
+			serviceName: "service",
+		},
+		"from the tags": {
+			task: ecs.Task{
+				TaskDefinitionArn: aws.String(validARN),
+				Tags: []*ecs.Tag{
+					{
+						Key:   aws.String(serviceNameTag),
+						Value: aws.String("real-service-name"),
+					},
+				},
+			},
+			serviceName: "real-service-name",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			task := Task{
+				Task: c.task,
+			}
+			serviceName, err := task.serviceNameForTask()
+			if c.serviceName == "" {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, c.serviceName, serviceName)
+			}
+		})
+	}
+}

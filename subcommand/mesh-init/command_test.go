@@ -35,11 +35,20 @@ func TestFlagValidation(t *testing.T) {
 // because it sets environment variables (e.g. ECS metadata URI and Consul's HTTP addr)
 // that could not be shared if another test were to run in parallel.
 func TestRun(t *testing.T) {
+	family := "family-service-name"
+	serviceName := "service-name"
+
 	cases := map[string]struct {
-		servicePort  int
-		upstreams    string
-		expUpstreams []api.Upstream
-		checks       api.AgentServiceChecks
+		servicePort      int
+		upstreams        string
+		expUpstreams     []api.Upstream
+		checks           api.AgentServiceChecks
+		tags             string
+		expTags          []string
+		additionalMeta   string
+		expAdditionaMeta map[string]string
+		serviceName      string
+		expServiceName   string
 	}{
 		"basic service": {},
 		"service with port": {
@@ -91,6 +100,18 @@ func TestRun(t *testing.T) {
 				},
 			},
 		},
+		"service with tags": {
+			tags:    "tag1,tag2",
+			expTags: []string{"tag1", "tag2"},
+		},
+		"service with additional metadata": {
+			additionalMeta:   `{"a": "1", "b": "2"}`,
+			expAdditionaMeta: map[string]string{"a": "1", "b": "2"},
+		},
+		"service with service name": {
+			serviceName:    serviceName,
+			expServiceName: serviceName,
+		},
 	}
 
 	for name, c := range cases {
@@ -102,7 +123,21 @@ func TestRun(t *testing.T) {
 					"task-arn": taskARN,
 					"source":   "consul-ecs",
 				}
+				expectedServiceName = family
 			)
+
+			for k, v := range c.expAdditionaMeta {
+				expectedTaskMeta[k] = v
+			}
+
+			expectedTags := c.expTags
+			if expectedTags == nil {
+				expectedTags = []string{}
+			}
+
+			if c.expServiceName != "" {
+				expectedServiceName = c.expServiceName
+			}
 
 			// Set up Consul server.
 			server, err := testutil.NewTestServerConfigT(t, nil)
@@ -118,7 +153,7 @@ func TestRun(t *testing.T) {
 			os.Setenv("CONSUL_HTTP_ADDR", server.HTTPAddr)
 
 			// Set up ECS container metadata server.
-			taskMetadataResponse := fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "test-service"}`, taskARN)
+			taskMetadataResponse := fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s"}`, taskARN, family)
 			ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
 					_, err := w.Write([]byte(taskMetadataResponse))
@@ -151,12 +186,22 @@ func TestRun(t *testing.T) {
 			})
 
 			cmdArgs := []string{"-envoy-bootstrap-dir", envoyBootstrapDir}
+			if c.serviceName != "" {
+				cmdArgs = append(cmdArgs, "-service-name", c.serviceName)
+			}
 			if c.servicePort != 0 {
 				cmdArgs = append(cmdArgs, "-port", fmt.Sprintf("%d", c.servicePort))
 			}
 			if c.upstreams != "" {
 				cmdArgs = append(cmdArgs, "-upstreams", c.upstreams)
 			}
+			if c.tags != "" {
+				cmdArgs = append(cmdArgs, "-tags", c.tags)
+			}
+			if c.additionalMeta != "" {
+				cmdArgs = append(cmdArgs, "-meta", c.additionalMeta)
+			}
+
 			if c.checks != nil {
 				healthCheckBytes, err := json.Marshal(c.checks)
 				require.NoError(t, err)
@@ -165,35 +210,40 @@ func TestRun(t *testing.T) {
 			code := cmd.Run(cmdArgs)
 			require.Equal(t, code, 0)
 
+			expServiceID := fmt.Sprintf("%s-abcdef", expectedServiceName)
+			expSidecarServiceID := fmt.Sprintf("%s-abcdef-sidecar-proxy", expectedServiceName)
+
 			expectedServiceRegistration := &api.AgentService{
-				ID:      "test-service-abcdef",
-				Service: "test-service",
+				ID:      expServiceID,
+				Service: expectedServiceName,
 				Port:    c.servicePort,
 				Meta:    expectedTaskMeta,
+				Tags:    expectedTags,
 			}
 
 			expectedProxyServiceRegistration := &api.AgentService{
-				ID:      "test-service-abcdef-sidecar-proxy",
-				Service: "test-service-sidecar-proxy",
+				ID:      expSidecarServiceID,
+				Service: fmt.Sprintf("%s-sidecar-proxy", expectedServiceName),
 				Port:    20000,
 				Kind:    api.ServiceKindConnectProxy,
 				Proxy: &api.AgentServiceConnectProxyConfig{
-					DestinationServiceName: "test-service",
-					DestinationServiceID:   "test-service-abcdef",
+					DestinationServiceName: expectedServiceName,
+					DestinationServiceID:   expServiceID,
 					LocalServicePort:       c.servicePort,
 					Upstreams:              c.expUpstreams,
 				},
 				Meta: expectedTaskMeta,
+				Tags: expectedTags,
 			}
 
 			agentServiceIgnoreFields := cmpopts.IgnoreFields(api.AgentService{},
-				"Datacenter", "Tags", "Weights", "ContentHash", "ModifyIndex", "CreateIndex")
+				"Datacenter", "Weights", "ContentHash", "ModifyIndex", "CreateIndex")
 
-			service, _, err := consulClient.Agent().Service("test-service-abcdef", nil)
+			service, _, err := consulClient.Agent().Service(expServiceID, nil)
 			require.NoError(t, err)
 			require.True(t, cmp.Equal(expectedServiceRegistration, service, agentServiceIgnoreFields))
 
-			proxyService, _, err := consulClient.Agent().Service("test-service-abcdef-sidecar-proxy", nil)
+			proxyService, _, err := consulClient.Agent().Service(expSidecarServiceID, nil)
 			require.NoError(t, err)
 			require.True(t, cmp.Equal(expectedProxyServiceRegistration, proxyService, agentServiceIgnoreFields))
 
@@ -301,6 +351,57 @@ func TestConstructChecks(t *testing.T) {
 	checks, err = constructChecks(serviceID, "[]", containerName1)
 	require.NoError(t, err)
 	require.Equal(t, expectedChecks, checks)
+}
+
+func TestConstructServiceName(t *testing.T) {
+	cmd := Command{}
+	family := "family"
+
+	serviceName := cmd.constructServiceName(family)
+	require.Equal(t, family, serviceName)
+
+	expectedServiceName := "service-name"
+
+	cmd.flagServiceName = expectedServiceName
+	serviceName = cmd.constructServiceName(family)
+	require.Equal(t, expectedServiceName, serviceName)
+}
+
+func TestConstructTags(t *testing.T) {
+	cmd := Command{}
+	var expectedTags []string
+
+	tags, err := cmd.constructTags()
+	require.NoError(t, err)
+	require.Equal(t, expectedTags, tags)
+
+	expectedTags = []string{"tag1", "tag2", "tag3"}
+	cmd.flagTags = "tag1,tag2,tag3"
+	tags, err = cmd.constructTags()
+	require.NoError(t, err)
+	require.Equal(t, expectedTags, tags)
+}
+
+func TestConstructMeta(t *testing.T) {
+	cmd := Command{}
+
+	expectedMeta := make(map[string]string)
+	meta, err := cmd.constructMeta()
+	require.NoError(t, err)
+	require.Equal(t, expectedMeta, meta)
+
+	cmd.flagMeta = "{not valid json"
+	_, err = cmd.constructMeta()
+	require.Error(t, err)
+
+	expectedMeta = map[string]string{
+		"k1": "v1",
+		"k2": "v2",
+	}
+	cmd.flagMeta = `{"k1": "v1", "k2": "v2"}`
+	meta, err = cmd.constructMeta()
+	require.NoError(t, err)
+	require.Equal(t, expectedMeta, meta)
 }
 
 // toAgentCheck translates the request type (AgentServiceCheck) into an "expected"

@@ -28,7 +28,7 @@ func TestFlagValidation(t *testing.T) {
 	}
 	code := cmd.Run(nil)
 	require.Equal(t, code, 1)
-	require.Contains(t, ui.ErrorWriter.String(), "-envoy-bootstrap-file must be set")
+	require.Contains(t, ui.ErrorWriter.String(), "-envoy-bootstrap-dir must be set")
 }
 
 // Note: this test cannot currently run in parallel with other tests
@@ -138,7 +138,7 @@ func TestRun(t *testing.T) {
 
 			envoyBootstrapDir, err := ioutil.TempDir("", "")
 			require.NoError(t, err)
-			envoyBootstrapFile := path.Join(envoyBootstrapDir, "envoy.yaml")
+			envoyBootstrapFile := path.Join(envoyBootstrapDir, envoyBoostrapConfigFilename)
 			copyConsulEcsFile := path.Join(envoyBootstrapDir, "consul-ecs")
 
 			t.Cleanup(func() {
@@ -150,7 +150,7 @@ func TestRun(t *testing.T) {
 				}
 			})
 
-			cmdArgs := []string{"-envoy-bootstrap-file", envoyBootstrapFile}
+			cmdArgs := []string{"-envoy-bootstrap-dir", envoyBootstrapDir}
 			if c.servicePort != 0 {
 				cmdArgs = append(cmdArgs, "-port", fmt.Sprintf("%d", c.servicePort))
 			}

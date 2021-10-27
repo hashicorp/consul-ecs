@@ -23,6 +23,9 @@ import (
 const (
 	flagEnvoyBootstrapDir    = "envoy-bootstrap-dir"
 	flagPort                 = "port"
+	flagTags                 = "tags"
+	flagMeta                 = "meta"
+	flagServiceName          = "service-name"
 	flagUpstreams            = "upstreams"
 	flagChecks               = "checks"
 	flagHealthSyncContainers = "health-sync-containers"
@@ -35,6 +38,9 @@ type Command struct {
 
 	flagEnvoyBootstrapDir    string
 	flagPort                 int
+	flagServiceName          string
+	flagTags                 string
+	flagMeta                 string
 	flagUpstreams            string
 	flagChecks               string
 	flagHealthSyncContainers string
@@ -52,6 +58,10 @@ func (c *Command) init() {
 	c.flagSet.StringVar(&c.flagChecks, flagChecks, "", "List of Consul checks in JSON form")
 	c.flagSet.StringVar(&c.flagHealthSyncContainers, flagHealthSyncContainers, "",
 		"A comma separated list of container names that need Consul TTL checks")
+	c.flagSet.StringVar(&c.flagTags, flagTags, "", "Tags for the Consul service as a comma separated string")
+	c.flagSet.StringVar(&c.flagMeta, flagMeta, "", "Metadata for the Consul service as a JSON string")
+	c.flagSet.StringVar(&c.flagServiceName, flagServiceName, "",
+		"Name of the service that will be registered with Consul. If not provided, the task family will be used as the service name.")
 }
 
 func (c *Command) Run(args []string) int {
@@ -84,9 +94,10 @@ func (c *Command) realRun(log hclog.Logger) error {
 		return err
 	}
 
+	serviceName := c.constructServiceName(taskMeta.Family)
+
 	// Register the service.
 	taskID := taskMeta.TaskID()
-	serviceName := taskMeta.Family
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
 
 	checks, err := constructChecks(serviceID, c.flagChecks, c.flagHealthSyncContainers)
@@ -95,17 +106,32 @@ func (c *Command) realRun(log hclog.Logger) error {
 		return err
 	}
 
+	tags, err := c.constructTags()
+
+	if err != nil {
+		return err
+	}
+
+	meta, err := c.constructMeta()
+
+	if err != nil {
+		return err
+	}
+
+	fullMeta := mergeMeta(map[string]string{
+		"task-id":  taskID,
+		"task-arn": taskMeta.TaskARN,
+		"source":   "consul-ecs",
+	}, meta)
+
 	err = backoff.RetryNotify(func() error {
 		log.Info("registering service")
 		return consulClient.Agent().ServiceRegister(&api.AgentServiceRegistration{
-			ID:   serviceID,
-			Name: serviceName,
-			Port: c.flagPort,
-			Meta: map[string]string{
-				"task-id":  taskID,
-				"task-arn": taskMeta.TaskARN,
-				"source":   "consul-ecs",
-			},
+			ID:     serviceID,
+			Name:   serviceName,
+			Port:   c.flagPort,
+			Tags:   tags,
+			Meta:   fullMeta,
 			Checks: checks,
 		})
 	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(log))
@@ -161,11 +187,8 @@ func (c *Command) realRun(log hclog.Logger) error {
 					AliasService: serviceID,
 				},
 			},
-			Meta: map[string]string{
-				"task-id":  taskID,
-				"task-arn": taskMeta.TaskARN,
-				"source":   "consul-ecs",
-			},
+			Meta: fullMeta,
+			Tags: tags,
 		})
 	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(log))
 	if err != nil {
@@ -250,4 +273,51 @@ func constructChecks(serviceID, encodedChecks, encodedHealthSyncContainers strin
 	}
 
 	return checks, nil
+}
+
+func (c *Command) constructServiceName(family string) string {
+	if c.flagServiceName == "" {
+		return family
+	}
+
+	return c.flagServiceName
+}
+
+func (c *Command) constructTags() ([]string, error) {
+	var tags []string
+	if len(c.flagTags) == 0 {
+		return tags, nil
+	}
+	tags = strings.Split(c.flagTags, ",")
+	return tags, nil
+}
+
+func (c *Command) constructMeta() (map[string]string, error) {
+	meta := make(map[string]string)
+
+	if c.flagMeta == "" {
+		return meta, nil
+	}
+
+	err := json.Unmarshal([]byte(c.flagMeta), &meta)
+
+	if err != nil {
+		return meta, err
+	}
+
+	return meta, nil
+}
+
+func mergeMeta(m1, m2 map[string]string) map[string]string {
+	result := make(map[string]string)
+
+	for k, v := range m1 {
+		result[k] = v
+	}
+
+	for k, v := range m2 {
+		result[k] = v
+	}
+
+	return result
 }

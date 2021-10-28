@@ -44,23 +44,25 @@ type minimalContainerMetadata struct {
 }
 
 type ecsServiceMetadata struct {
-	serviceID   string
-	serviceName string
-	taskARN     string
-	taskID      string
+	family    string
+	serviceID string
+	taskARN   string
+	taskID    string
 }
 
 func TestRunWithContainerNames(t *testing.T) {
-	serviceName := "Family"
+	serviceName := "service-name"
+	family := "Family"
 	taskID := "TaskID"
 	ecsServiceMetadata := ecsServiceMetadata{
-		serviceName: serviceName,
-		serviceID:   fmt.Sprintf("%s-%s", serviceName, taskID),
-		taskID:      taskID,
-		taskARN:     fmt.Sprintf("asdf/%s", taskID),
+		family:    family,
+		serviceID: fmt.Sprintf("%s-%s", family, taskID),
+		taskID:    taskID,
+		taskARN:   fmt.Sprintf("asdf/%s", taskID),
 	}
 
 	cases := map[string]struct {
+		serviceName       string
 		initialContainers []minimalContainerMetadata
 		initialExpChecks  map[string]string
 		updatedContainers []minimalContainerMetadata
@@ -174,10 +176,28 @@ func TestRunWithContainerNames(t *testing.T) {
 				"missing": api.HealthPassing,
 			},
 		},
+		"with service name specified": {
+			serviceName: serviceName,
+			initialContainers: []minimalContainerMetadata{
+				{
+					name:       "container1",
+					status:     "HEALTHY",
+					expectSync: true,
+					missing:    false,
+				},
+			},
+			initialExpChecks: map[string]string{
+				"container1": api.HealthPassing,
+			},
+		},
 	}
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
+			expectedServiceName := family
+			if c.serviceName != "" {
+				expectedServiceName = c.serviceName
+			}
 			initialStage := true
 
 			server, err := testutil.NewTestServerConfigT(t, nil)
@@ -189,7 +209,7 @@ func TestRunWithContainerNames(t *testing.T) {
 			consulClient, err := api.NewClient(&api.Config{Address: server.HTTPAddr})
 			require.NoError(t, err)
 
-			setupServiceAndChecks(t, ecsServiceMetadata, consulClient, c.initialContainers)
+			setupServiceAndChecks(t, expectedServiceName, ecsServiceMetadata, consulClient, c.initialContainers)
 
 			var expectSyncContainers []string
 			for _, container := range c.initialContainers {
@@ -216,7 +236,7 @@ func TestRunWithContainerNames(t *testing.T) {
 			}
 
 			// First sanity check that Consul is in the expected state before we start our command
-			assertHealthChecks(t, ecsServiceMetadata, consulClient, c.initialContainers, sanityChecks)
+			assertHealthChecks(t, expectedServiceName, ecsServiceMetadata, consulClient, c.initialContainers, sanityChecks)
 
 			// Set up the command.
 			ui := cli.NewMockUi()
@@ -225,6 +245,7 @@ func TestRunWithContainerNames(t *testing.T) {
 				UI:                       ui,
 				log:                      log,
 				flagHealthSyncContainers: strings.Join(expectSyncContainers, ","),
+				flagServiceName:          c.serviceName,
 			}
 
 			// Start the command.
@@ -239,19 +260,19 @@ func TestRunWithContainerNames(t *testing.T) {
 			}()
 
 			// Wait for the initial state to converge to what we expect.
-			assertHealthChecks(t, ecsServiceMetadata, consulClient, c.initialContainers, c.initialExpChecks)
+			assertHealthChecks(t, expectedServiceName, ecsServiceMetadata, consulClient, c.initialContainers, c.initialExpChecks)
 
 			// If we're also testing updates make the updates.
 			if len(c.updatedContainers) > 0 {
 				// Trigger the AWS metadata API to return the updated statuses.
 				initialStage = false
-				assertHealthChecks(t, ecsServiceMetadata, consulClient, c.updatedContainers, c.updatedExpChecks)
+				assertHealthChecks(t, expectedServiceName, ecsServiceMetadata, consulClient, c.updatedContainers, c.updatedExpChecks)
 			}
 
 			cancel()
 
 			// Ensure that checks are set to unhealthy after the context is canceled
-			assertHealthChecks(t, ecsServiceMetadata, consulClient, c.initialContainers, sanityChecks)
+			assertHealthChecks(t, expectedServiceName, ecsServiceMetadata, consulClient, c.initialContainers, sanityChecks)
 		})
 	}
 }
@@ -325,7 +346,7 @@ func metadataResponse(t *testing.T, ecsServiceMetadata ecsServiceMetadata, conta
 	}
 
 	taskMeta := awsutil.ECSTaskMeta{
-		Family:     ecsServiceMetadata.serviceName,
+		Family:     ecsServiceMetadata.family,
 		TaskARN:    ecsServiceMetadata.taskARN,
 		Containers: taskMetaContainers,
 	}
@@ -334,7 +355,7 @@ func metadataResponse(t *testing.T, ecsServiceMetadata ecsServiceMetadata, conta
 	return string(json)
 }
 
-func setupServiceAndChecks(t *testing.T, ecsServiceMetadata ecsServiceMetadata, consulClient *api.Client, containers []minimalContainerMetadata) {
+func setupServiceAndChecks(t *testing.T, serviceName string, ecsServiceMetadata ecsServiceMetadata, consulClient *api.Client, containers []minimalContainerMetadata) {
 	checks := api.AgentServiceChecks{}
 	for _, container := range containers {
 		if !container.expectSync {
@@ -342,14 +363,14 @@ func setupServiceAndChecks(t *testing.T, ecsServiceMetadata ecsServiceMetadata, 
 		}
 
 		checks = append(checks, &api.AgentServiceCheck{
-			CheckID: makeCheckID(ecsServiceMetadata.serviceName, ecsServiceMetadata.taskID, container.name),
+			CheckID: makeCheckID(serviceName, ecsServiceMetadata.taskID, container.name),
 			TTL:     "10000h",
 		})
 	}
 
 	err := consulClient.Agent().ServiceRegister(&api.AgentServiceRegistration{
 		ID:   ecsServiceMetadata.serviceID,
-		Name: ecsServiceMetadata.serviceName,
+		Name: serviceName,
 		Port: 1000,
 		Meta: map[string]string{
 			"task-id":  ecsServiceMetadata.taskID,
@@ -361,14 +382,14 @@ func setupServiceAndChecks(t *testing.T, ecsServiceMetadata ecsServiceMetadata, 
 	require.NoError(t, err)
 }
 
-func assertHealthChecks(t *testing.T, ecsServiceMetadata ecsServiceMetadata, consulClient *api.Client, containers []minimalContainerMetadata, expChecks map[string]string) {
+func assertHealthChecks(t *testing.T, serviceName string, ecsServiceMetadata ecsServiceMetadata, consulClient *api.Client, containers []minimalContainerMetadata, expChecks map[string]string) {
 	retry.Run(t, func(r *retry.R) {
 		filter := fmt.Sprintf(`ServiceID == "%s"`, ecsServiceMetadata.serviceID)
 		checks, err := consulClient.Agent().ChecksWithFilter(filter)
 		require.NoError(r, err)
 
 		for _, container := range containers {
-			checkID := makeCheckID(ecsServiceMetadata.serviceName, ecsServiceMetadata.taskID, container.name)
+			checkID := makeCheckID(serviceName, ecsServiceMetadata.taskID, container.name)
 			check, ok := checks[checkID]
 
 			if !container.expectSync {
@@ -380,4 +401,18 @@ func assertHealthChecks(t *testing.T, ecsServiceMetadata ecsServiceMetadata, con
 			require.Equal(r, expChecks[container.name], check.Status)
 		}
 	})
+}
+
+func TestConstructServiceName(t *testing.T) {
+	cmd := Command{}
+	family := "family"
+
+	serviceName := cmd.constructServiceName(family)
+	require.Equal(t, family, serviceName)
+
+	expectedServiceName := "service-name"
+
+	cmd.flagServiceName = expectedServiceName
+	serviceName = cmd.constructServiceName(family)
+	require.Equal(t, expectedServiceName, serviceName)
 }

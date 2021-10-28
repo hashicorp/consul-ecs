@@ -1,8 +1,14 @@
+//go:build !windows
+// +build !windows
+
 package envoyentrypoint
 
 import (
 	"context"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
@@ -24,31 +30,28 @@ type AppContainerMonitor struct {
 	once sync.Once
 	ctx  context.Context
 
-	doneCh chan bool
+	doneCh chan struct{}
 }
 
 func NewAppContainerMonitor(log hclog.Logger, ctx context.Context) *AppContainerMonitor {
 	return &AppContainerMonitor{
 		log:    log,
 		ctx:    ctx,
-		doneCh: make(chan bool, 1),
+		doneCh: make(chan struct{}, 1),
 	}
 }
 
-func (t *AppContainerMonitor) Done() chan bool {
+func (t *AppContainerMonitor) Done() chan struct{} {
 	return t.doneCh
 }
 
-func (t *AppContainerMonitor) Run(wg *sync.WaitGroup) {
-	t.once.Do(func() {
-		t.realRun(wg)
-	})
-}
-
-func (t *AppContainerMonitor) realRun(wg *sync.WaitGroup) {
-	wg.Add(1)
-	defer wg.Done()
+func (t *AppContainerMonitor) Run() {
 	defer close(t.doneCh)
+
+	if !t.waitForSIGTERM() {
+		t.doneCh <- struct{}{}
+		return
+	}
 
 	t.log.Info("waiting for application container(s) to stop")
 	for {
@@ -64,9 +67,24 @@ func (t *AppContainerMonitor) realRun(wg *sync.WaitGroup) {
 
 			if allAppContainersStopped(taskMeta) {
 				t.log.Info("application container(s) have stopped, terminating envoy")
-				t.doneCh <- true
+				t.doneCh <- struct{}{}
 				return
 			}
+		}
+	}
+}
+
+func (t *AppContainerMonitor) waitForSIGTERM() bool {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+
+	for {
+		select {
+		case <-sigs:
+			return true
+		case <-t.ctx.Done():
+			return false
 		}
 	}
 }

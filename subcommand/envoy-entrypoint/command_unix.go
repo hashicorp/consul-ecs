@@ -88,7 +88,7 @@ func (c *Command) handleSignal(sig os.Signal) {
 
 func (c *Command) cleanup() {
 	signal.Stop(c.sigs)
-	// Cancel the command and background goroutines.
+	// Cancel background goroutines
 	c.cancel()
 	<-c.appMonitor.Done()
 	<-c.envoyCmd.Done()

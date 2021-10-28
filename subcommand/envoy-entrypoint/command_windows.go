@@ -8,16 +8,13 @@
 package envoyentrypoint
 
 import (
-	"sync"
-
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
 )
 
 type Command struct {
-	UI   cli.Ui
-	log  hclog.Logger
-	once sync.Once
+	UI  cli.Ui
+	log hclog.Logger
 }
 
 func (c *Command) Run(args []string) int {

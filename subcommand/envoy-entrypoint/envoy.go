@@ -1,24 +1,23 @@
+//go:build !windows
+// +build !windows
+
 package envoyentrypoint
 
 import (
-	"context"
 	"os"
 	"os/exec"
-	"sync"
 	"syscall"
 )
 
 type EnvoyCmd struct {
 	*exec.Cmd
 
-	ExitCodeCh chan int
-	PidCh      chan int
+	doneCh    chan struct{}
+	startedCh chan struct{}
 }
 
-func NewEnvoyCmd(ctx context.Context, args []string) *EnvoyCmd {
-	// CommandContext allows cancelling the command.
-	// When cancelled, the process is sent a SIGKILL and is not waited on.
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+func NewEnvoyCmd(args []string) *EnvoyCmd {
+	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -28,32 +27,35 @@ func NewEnvoyCmd(ctx context.Context, args []string) *EnvoyCmd {
 	}
 
 	return &EnvoyCmd{
-		Cmd:        cmd,
-		ExitCodeCh: make(chan int, 1),
-		PidCh:      make(chan int, 1),
+		Cmd:       cmd,
+		doneCh:    make(chan struct{}, 1),
+		startedCh: make(chan struct{}, 1),
 	}
 }
 
-// Run the command. The process id and exit code of the process, once known,
-// will be sent on the PidCh and ExitCodeCh channels, respectively.
-func (e *EnvoyCmd) Run(wg *sync.WaitGroup) {
-	wg.Add(1)
-	defer wg.Done()
-	defer close(e.ExitCodeCh)
-	defer close(e.PidCh)
+// Run the command. The Started() and Done() functions can be used
+// to wait for the process to start and exit, respectively.
+func (e *EnvoyCmd) Run() {
+	defer close(e.doneCh)
+	defer close(e.startedCh)
 
 	if err := e.Cmd.Start(); err != nil {
-		// Closed channels indicate the command failed to start.
+		// Closed channels (in defers) indicate the command failed to start.
 		return
 	}
-	e.PidCh <- e.Cmd.Process.Pid
+	e.startedCh <- struct{}{}
 
-	if err := e.Cmd.Wait(); err != nil {
-		e.ExitCodeCh <- e.Cmd.ProcessState.ExitCode()
-	} else {
-		e.ExitCodeCh <- 0
-	}
+	_ = e.Cmd.Wait()
+	e.doneCh <- struct{}{}
 
 	// Signal the process group to exit, to try to clean up subprocesses.
 	_ = syscall.Kill(-e.Cmd.Process.Pid, syscall.SIGTERM)
+}
+
+func (e *EnvoyCmd) Started() chan struct{} {
+	return e.startedCh
+}
+
+func (e *EnvoyCmd) Done() chan struct{} {
+	return e.doneCh
 }

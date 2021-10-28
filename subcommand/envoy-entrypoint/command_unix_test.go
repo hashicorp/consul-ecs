@@ -30,6 +30,7 @@ import (
 const fakeEnvoyScript = `sleep 120 &
 export SLEEP_PID=$!
 trap "{ echo 'target command was interrupted'; kill $SLEEP_PID; exit 42; }" INT
+trap "{ echo 'target command was terminated'; kill $SLEEP_PID; exit 55; }" TERM
 wait $SLEEP_PID
 `
 
@@ -71,11 +72,11 @@ func TestRun(t *testing.T) {
 			sendSigint:    true,
 			exitCode:      42,
 		},
-		"sigterm is ignored and then exits after the app container": {
+		"sigterm is ignored and envoy terminates after the app container": {
 			targetCommand:    fakeEnvoyScript,
 			sendSigterm:      true,
 			mockTaskMetadata: true,
-			exitCode:         0,
+			exitCode:         55,
 		},
 	}
 

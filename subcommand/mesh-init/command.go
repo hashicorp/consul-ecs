@@ -223,12 +223,12 @@ func (c *Command) realRun(log hclog.Logger) error {
 		return err
 	}
 
-	copyConsulEcsFile := path.Join(c.flagEnvoyBootstrapDir, "consul-ecs")
-	err = ioutil.WriteFile(copyConsulEcsFile, data, 0755)
+	copyConsulECSBinary := path.Join(c.flagEnvoyBootstrapDir, "consul-ecs")
+	err = ioutil.WriteFile(copyConsulECSBinary, data, 0755)
 	if err != nil {
 		return err
 	}
-	log.Info("copied binary", "file", copyConsulEcsFile)
+	log.Info("copied binary", "file", copyConsulECSBinary)
 	return nil
 }
 

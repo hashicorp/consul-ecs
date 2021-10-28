@@ -7,7 +7,6 @@ import (
 	"context"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -26,9 +25,8 @@ var (
 )
 
 type AppContainerMonitor struct {
-	log  hclog.Logger
-	once sync.Once
-	ctx  context.Context
+	log hclog.Logger
+	ctx context.Context
 
 	doneCh chan struct{}
 }
@@ -45,6 +43,9 @@ func (t *AppContainerMonitor) Done() chan struct{} {
 	return t.doneCh
 }
 
+// Run will wake up when SIGTERM is received. Then, it polls task metadata
+// until the application container(s) stop. Use the Done() channel to wait
+// until it has finished. It is cancellable through its context.
 func (t *AppContainerMonitor) Run() {
 	defer close(t.doneCh)
 

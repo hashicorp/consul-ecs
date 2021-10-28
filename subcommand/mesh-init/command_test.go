@@ -174,11 +174,11 @@ func TestRun(t *testing.T) {
 			envoyBootstrapDir, err := ioutil.TempDir("", "")
 			require.NoError(t, err)
 			envoyBootstrapFile := path.Join(envoyBootstrapDir, envoyBoostrapConfigFilename)
-			copyConsulEcsFile := path.Join(envoyBootstrapDir, "consul-ecs")
+			copyConsulECSBinary := path.Join(envoyBootstrapDir, "consul-ecs")
 
 			t.Cleanup(func() {
 				os.Remove(envoyBootstrapFile)
-				os.Remove(copyConsulEcsFile)
+				os.Remove(copyConsulECSBinary)
 				err := os.Remove(envoyBootstrapDir)
 				if err != nil {
 					t.Logf("warning, failed to cleanup temp dir %s - %s", envoyBootstrapDir, err)
@@ -251,7 +251,7 @@ func TestRun(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, envoyBootstrapContents)
 
-			copyConsulEcsStat, err := os.Stat(copyConsulEcsFile)
+			copyConsulEcsStat, err := os.Stat(copyConsulECSBinary)
 			require.NoError(t, err)
 			require.Equal(t, "consul-ecs", copyConsulEcsStat.Name())
 			require.Equal(t, os.FileMode(0755), copyConsulEcsStat.Mode())

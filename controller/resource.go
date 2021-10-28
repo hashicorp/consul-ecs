@@ -15,6 +15,7 @@ import (
 )
 
 const meshTag = "consul.hashicorp.com/mesh"
+const serviceNameTag = "consul.hashicorp.com/service-name"
 
 // ResourceID represents the ID of the resource.
 type ResourceID string
@@ -132,7 +133,7 @@ type tokenSecretJSON struct {
 // Upsert creates a token for the task if one doesn't already exist
 // and updates the secret with the contents of the token.
 func (t *Task) Upsert() error {
-	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN()
+	serviceName, err := t.serviceNameForTask()
 	if err != nil {
 		return fmt.Errorf("could not determine service name: %w", err)
 	}
@@ -190,7 +191,7 @@ func (t *Task) Delete() error {
 		return nil
 	}
 
-	serviceName, err := t.parseFamilyNameFromTaskDefinitionARN()
+	serviceName, err := t.serviceNameForTask()
 	if err != nil {
 		return fmt.Errorf("parsing service name: %w", err)
 	}
@@ -277,7 +278,10 @@ func (t *Task) updateServiceToken(serviceName, secretName string) error {
 }
 
 // Task definition ARN looks like this: arn:aws:ecs:us-east-1:1234567890:task-definition/service:1
-func (t *Task) parseFamilyNameFromTaskDefinitionARN() (string, error) {
+func (t *Task) serviceNameForTask() (string, error) {
+	if serviceName := t.serviceName(); serviceName != "" {
+		return serviceName, nil
+	}
 	taskDefArn := *t.Task.TaskDefinitionArn
 	splits := strings.Split(taskDefArn, "/")
 	if len(splits) != 2 {
@@ -297,6 +301,10 @@ func (t *Task) secretName(serviceName string) string {
 
 func (t *Task) isMeshTask() bool {
 	return tagValue(t.Task.Tags, meshTag) == "true"
+}
+
+func (t *Task) serviceName() string {
+	return tagValue(t.Task.Tags, serviceNameTag)
 }
 
 func tagValue(tags []*ecs.Tag, key string) string {

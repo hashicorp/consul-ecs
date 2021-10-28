@@ -12,6 +12,11 @@ FEATURES
 * Add a `health-sync` subcommand to sync ECS health checks into Consul [[GH-33](https://github.com/hashicorp/consul-ecs/pull/33)]
 * Add the `-health-sync-containers` flag to `mesh-init` [[GH-36](https://github.com/hashicorp/consul-ecs/pull/36)]
 * Add `-tags`, `-service-name` and `-meta` flags to `mesh-init` [[GH-41](https://github.com/hashicorp/consul-ecs/pull/41)]
+* Add the `-service-name` flag to `health-sync`. [[GH-43](https://github.com/hashicorp/consul-ecs/pull/43)]
+* The ACL controller now reads the Consul service name from the
+  `consul.hashicorp.com/service-name` tag on the ECS task. If the tag
+  does not exist, it uses the Task family as the Consul service name.
+  [[GH-44](https://github.com/hashicorp/consul-ecs/pull/44)]
 * Add a `envoy-entrypoint` subcommand, which can be used as the entrypoint to the Envoy container running in ECS
   to support graceful shutdown. [[GH-42](https://github.com/hashicorp/consul-ecs/pull/42)]
 

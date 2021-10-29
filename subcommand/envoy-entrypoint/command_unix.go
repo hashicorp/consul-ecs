@@ -36,7 +36,7 @@ func (c *Command) Run(args []string) int {
 
 	c.sigs = make(chan os.Signal, 1)
 	c.ctx, c.cancel = context.WithCancel(context.Background())
-	c.envoyCmd = NewEnvoyCmd(args)
+	c.envoyCmd = NewEnvoyCmd(c.log, args)
 	c.appMonitor = NewAppContainerMonitor(c.log, c.ctx)
 
 	return c.realRun()
@@ -69,7 +69,10 @@ func (c *Command) realRun() int {
 			// When the application containers stop (after SIGTERM), tell Envoy to exit.
 			if ok {
 				c.log.Info("terminating Envoy with sigterm")
-				_ = c.envoyCmd.Process.Signal(syscall.SIGTERM)
+				// A negative pid signals the process group to exit, to try to clean up subprocesses as well
+				if err := syscall.Kill(-c.envoyCmd.Process.Pid, syscall.SIGTERM); err != nil {
+					c.log.Warn("sending sigterm to Envoy", "error", err.Error())
+				}
 			}
 		}
 	}

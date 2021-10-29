@@ -3,7 +3,7 @@
 
 // Not implemented for Windows.
 // Our Unix implementation doesn't compile on Windows, and we only need to support
-// Linux since this is an entrypoint to a Docker container
+// Linux since this is an entrypoint to a Docker container.
 
 package envoyentrypoint
 

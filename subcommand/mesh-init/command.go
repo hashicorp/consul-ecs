@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"os/exec"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,7 +21,7 @@ import (
 )
 
 const (
-	flagEnvoyBootstrapFile   = "envoy-bootstrap-file"
+	flagEnvoyBootstrapDir    = "envoy-bootstrap-dir"
 	flagPort                 = "port"
 	flagTags                 = "tags"
 	flagMeta                 = "meta"
@@ -27,12 +29,14 @@ const (
 	flagUpstreams            = "upstreams"
 	flagChecks               = "checks"
 	flagHealthSyncContainers = "health-sync-containers"
+
+	envoyBoostrapConfigFilename = "envoy-bootstrap.json"
 )
 
 type Command struct {
 	UI cli.Ui
 
-	flagEnvoyBootstrapFile   string
+	flagEnvoyBootstrapDir    string
 	flagPort                 int
 	flagServiceName          string
 	flagTags                 string
@@ -47,14 +51,17 @@ type Command struct {
 
 func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
-	c.flagSet.StringVar(&c.flagEnvoyBootstrapFile, flagEnvoyBootstrapFile, "", "File to write bootstrap config to")
+	c.flagSet.StringVar(&c.flagEnvoyBootstrapDir, flagEnvoyBootstrapDir, "",
+		"Directory for Envoy startup files. The envoy-bootstrap.json and the consul-ecs binary are written here.")
 	c.flagSet.IntVar(&c.flagPort, flagPort, 0, "Port service runs on")
 	c.flagSet.StringVar(&c.flagUpstreams, flagUpstreams, "", "Upstreams in form <name>:<port>,...")
 	c.flagSet.StringVar(&c.flagChecks, flagChecks, "", "List of Consul checks in JSON form")
-	c.flagSet.StringVar(&c.flagHealthSyncContainers, flagHealthSyncContainers, "", "A comma separated list of container names that need Consul TTL checks")
+	c.flagSet.StringVar(&c.flagHealthSyncContainers, flagHealthSyncContainers, "",
+		"A comma separated list of container names that need Consul TTL checks")
 	c.flagSet.StringVar(&c.flagTags, flagTags, "", "Tags for the Consul service as a comma separated string")
 	c.flagSet.StringVar(&c.flagMeta, flagMeta, "", "Metadata for the Consul service as a JSON string")
-	c.flagSet.StringVar(&c.flagServiceName, flagServiceName, "", "Name of the service that will be registered with Consul. If not provided, the task family will be used as the service name.")
+	c.flagSet.StringVar(&c.flagServiceName, flagServiceName, "",
+		"Name of the service that will be registered with Consul. If not provided, the task family will be used as the service name.")
 }
 
 func (c *Command) Run(args []string) int {
@@ -62,8 +69,8 @@ func (c *Command) Run(args []string) int {
 	if err := c.flagSet.Parse(args); err != nil {
 		return 1
 	}
-	if c.flagEnvoyBootstrapFile == "" {
-		c.UI.Error(fmt.Sprintf("-%s must be set", flagEnvoyBootstrapFile))
+	if c.flagEnvoyBootstrapDir == "" {
+		c.UI.Error(fmt.Sprintf("-%s must be set", flagEnvoyBootstrapDir))
 		return 1
 	}
 
@@ -197,12 +204,31 @@ func (c *Command) realRun(log hclog.Logger) error {
 		return fmt.Errorf("%s: %s", err, string(out))
 	}
 
-	err = ioutil.WriteFile(c.flagEnvoyBootstrapFile, out, 0444)
+	envoyBootstrapFile := path.Join(c.flagEnvoyBootstrapDir, envoyBoostrapConfigFilename)
+	err = ioutil.WriteFile(envoyBootstrapFile, out, 0444)
 	if err != nil {
 		return err
 	}
 
-	log.Info("envoy bootstrap config written", "file", c.flagEnvoyBootstrapFile)
+	log.Info("envoy bootstrap config written", "file", envoyBootstrapFile)
+
+	// Copy this binary to a volume for use in the sidecar-proxy container.
+	// This copies to the same place as we write the envoy bootstrap file, for now.
+	ex, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	data, err := ioutil.ReadFile(ex)
+	if err != nil {
+		return err
+	}
+
+	copyConsulECSBinary := path.Join(c.flagEnvoyBootstrapDir, "consul-ecs")
+	err = ioutil.WriteFile(copyConsulECSBinary, data, 0755)
+	if err != nil {
+		return err
+	}
+	log.Info("copied binary", "file", copyConsulECSBinary)
 	return nil
 }
 

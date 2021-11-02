@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ func TestFlagValidation(t *testing.T) {
 	}
 	code := cmd.Run(nil)
 	require.Equal(t, code, 1)
-	require.Contains(t, ui.ErrorWriter.String(), "-envoy-bootstrap-file must be set")
+	require.Contains(t, ui.ErrorWriter.String(), "-envoy-bootstrap-dir must be set")
 }
 
 // Note: this test cannot currently run in parallel with other tests
@@ -170,13 +171,21 @@ func TestRun(t *testing.T) {
 				UI: ui,
 			}
 
-			envoyBootstrapFile, err := ioutil.TempFile("", "")
+			envoyBootstrapDir, err := ioutil.TempDir("", "")
 			require.NoError(t, err)
+			envoyBootstrapFile := path.Join(envoyBootstrapDir, envoyBoostrapConfigFilename)
+			copyConsulECSBinary := path.Join(envoyBootstrapDir, "consul-ecs")
+
 			t.Cleanup(func() {
-				os.Remove(envoyBootstrapFile.Name())
+				os.Remove(envoyBootstrapFile)
+				os.Remove(copyConsulECSBinary)
+				err := os.Remove(envoyBootstrapDir)
+				if err != nil {
+					t.Logf("warning, failed to cleanup temp dir %s - %s", envoyBootstrapDir, err)
+				}
 			})
 
-			cmdArgs := []string{"-envoy-bootstrap-file", envoyBootstrapFile.Name()}
+			cmdArgs := []string{"-envoy-bootstrap-dir", envoyBootstrapDir}
 			if c.serviceName != "" {
 				cmdArgs = append(cmdArgs, "-service-name", c.serviceName)
 			}
@@ -238,9 +247,14 @@ func TestRun(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, cmp.Equal(expectedProxyServiceRegistration, proxyService, agentServiceIgnoreFields))
 
-			envoyBootstrapContents, err := ioutil.ReadFile(envoyBootstrapFile.Name())
+			envoyBootstrapContents, err := ioutil.ReadFile(envoyBootstrapFile)
 			require.NoError(t, err)
 			require.NotEmpty(t, envoyBootstrapContents)
+
+			copyConsulEcsStat, err := os.Stat(copyConsulECSBinary)
+			require.NoError(t, err)
+			require.Equal(t, "consul-ecs", copyConsulEcsStat.Name())
+			require.Equal(t, os.FileMode(0755), copyConsulEcsStat.Mode())
 
 			if c.checks != nil {
 				actualChecks, err := consulClient.Agent().Checks()

@@ -1,5 +1,13 @@
 ## UNRELEASED
 
+BREAKING CHANGES
+* `consul-ecs` docker images no longer have the `consul` binary. The
+  mesh-init subcommand still expects the `consul` binary on the
+  `$PATH`. [[GH-40](https://github.com/hashicorp/consul-ecs/pull/40)]
+* mesh-init: The `-envoy-bootstrap-file` option is removed, and replaced with `-envoy-bootstrap-dir`.
+  The Envoy bootstrap config file is written to `envoy-bootstrap.json` within that directory.
+  [[GH-42](https://github.com/hashicorp/consul-ecs/pull/42)]
+
 FEATURES
 * Add a `health-sync` subcommand to sync ECS health checks into Consul [[GH-33](https://github.com/hashicorp/consul-ecs/pull/33)]
 * Add the `-health-sync-containers` flag to `mesh-init` [[GH-36](https://github.com/hashicorp/consul-ecs/pull/36)]
@@ -9,11 +17,8 @@ FEATURES
   `consul.hashicorp.com/service-name` tag on the ECS task. If the tag
   does not exist, it uses the Task family as the Consul service name.
   [[GH-44](https://github.com/hashicorp/consul-ecs/pull/44)]
-
-BREAKING CHANGES
-* `consul-ecs` docker images no longer have the `consul` binary. The
-  mesh-init subcommand still expects the `consul` binary on the
-  `$PATH`. [[GH-40](https://github.com/hashicorp/consul-ecs/pull/40)]
+* Add a `envoy-entrypoint` subcommand, which can be used as the entrypoint to the Envoy container running in ECS
+  to support graceful shutdown. [[GH-42](https://github.com/hashicorp/consul-ecs/pull/42)]
 
 ## 0.2.0-beta2 (September 30, 2021)
 IMPROVEMENTS

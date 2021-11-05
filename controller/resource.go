@@ -17,8 +17,8 @@ import (
 const meshTag = "consul.hashicorp.com/mesh"
 const serviceNameTag = "consul.hashicorp.com/service-name"
 
-// ResourceID represents the ID of the resource.
-type ResourceID string
+// Included in ACL token description.
+const clusterTag = "consul.hashicorp.com/cluster"
 
 // ResourceLister is an interface for listing Resources.
 type ResourceLister interface {
@@ -28,20 +28,16 @@ type ResourceLister interface {
 // Resource is a generic type that needs to be reconciled by the Controller.
 // It offers Upsert and Delete functions to reconcile itself with an external state.
 type Resource interface {
-	ID() (ResourceID, error)
-	Upsert() error
-	Delete() error
+	Reconcile() error
 }
 
-// TaskLister is an implementation of ResourceLister that lists ECS tasks.
-type TaskLister struct {
-	// ECSClient is the AWS ECS client to be used by the TaskLister.
+// ServiceStateLister is an implementation of ResourceLister that constructs ServiceInfo
+type ServiceStateLister struct {
+	// ECSClient is the AWS ECS client to be used by the ServiceStateLister.
 	ECSClient ecsiface.ECSAPI
-	// SecretsManagerClient is the AWS Secrets Manager client to be used by the TaskLister.
+	// SecretsManagerClient is the AWS Secrets Manager client to be used by the ServiceStateLister.
 	SecretsManagerClient secretsmanageriface.SecretsManagerAPI
-	// ConsulClient is the Consul client to be used by the TaskLister.
-	// TaskLister doesn't need to talk to Consul, but it passes this client
-	// to each Resource it creates.
+	// ConsulClient is the Consul client to be used by the ServiceStateLister.
 	ConsulClient *api.Client
 
 	// Cluster is the name or the ARN of the ECS cluster.
@@ -49,21 +45,64 @@ type TaskLister struct {
 	// SecretPrefix is the prefix to determine names of resources in Consul or AWS.
 	SecretPrefix string
 
-	// Log is the logger for the TaskLister.
+	// Log is the logger for the ServiceStateLister.
 	Log hclog.Logger
 }
 
-// List lists all tasks for the Cluster.
-func (t TaskLister) List() ([]Resource, error) {
+// List returns a mapping from inferred service names to the ACL tokens, ECS
+// tasks and existence of a Consul service.
+func (s ServiceStateLister) List() ([]Resource, error) {
 	var resources []Resource
+	buildingResources := make(map[string]*ServiceInfo)
+
+	tasks, err := s.fetchECSTasks()
+
+	if err != nil {
+		return nil, err
+	}
+
+	for name := range tasks {
+		if _, ok := buildingResources[name]; !ok {
+			buildingResources[name] = s.newServiceInfo(name, ServiceState{ConsulECSTasks: true})
+		} else {
+			buildingResources[name].ServiceState.ConsulECSTasks = true
+		}
+	}
+
+	aclTokens, err := s.fetchACLTokens()
+
+	if err != nil {
+		return resources, err
+	}
+
+	for name, tokens := range aclTokens {
+		if _, ok := buildingResources[name]; !ok {
+			buildingResources[name] = s.newServiceInfo(name, ServiceState{ACLTokens: tokens})
+		} else {
+			buildingResources[name].ServiceState.ACLTokens = tokens
+		}
+	}
+
+	for _, resource := range buildingResources {
+		resources = append(resources, resource)
+	}
+
+	return resources, nil
+}
+
+// fetchECSTasks retrieves all of the ECS tasks that are managed by consul-ecs
+// for the given cluster and returns a mapping that shows if a task is running
+// for each service name.
+func (s ServiceStateLister) fetchECSTasks() (map[string]struct{}, error) {
+	resources := make(map[string]struct{})
 	// nextToken is to handle paginated responses from AWS.
 	var nextToken *string
 
 	// This isn't an infinite loop, instead this is a "do while" loop
 	// because we'll break out of it as soon as nextToken is nil.
 	for {
-		taskListOutput, err := t.ECSClient.ListTasks(&ecs.ListTasksInput{
-			Cluster:   aws.String(t.Cluster),
+		taskListOutput, err := s.ECSClient.ListTasks(&ecs.ListTasksInput{
+			Cluster:   aws.String(s.Cluster),
 			NextToken: nextToken,
 		})
 		if err != nil {
@@ -71,8 +110,8 @@ func (t TaskLister) List() ([]Resource, error) {
 		}
 		nextToken = taskListOutput.NextToken
 
-		tasks, err := t.ECSClient.DescribeTasks(&ecs.DescribeTasksInput{
-			Cluster: aws.String(t.Cluster),
+		tasks, err := s.ECSClient.DescribeTasks(&ecs.DescribeTasksInput{
+			Cluster: aws.String(s.Cluster),
 			Tasks:   taskListOutput.TaskArns,
 			Include: []*string{aws.String("TAGS")},
 		})
@@ -80,17 +119,24 @@ func (t TaskLister) List() ([]Resource, error) {
 			return nil, fmt.Errorf("describing tasks: %w", err)
 		}
 		for _, task := range tasks.Tasks {
-			// Add task only if it's not nil.
-			if task != nil {
-				resources = append(resources, &Task{
-					SecretsManagerClient: t.SecretsManagerClient,
-					ConsulClient:         t.ConsulClient,
-					Cluster:              t.Cluster,
-					Log:                  t.Log,
-					SecretPrefix:         t.SecretPrefix,
-					Task:                 *task,
-				})
+			if task == nil {
+				s.Log.Info("task is nil")
+				continue
 			}
+
+			if !isMeshTask(task) {
+				s.Log.Info("skipping non-mesh task", "task-arn", task.TaskArn)
+				continue
+			}
+
+			serviceName, err := serviceNameForTask(task)
+
+			if err != nil {
+				s.Log.Error("couldn't get service name from task", "task-arn", task.TaskArn, "tags", task.Tags, "err", err)
+				continue
+			}
+
+			resources[serviceName] = struct{}{}
 		}
 		if nextToken == nil {
 			break
@@ -99,28 +145,60 @@ func (t TaskLister) List() ([]Resource, error) {
 	return resources, nil
 }
 
-type Task struct {
+// fetchACLTokens retrieves all of the ACL tokens from Consul and
+// returns a mapping from service name to the ACL tokens that service has.
+func (s ServiceStateLister) fetchACLTokens() (map[string][]*api.ACLTokenListEntry, error) {
+	aclTokens := make(map[string][]*api.ACLTokenListEntry)
+
+	tokenList, _, err := s.ConsulClient.ACL().TokenList(nil)
+	if err != nil {
+		return aclTokens, err
+	}
+
+	for _, token := range tokenList {
+		if isInCluster(s.Cluster, token) && len(token.ServiceIdentities) == 1 {
+			serviceName := token.ServiceIdentities[0].ServiceName
+			if _, ok := aclTokens[serviceName]; !ok {
+				aclTokens[serviceName] = []*api.ACLTokenListEntry{token}
+			} else {
+				aclTokens[serviceName] = append(aclTokens[serviceName], token)
+			}
+		}
+	}
+
+	return aclTokens, nil
+}
+
+func (s ServiceStateLister) newServiceInfo(name string, serviceState ServiceState) *ServiceInfo {
+	return &ServiceInfo{
+		SecretsManagerClient: s.SecretsManagerClient,
+		ConsulClient:         s.ConsulClient,
+		Cluster:              s.Cluster,
+		Log:                  s.Log,
+		SecretPrefix:         s.SecretPrefix,
+		ServiceName:          name,
+		ServiceState:         serviceState,
+	}
+}
+
+// ServiceState contains all of the information needed to determine if an ACL
+// token should be created for a Consul service or if an ACL token should be
+// deleted.
+type ServiceState struct {
+	ConsulECSTasks bool
+	ACLTokens      []*api.ACLTokenListEntry
+}
+
+type ServiceInfo struct {
 	SecretsManagerClient secretsmanageriface.SecretsManagerAPI
 	ConsulClient         *api.Client
 
 	Cluster      string
 	SecretPrefix string
-	Task         ecs.Task
+	ServiceName  string
+	ServiceState ServiceState
 
 	Log hclog.Logger
-}
-
-// ID returns Task definition ARN or error if it cannot be determined from the Task.
-// We're using task definition ARN instead of the Task ARN because we consider tasks
-// for the same definition to be equivalent in terms of their Upsert and Delete behavior,
-// and so there's no reason to process subsequent tasks with the same task definition.
-func (t *Task) ID() (ResourceID, error) {
-	// This should never be the case, but we are checking it anyway.
-	if t.Task.TaskDefinitionArn == nil {
-		return "", fmt.Errorf("cannot determine ID: task definition ARN is nil")
-	}
-
-	return ResourceID(*t.Task.TaskDefinitionArn), nil
 }
 
 // tokenSecretJSON is the struct that represents JSON of the token secrets
@@ -130,23 +208,27 @@ type tokenSecretJSON struct {
 	Token      string `json:"token"`
 }
 
+// Reconcile inserts or deletes ACL tokens based on their ServiceState.
+func (s *ServiceInfo) Reconcile() error {
+	state := s.ServiceState
+	if len(state.ACLTokens) == 0 && state.ConsulECSTasks {
+		return s.Upsert()
+	}
+
+	if !state.ConsulECSTasks && len(state.ACLTokens) > 0 {
+		return s.Delete()
+	}
+
+	return nil
+}
+
 // Upsert creates a token for the task if one doesn't already exist
 // and updates the secret with the contents of the token.
-func (t *Task) Upsert() error {
-	serviceName, err := t.serviceNameForTask()
-	if err != nil {
-		return fmt.Errorf("could not determine service name: %w", err)
-	}
-
-	if !t.isMeshTask() {
-		t.Log.Info("skipping non-mesh task", "id", serviceName)
-		return nil
-	}
-
-	secretName := t.secretName(serviceName)
+func (s *ServiceInfo) Upsert() error {
+	secretName := s.secretName()
 
 	// Get current secret from AWS.
-	currSecretValue, err := t.SecretsManagerClient.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretId: aws.String(secretName)})
+	currSecretValue, err := s.SecretsManagerClient.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretId: aws.String(secretName)})
 	if err != nil {
 		return fmt.Errorf("retrieving secret: %w", err)
 	}
@@ -163,7 +245,7 @@ func (t *Task) Upsert() error {
 	// If token value is non-empty it indicates that something is corrupted, and we should update the token.
 	if currSecret.AccessorID != "" {
 		// Read the token with this Accessor ID from Consul.
-		currToken, _, err = t.ConsulClient.ACL().TokenRead(currSecret.AccessorID, nil)
+		currToken, _, err = s.ConsulClient.ACL().TokenRead(currSecret.AccessorID, nil)
 
 		if err != nil && !isACLNotFoundError(err) {
 			return fmt.Errorf("reading existing token: %w", err)
@@ -172,12 +254,12 @@ func (t *Task) Upsert() error {
 
 	// If there is already a token for this service in Consul, exit early.
 	if currToken != nil {
-		t.Log.Info("token already exists; skipping token creation", "id", serviceName)
+		s.Log.Info("token already exists; skipping token creation", "id", s.ServiceName)
 		return nil
 	}
 
 	// Otherwise, create one.
-	err = t.updateServiceToken(serviceName, secretName)
+	err = s.updateServiceToken(secretName)
 	if err != nil {
 		return fmt.Errorf("updating service token: %w", err)
 	}
@@ -185,104 +267,66 @@ func (t *Task) Upsert() error {
 	return nil
 }
 
-func (t *Task) Delete() error {
-	if !t.isMeshTask() {
-		t.Log.Info("skipping non-mesh task", "id", *t.Task.TaskDefinitionArn)
-		return nil
-	}
-
-	serviceName, err := t.serviceNameForTask()
-	if err != nil {
-		return fmt.Errorf("parsing service name: %w", err)
-	}
-
-	// If a service still exists in Consul, it could be because this task is
-	// being upgraded (e.g. from task definition version 1 to version 2),
-	// and in that case, we don't want to delete the token prematurely.
-	// In a rare case, if the task family is being deleted permanently,
-	// and we call this function before the service is deregistered, we will also skip
-	// token deletion. That is intentional since it's safer to keep the token in Consul.
-	services, _, err := t.ConsulClient.Catalog().Service(serviceName, "", nil)
-	if err != nil {
-		return fmt.Errorf("getting service from Consul: %w", err)
-	}
-	if len(services) != 0 {
-		t.Log.Info("skipping because service still exists", "id", *t.Task.TaskDefinitionArn)
-		return nil
-	}
-
-	tokenList, _, err := t.ConsulClient.ACL().TokenList(nil)
-	if err != nil {
-		return fmt.Errorf("listing tokens: %w", err)
-	}
-
-	for _, tokenEntry := range tokenList {
-		token, _, err := t.ConsulClient.ACL().TokenRead(tokenEntry.AccessorID, nil)
+func (s *ServiceInfo) Delete() error {
+	for _, token := range s.ServiceState.ACLTokens {
+		_, err := s.ConsulClient.ACL().TokenDelete(token.AccessorID, nil)
 		if err != nil {
-			return fmt.Errorf("reading token: %w", err)
+			return fmt.Errorf("deleting token: %w", err)
 		}
-
-		if len(token.ServiceIdentities) == 1 && token.ServiceIdentities[0].ServiceName == serviceName {
-			t.Log.Info("deleting token", "service", serviceName)
-			_, err = t.ConsulClient.ACL().TokenDelete(token.AccessorID, nil)
-			if err != nil {
-				return fmt.Errorf("deleting token: %w", err)
-			}
-			t.Log.Info("token deleted successfully", "service", serviceName)
-		}
+		s.Log.Info("token deleted successfully", "service", s.ServiceName)
 	}
 
-	secretName := t.secretName(serviceName)
-	t.Log.Info("updating secret", "name", secretName, "service", serviceName)
-	_, err = t.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
+	secretName := s.secretName()
+	s.Log.Info("updating secret", "name", secretName, "service", s.ServiceName)
+	_, err := s.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
 		SecretId:     aws.String(secretName),
 		SecretString: aws.String(`{}`),
 	})
 	if err != nil {
 		return fmt.Errorf("updating secret: %s", err)
 	}
-	t.Log.Info("secret updated successfully", "name", secretName, "service", serviceName)
+	s.Log.Info("secret updated successfully", "name", secretName, "service", s.ServiceName)
 
 	return nil
 }
 
 // updateServiceToken create a token in Consul and updates AWS secret with token's contents.
-func (t *Task) updateServiceToken(serviceName, secretName string) error {
-	t.Log.Info("creating service token", "id", serviceName)
+func (s *ServiceInfo) updateServiceToken(secretName string) error {
+	s.Log.Info("creating service token", "id", s.ServiceName)
 	// Create ACL token for envoy to register the service.
-	serviceToken, _, err := t.ConsulClient.ACL().TokenCreate(&api.ACLToken{
-		Description:       fmt.Sprintf("Token for %s service", serviceName),
-		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: serviceName}},
+	serviceToken, _, err := s.ConsulClient.ACL().TokenCreate(&api.ACLToken{
+		Description:       fmt.Sprintf("Token for %s service\n%s: %s", s.ServiceName, clusterTag, s.Cluster),
+		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: s.ServiceName}},
 	}, nil)
 	if err != nil {
 		return fmt.Errorf("creating envoy token: %s", err)
 	}
-	t.Log.Info("service token created successfully", "service", serviceName)
+	s.Log.Info("service token created successfully", "service", s.ServiceName)
 
 	serviceSecretValue, err := json.Marshal(tokenSecretJSON{Token: serviceToken.SecretID, AccessorID: serviceToken.AccessorID})
 	if err != nil {
 		return err
 	}
 
-	t.Log.Info("updating secret", "name", secretName)
-	_, err = t.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
+	s.Log.Info("updating secret", "name", secretName)
+	_, err = s.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
 		SecretId:     aws.String(secretName),
 		SecretString: aws.String(string(serviceSecretValue)),
 	})
 	if err != nil {
 		return fmt.Errorf("updating secret: %s", err)
 	}
-	t.Log.Info("secret updated successfully", "name", secretName)
+	s.Log.Info("secret updated successfully", "name", secretName)
 
 	return nil
 }
 
 // Task definition ARN looks like this: arn:aws:ecs:us-east-1:1234567890:task-definition/service:1
-func (t *Task) serviceNameForTask() (string, error) {
-	if serviceName := t.serviceName(); serviceName != "" {
+func serviceNameForTask(t *ecs.Task) (string, error) {
+	if serviceName := tagValue(t.Tags, serviceNameTag); serviceName != "" {
 		return serviceName, nil
 	}
-	taskDefArn := *t.Task.TaskDefinitionArn
+	taskDefArn := *t.TaskDefinitionArn
 	splits := strings.Split(taskDefArn, "/")
 	if len(splits) != 2 {
 		return "", fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
@@ -295,16 +339,16 @@ func (t *Task) serviceNameForTask() (string, error) {
 	return splits[0], nil
 }
 
-func (t *Task) secretName(serviceName string) string {
-	return fmt.Sprintf("%s-%s", t.SecretPrefix, serviceName)
+func (t *ServiceInfo) secretName() string {
+	return fmt.Sprintf("%s-%s", t.SecretPrefix, t.ServiceName)
 }
 
-func (t *Task) isMeshTask() bool {
-	return tagValue(t.Task.Tags, meshTag) == "true"
+func isInCluster(clusterName string, token *api.ACLTokenListEntry) bool {
+	return strings.Contains(token.Description, fmt.Sprintf("%s: %s", clusterTag, clusterName))
 }
 
-func (t *Task) serviceName() string {
-	return tagValue(t.Task.Tags, serviceNameTag)
+func isMeshTask(t *ecs.Task) bool {
+	return tagValue(t.Tags, meshTag) == "true"
 }
 
 func tagValue(tags []*ecs.Tag, key string) string {

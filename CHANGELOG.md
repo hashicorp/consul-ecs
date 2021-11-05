@@ -20,6 +20,10 @@ FEATURES
 * Add a `envoy-entrypoint` subcommand, which can be used as the entrypoint to the Envoy container running in ECS
   to support graceful shutdown. [[GH-42](https://github.com/hashicorp/consul-ecs/pull/42)]
 
+BUG FIXES:
+* Fix edge cases in the ACL controller where ACL tokens never get cleaned
+  up. [[GH-45](https://github.com/hashicorp/consul-ecs/pull/45)]
+
 ## 0.2.0-beta2 (September 30, 2021)
 IMPROVEMENTS
 * Clean up ACL tokens for services/task families that are deleted. [[GH-30](https://github.com/hashicorp/consul-ecs/pull/30)]

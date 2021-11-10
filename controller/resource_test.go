@@ -279,6 +279,72 @@ func TestReconcile(t *testing.T) {
 			require.Equal(t, c.expected, tokens)
 		})
 	}
+
+}
+
+func TestRecreatingAToken(t *testing.T) {
+	smClient := &mocks.SMClient{Secret: &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}}
+	adminToken := "123e4567-e89b-12d3-a456-426614174000"
+	testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
+		c.ACL.Enabled = true
+		c.ACL.Tokens.Master = adminToken
+		c.ACL.DefaultPolicy = "deny"
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testServer.Stop()
+	})
+	testServer.WaitForLeader(t)
+
+	clientConfig := api.DefaultConfig()
+	clientConfig.Address = testServer.HTTPAddr
+	clientConfig.Token = adminToken
+
+	consulClient, err := api.NewClient(clientConfig)
+	require.NoError(t, err)
+
+	taskTokens := ServiceInfo{
+		SecretsManagerClient: smClient,
+		ConsulClient:         consulClient,
+		Cluster:              "test-cluster",
+		SecretPrefix:         "test",
+		ServiceName:          "service",
+		ServiceState: ServiceState{
+			ConsulECSTasks: true,
+		},
+		Log: hclog.NewNullLogger(),
+	}
+
+	getSecretValue := func() tokenSecretJSON {
+		var secret tokenSecretJSON
+		err = json.Unmarshal([]byte(*smClient.Secret.SecretString), &secret)
+		require.NoError(t, err)
+		return secret
+	}
+
+	tokenMatchesSecret := func(secret tokenSecretJSON) {
+		currToken, _, err := consulClient.ACL().TokenRead(secret.AccessorID, nil)
+		require.NoError(t, err)
+		require.Equal(t, secret.AccessorID, currToken.AccessorID)
+		require.Equal(t, secret.Token, currToken.SecretID)
+	}
+
+	err = taskTokens.Upsert()
+	require.NoError(t, err)
+
+	originalSecret := getSecretValue()
+	tokenMatchesSecret(originalSecret)
+
+	err = taskTokens.Delete()
+	require.NoError(t, err)
+	require.Equal(t, originalSecret, getSecretValue(), "The secret isn't deleted")
+
+	// Inserting a token with the same AccessorID and SecretID as the original
+	// one works.
+	err = taskTokens.Upsert()
+	require.NoError(t, err)
+	require.Equal(t, originalSecret, getSecretValue(), "The secret isn't changed")
+	tokenMatchesSecret(originalSecret)
 }
 
 func TestTask_Upsert(t *testing.T) {
@@ -389,20 +455,17 @@ func TestTask_Upsert(t *testing.T) {
 
 func TestTask_Delete(t *testing.T) {
 	cases := map[string]struct {
-		createExistingToken                bool
-		updateExistingSecret               bool
-		registerConsulService              bool
-		expectTokenDeletedAndSecretEmptied bool
+		createExistingToken   bool
+		updateExistingSecret  bool
+		registerConsulService bool
 	}{
 		"the token for service doesn't exist in consul and the secret is empty": {
-			createExistingToken:                false,
-			updateExistingSecret:               false,
-			expectTokenDeletedAndSecretEmptied: true,
+			createExistingToken:  false,
+			updateExistingSecret: false,
 		},
 		"the token for service doesn't exist in consul and the secret has some value": {
-			createExistingToken:                false,
-			updateExistingSecret:               true,
-			expectTokenDeletedAndSecretEmptied: true,
+			createExistingToken:  false,
+			updateExistingSecret: true,
 		},
 	}
 
@@ -477,19 +540,10 @@ func TestTask_Delete(t *testing.T) {
 			if c.createExistingToken {
 				// Check that the token is deleted from Consul.
 				_, _, err = consulClient.ACL().TokenRead(token.AccessorID, nil)
-				if c.expectTokenDeletedAndSecretEmptied {
-					require.EqualError(t, err, "Unexpected response code: 403 (ACL not found)")
-				} else {
-					require.NoError(t, err)
-				}
+				require.EqualError(t, err, "Unexpected response code: 403 (ACL not found)")
 			}
 
-			if c.expectTokenDeletedAndSecretEmptied {
-				// Check that the secret is updated to an empty string.
-				require.Equal(t, `{}`, *smClient.Secret.SecretString)
-			} else {
-				require.Equal(t, *existingSecret.SecretString, *smClient.Secret.SecretString)
-			}
+			require.Equal(t, *existingSecret.SecretString, *smClient.Secret.SecretString)
 
 			// Check that the other token is not affected.
 			_, _, err = consulClient.ACL().TokenRead(anotherToken.AccessorID, nil)

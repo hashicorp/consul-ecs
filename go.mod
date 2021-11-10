@@ -12,6 +12,7 @@ require (
 	github.com/hashicorp/consul/sdk v0.8.0
 	github.com/hashicorp/go-hclog v0.15.0
 	github.com/hashicorp/go-multierror v1.1.0 // indirect
+	github.com/hashicorp/go-uuid v1.0.1 // indirect
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/miekg/dns v1.1.31 // indirect
 	github.com/mitchellh/cli v1.1.2

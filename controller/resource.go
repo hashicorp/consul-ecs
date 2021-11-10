@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/secretsmanager/secretsmanageriface"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-uuid"
 )
 
 const meshTag = "consul.hashicorp.com/mesh"
@@ -225,31 +226,15 @@ func (s *ServiceInfo) Reconcile() error {
 // Upsert creates a token for the task if one doesn't already exist
 // and updates the secret with the contents of the token.
 func (s *ServiceInfo) Upsert() error {
-	secretName := s.secretName()
-
-	// Get current secret from AWS.
-	currSecretValue, err := s.SecretsManagerClient.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretId: aws.String(secretName)})
+	currSecret, err := s.upsertSecret()
 	if err != nil {
-		return fmt.Errorf("retrieving secret: %w", err)
-	}
-	var currSecret tokenSecretJSON
-	err = json.Unmarshal([]byte(*currSecretValue.SecretString), &currSecret)
-	if err != nil {
-		return fmt.Errorf("unmarshalling secret value: %w", err)
+		return fmt.Errorf("upserting secret: %w", err)
 	}
 
-	var currToken *api.ACLToken
-	// If we already have an accessor ID, we'll check if this token exists in Consul first.
-	// We don't care if the token value is empty or not in this case.
-	// If token value is empty, then it's an empty secret, and we should update it with the token.
-	// If token value is non-empty it indicates that something is corrupted, and we should update the token.
-	if currSecret.AccessorID != "" {
-		// Read the token with this Accessor ID from Consul.
-		currToken, _, err = s.ConsulClient.ACL().TokenRead(currSecret.AccessorID, nil)
+	currToken, _, err := s.ConsulClient.ACL().TokenRead(currSecret.AccessorID, nil)
 
-		if err != nil && !isACLNotFoundError(err) {
-			return fmt.Errorf("reading existing token: %w", err)
-		}
+	if err != nil && !isACLNotFoundError(err) {
+		return fmt.Errorf("reading existing token: %w", err)
 	}
 
 	// If there is already a token for this service in Consul, exit early.
@@ -259,7 +244,7 @@ func (s *ServiceInfo) Upsert() error {
 	}
 
 	// Otherwise, create one.
-	err = s.updateServiceToken(secretName)
+	err = s.createServiceToken(currSecret)
 	if err != nil {
 		return fmt.Errorf("updating service token: %w", err)
 	}
@@ -267,6 +252,7 @@ func (s *ServiceInfo) Upsert() error {
 	return nil
 }
 
+// Delete removes the token for the given ServiceInfo.
 func (s *ServiceInfo) Delete() error {
 	for _, token := range s.ServiceState.ACLTokens {
 		_, err := s.ConsulClient.ACL().TokenDelete(token.AccessorID, nil)
@@ -276,47 +262,73 @@ func (s *ServiceInfo) Delete() error {
 		s.Log.Info("token deleted successfully", "service", s.ServiceName)
 	}
 
-	secretName := s.secretName()
-	s.Log.Info("updating secret", "name", secretName, "service", s.ServiceName)
-	_, err := s.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
-		SecretId:     aws.String(secretName),
-		SecretString: aws.String(`{}`),
-	})
-	if err != nil {
-		return fmt.Errorf("updating secret: %s", err)
-	}
-	s.Log.Info("secret updated successfully", "name", secretName, "service", s.ServiceName)
-
 	return nil
 }
 
-// updateServiceToken create a token in Consul and updates AWS secret with token's contents.
-func (s *ServiceInfo) updateServiceToken(secretName string) error {
-	s.Log.Info("creating service token", "id", s.ServiceName)
-	// Create ACL token for envoy to register the service.
-	serviceToken, _, err := s.ConsulClient.ACL().TokenCreate(&api.ACLToken{
-		Description:       fmt.Sprintf("Token for %s service\n%s: %s", s.ServiceName, clusterTag, s.Cluster),
-		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: s.ServiceName}},
-	}, nil)
-	if err != nil {
-		return fmt.Errorf("creating envoy token: %s", err)
-	}
-	s.Log.Info("service token created successfully", "service", s.ServiceName)
+// upsertSecret updates the AWS secret for the given service has a Token and
+// AccessorID if it is unset. If the secret is already set, this does nothing.
+func (s *ServiceInfo) upsertSecret() (tokenSecretJSON, error) {
+	var currSecret tokenSecretJSON
+	secretName := s.secretName()
 
-	serviceSecretValue, err := json.Marshal(tokenSecretJSON{Token: serviceToken.SecretID, AccessorID: serviceToken.AccessorID})
+	// Get current secret from AWS.
+	currSecretValue, err := s.SecretsManagerClient.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretId: aws.String(secretName)})
 	if err != nil {
-		return err
+		return currSecret, fmt.Errorf("retrieving secret: %w", err)
+	}
+	err = json.Unmarshal([]byte(*currSecretValue.SecretString), &currSecret)
+	if err != nil {
+		return currSecret, fmt.Errorf("unmarshalling secret value: %w", err)
+	}
+
+	if len(currSecret.AccessorID) > 0 && len(currSecret.Token) > 0 {
+		return currSecret, nil
+	}
+
+	accessorID, err := uuid.GenerateUUID()
+	if err != nil {
+		return currSecret, err
+	}
+
+	secretID, err := uuid.GenerateUUID()
+	if err != nil {
+		return currSecret, err
+	}
+
+	newSecret := tokenSecretJSON{Token: secretID, AccessorID: accessorID}
+	serviceSecretValue, err := json.Marshal(newSecret)
+	if err != nil {
+		return newSecret, err
 	}
 
 	s.Log.Info("updating secret", "name", secretName)
 	_, err = s.SecretsManagerClient.UpdateSecret(&secretsmanager.UpdateSecretInput{
-		SecretId:     aws.String(secretName),
+		SecretId:     aws.String(s.secretName()),
 		SecretString: aws.String(string(serviceSecretValue)),
 	})
 	if err != nil {
-		return fmt.Errorf("updating secret: %s", err)
+		return newSecret, fmt.Errorf("updating secret: %s", err)
 	}
-	s.Log.Info("secret updated successfully", "name", secretName)
+	s.Log.Info("secret successfully set", "name", secretName)
+
+	return newSecret, err
+}
+
+// createServiceToken inserts an ACL token into Consul. The AccessorID and
+// SecretID are set based on the AWS secret.
+func (s *ServiceInfo) createServiceToken(secret tokenSecretJSON) error {
+	s.Log.Info("creating service token", "id", s.ServiceName)
+	// Create ACL token for envoy to register the service.
+	_, _, err := s.ConsulClient.ACL().TokenCreate(&api.ACLToken{
+		AccessorID:        secret.AccessorID,
+		SecretID:          secret.Token,
+		Description:       fmt.Sprintf("Token for %s service\n%s: %s", s.ServiceName, clusterTag, s.Cluster),
+		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: s.ServiceName}},
+	}, nil)
+	if err != nil {
+		return fmt.Errorf("creating ACL token: %s", err)
+	}
+	s.Log.Info("service token created successfully", "service", s.ServiceName)
 
 	return nil
 }

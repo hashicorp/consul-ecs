@@ -21,8 +21,8 @@ FEATURES
   to support graceful shutdown. [[GH-42](https://github.com/hashicorp/consul-ecs/pull/42)]
 
 BUG FIXES:
-* Fix edge cases in the ACL controller where ACL tokens never get cleaned
-  up. [[GH-45](https://github.com/hashicorp/consul-ecs/pull/45)]
+* Fix bugs in which ACL tokens are not created or deleted in certain cases.
+  [[GH-45](https://github.com/hashicorp/consul-ecs/pull/45)] [[GH-46](https://github.com/hashicorp/consul-ecs/pull/46)]
 
 ## 0.2.0-beta2 (September 30, 2021)
 IMPROVEMENTS

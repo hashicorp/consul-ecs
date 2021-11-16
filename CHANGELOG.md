@@ -1,4 +1,4 @@
-## UNRELEASED
+## 0.2.0 (November 16, 2021)
 
 BREAKING CHANGES
 * `consul-ecs` docker images no longer have the `consul` binary. The

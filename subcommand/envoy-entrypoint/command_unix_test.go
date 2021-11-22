@@ -120,7 +120,7 @@ func TestRun(t *testing.T) {
 						meta := makeTaskMeta(
 							"some-app-container",
 							"consul-client",
-							"health-sync",
+							"consul-ecs-health-sync",
 							"consul-ecs-mesh-init",
 							"sidecar-proxy",
 						)

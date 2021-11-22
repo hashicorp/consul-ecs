@@ -1,7 +1,7 @@
 //go:build !windows
 // +build !windows
 
-package envoyentrypoint
+package entrypoint
 
 import (
 	"os"
@@ -11,7 +11,11 @@ import (
 	"github.com/hashicorp/go-hclog"
 )
 
-type EnvoyCmd struct {
+// Cmd runs a command in a subprocess (asynchronously).
+// Call `go cmd.Run()` to run the command asynchronously.
+// Use the Started() channel to wait for the command to start.
+// Use the Done() channel to wait for the command to complete.
+type Cmd struct {
 	*exec.Cmd
 
 	log       hclog.Logger
@@ -19,7 +23,7 @@ type EnvoyCmd struct {
 	startedCh chan struct{}
 }
 
-func NewEnvoyCmd(log hclog.Logger, args []string) *EnvoyCmd {
+func NewCmd(log hclog.Logger, args []string) *Cmd {
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -29,7 +33,7 @@ func NewEnvoyCmd(log hclog.Logger, args []string) *EnvoyCmd {
 		Setpgid: true,
 	}
 
-	return &EnvoyCmd{
+	return &Cmd{
 		Cmd:       cmd,
 		log:       log,
 		doneCh:    make(chan struct{}, 1),
@@ -39,12 +43,12 @@ func NewEnvoyCmd(log hclog.Logger, args []string) *EnvoyCmd {
 
 // Run the command. The Started() and Done() functions can be used
 // to wait for the process to start and exit, respectively.
-func (e *EnvoyCmd) Run() {
+func (e *Cmd) Run() {
 	defer close(e.doneCh)
 	defer close(e.startedCh)
 
 	if err := e.Cmd.Start(); err != nil {
-		e.log.Error("starting Envoy process", "error", err.Error())
+		e.log.Error("starting process", "error", err.Error())
 		// Closed channels (in defers) indicate the command failed to start.
 		return
 	}
@@ -53,16 +57,16 @@ func (e *EnvoyCmd) Run() {
 	if err := e.Cmd.Wait(); err != nil {
 		if _, ok := err.(*exec.ExitError); !ok {
 			// Do not log if it is only a non-zero exit code.
-			e.log.Error("waiting for Envoy process to finish", "error", err.Error())
+			e.log.Error("waiting for process to finish", "error", err.Error())
 		}
 	}
 	e.doneCh <- struct{}{}
 }
 
-func (e *EnvoyCmd) Started() chan struct{} {
+func (e *Cmd) Started() chan struct{} {
 	return e.startedCh
 }
 
-func (e *EnvoyCmd) Done() chan struct{} {
+func (e *Cmd) Done() chan struct{} {
 	return e.doneCh
 }

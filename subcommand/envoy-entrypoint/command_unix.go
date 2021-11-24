@@ -7,9 +7,13 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
+	"time"
 
+	goMetrics "github.com/armon/go-metrics"
+	"github.com/hashicorp/consul-ecs/metrics"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
 )
@@ -43,6 +47,7 @@ func (c *Command) Run(args []string) int {
 }
 
 func (c *Command) realRun() int {
+	var sigTermTime time.Time
 	signal.Notify(c.sigs)
 	defer c.cleanup()
 
@@ -62,8 +67,13 @@ func (c *Command) realRun() int {
 		select {
 		case <-c.envoyCmd.Done():
 			// When the Envoy process exits, we're done.
-			return c.envoyCmd.ProcessState.ExitCode()
+			exitCode := c.envoyCmd.ProcessState.ExitCode()
+			metrics.MeasureSinceWithLabels(metrics.EnvoyEntrypointShutdownLatency, sigTermTime, []goMetrics.Label{
+				{Name: "exit-code", Value: strconv.Itoa(exitCode)},
+			})
+			return exitCode
 		case sig := <-c.sigs:
+			sigTermTime = time.Now()
 			c.handleSignal(sig)
 		case _, ok := <-c.appMonitor.Done():
 			// When the application containers stop (after SIGTERM), tell Envoy to exit.

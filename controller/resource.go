@@ -3,13 +3,17 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
+	goMetrics "github.com/armon/go-metrics"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
 	"github.com/aws/aws-sdk-go/service/secretsmanager/secretsmanageriface"
+	"github.com/hashicorp/consul-ecs/metrics"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-uuid"
@@ -211,16 +215,27 @@ type tokenSecretJSON struct {
 
 // Reconcile inserts or deletes ACL tokens based on their ServiceState.
 func (s *ServiceInfo) Reconcile() error {
+	var err error
+	startTime := time.Now()
 	state := s.ServiceState
+	action := ""
+
 	if len(state.ACLTokens) == 0 && state.ConsulECSTasks {
-		return s.Upsert()
+		action = "upsert"
+		err = s.Upsert()
 	}
 
 	if !state.ConsulECSTasks && len(state.ACLTokens) > 0 {
-		return s.Delete()
+		action = "delete"
+		err = s.Delete()
 	}
 
-	return nil
+	metrics.MeasureSinceWithLabels(metrics.AclControllerResourceReconcileLatency, startTime, []goMetrics.Label{
+		{Name: "success", Value: strconv.FormatBool(err == nil)},
+		{Name: "action", Value: action},
+	})
+
+	return err
 }
 
 // Upsert creates a token for the task if one doesn't already exist

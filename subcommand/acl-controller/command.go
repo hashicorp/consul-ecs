@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/controller"
+	"github.com/hashicorp/consul-ecs/metrics"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
@@ -42,11 +43,17 @@ func (c *Command) init() {
 
 func (c *Command) Run(args []string) int {
 	c.once.Do(c.init)
+	err := metrics.Init()
+	if err != nil {
+		return 1
+	}
+
 	if err := c.flagSet.Parse(args); err != nil {
 		return 1
 	}
 
-	err := c.run()
+	err = c.run()
+
 	if err != nil {
 		c.log.Error(err.Error())
 		return 1

@@ -3,8 +3,11 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
+	goMetrics "github.com/armon/go-metrics"
+	"github.com/hashicorp/consul-ecs/metrics"
 	"github.com/hashicorp/go-hclog"
 )
 
@@ -39,11 +42,19 @@ func (c *Controller) Run(ctx context.Context) {
 
 // reconcile first lists all resources and then reconciles them with Controller's state.
 func (c *Controller) reconcile() error {
+	startTime := time.Now()
 	c.Log.Info("starting reconcile")
 	resources, err := c.Resources.List()
+	metrics.MeasureSinceWithLabels(metrics.AclControllerListLatency, startTime, []goMetrics.Label{
+		{Name: "success", Value: strconv.FormatBool(err == nil)},
+	})
+
 	if err != nil {
 		return fmt.Errorf("listing resources: %w", err)
 	}
+
+	goMetrics.SetGauge(metrics.AclControllerReconcileResources, float32(len(resources)))
+
 	for _, resource := range resources {
 		err = resource.Reconcile()
 		if err != nil {

@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	goMetrics "github.com/armon/go-metrics"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
+	"github.com/hashicorp/consul-ecs/metrics"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
@@ -45,7 +48,14 @@ func (c *Command) init() {
 
 func (c *Command) Run(args []string) int {
 	c.once.Do(c.init)
+
 	if err := c.flagSet.Parse(args); err != nil {
+		return 1
+	}
+
+	err := metrics.Init()
+
+	if err != nil {
 		return 1
 	}
 
@@ -89,9 +99,29 @@ func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
 	for {
 		select {
 		case <-time.After(pollInterval):
+			startTime := time.Now()
 			currentStatuses = c.syncChecks(consulClient, currentStatuses, serviceName, parsedContainerNames)
+			metrics.MeasureSinceWithLabels(metrics.HealthSyncLatency, startTime, []goMetrics.Label{
+				{Name: "success", Value: strconv.FormatBool(err == nil)},
+			})
 		case <-ctx.Done():
-			return c.setChecksCritical(consulClient, taskMeta.TaskID(), serviceName, parsedContainerNames)
+			startTime := time.Now()
+			err := c.setChecksCritical(consulClient, taskMeta.TaskID(), serviceName, parsedContainerNames)
+
+			metrics.MeasureSinceWithLabels(metrics.HealthSyncShutdownLatency, startTime, []goMetrics.Label{
+				{Name: "success", Value: strconv.FormatBool(err == nil)},
+			})
+
+			return err
+		case <-ctx.Done():
+			startTime := time.Now()
+			err := c.setChecksCritical(consulClient, taskMeta.TaskID(), serviceName, parsedContainerNames)
+
+			metrics.MeasureSinceWithLabels(metrics.HealthSyncShutdownLatency, startTime, []goMetrics.Label{
+				{Name: "success", Value: strconv.FormatBool(err == nil)},
+			})
+
+			return err
 		}
 	}
 }

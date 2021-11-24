@@ -13,8 +13,10 @@ import (
 	"sync"
 	"time"
 
+	goMetrics "github.com/armon/go-metrics"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/consul-ecs/awsutil"
+	"github.com/hashicorp/consul-ecs/metrics"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
@@ -65,7 +67,16 @@ func (c *Command) init() {
 }
 
 func (c *Command) Run(args []string) int {
+	startTime := time.Now()
 	c.once.Do(c.init)
+
+	err := metrics.Init()
+
+	if err != nil {
+		fmt.Println("HERE ", err)
+		return 1
+	}
+
 	if err := c.flagSet.Parse(args); err != nil {
 		return 1
 	}
@@ -75,7 +86,10 @@ func (c *Command) Run(args []string) int {
 	}
 
 	log := hclog.New(nil)
-	err := c.realRun(log)
+	err = c.realRun(log)
+	metrics.MeasureSinceWithLabels(metrics.MeshInitLatency, startTime, []goMetrics.Label{
+		{Name: "success", Value: strconv.FormatBool(err == nil)},
+	})
 	if err != nil {
 		log.Error(err.Error())
 		return 1

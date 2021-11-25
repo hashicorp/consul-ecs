@@ -186,13 +186,22 @@ func TestReconcile(t *testing.T) {
 		tasks          bool
 		aclTokens      []*api.ACLToken
 		sutServiceName string
+		canDelete      bool
 		expected       []*api.ACLToken
 	}{
 		"token should be deleted": {
 			tasks:          false,
 			aclTokens:      []*api.ACLToken{aclToken1},
 			sutServiceName: "service1",
+			canDelete:      true,
 			expected:       nil,
+		},
+		"token should be deleted, but it isn't a delete iteration": {
+			tasks:          false,
+			aclTokens:      []*api.ACLToken{aclToken1},
+			sutServiceName: "service1",
+			canDelete:      false,
+			expected:       []*api.ACLToken{aclToken1},
 		},
 		"token should be added": {
 			tasks:          true,
@@ -257,7 +266,7 @@ func TestReconcile(t *testing.T) {
 				Log: log,
 			}
 
-			err = serviceInfo.Reconcile()
+			err = serviceInfo.Reconcile(c.canDelete)
 			require.NoError(t, err)
 
 			serviceStateLister := ServiceStateLister{

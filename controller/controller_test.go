@@ -24,9 +24,10 @@ func TestRun(t *testing.T) {
 	}
 
 	ctrl := Controller{
-		Resources:       lister,
-		PollingInterval: 1 * time.Second,
-		Log:             hclog.NewNullLogger(),
+		Resources:             lister,
+		UpsertPollingInterval: 500 * time.Millisecond,
+		DeletePollingInterval: 1 * time.Second,
+		Log:                   hclog.NewNullLogger(),
 	}
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
@@ -36,7 +37,11 @@ func TestRun(t *testing.T) {
 
 	retry.Run(t, func(r *retry.R) {
 		for _, resource := range lister.resources {
-			require.True(r, resource.reconciled)
+			// Since deletes occur for every other upsert, they should always happen
+			// in a 2 to 1 ratio. This ensures that r.reconcileCount is called at
+			// least three times to make sure this ratio holds over time.
+			require.LessOrEqual(r, 3, resource.reconcileCount)
+			require.Equal(r, resource.deleteCount*2, resource.reconcileCount)
 		}
 	})
 }
@@ -46,8 +51,9 @@ type testResourceLister struct {
 }
 
 type testResource struct {
-	name       string
-	reconciled bool
+	name           string
+	reconcileCount int
+	deleteCount    int
 }
 
 func (t testResourceLister) List() ([]Resource, error) {
@@ -58,8 +64,12 @@ func (t testResourceLister) List() ([]Resource, error) {
 	return resources, nil
 }
 
-func (t *testResource) Reconcile() error {
-	t.reconciled = true
+func (t *testResource) Reconcile(canDelete bool) error {
+	t.reconcileCount++
+
+	if canDelete {
+		t.deleteCount++
+	}
 
 	return nil
 }

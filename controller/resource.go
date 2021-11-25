@@ -29,7 +29,7 @@ type ResourceLister interface {
 // Resource is a generic type that needs to be reconciled by the Controller.
 // It offers Upsert and Delete functions to reconcile itself with an external state.
 type Resource interface {
-	Reconcile() error
+	Reconcile(bool) error
 }
 
 // ServiceStateLister is an implementation of ResourceLister that constructs ServiceInfo
@@ -210,13 +210,13 @@ type tokenSecretJSON struct {
 }
 
 // Reconcile inserts or deletes ACL tokens based on their ServiceState.
-func (s *ServiceInfo) Reconcile() error {
+func (s *ServiceInfo) Reconcile(canDelete bool) error {
 	state := s.ServiceState
 	if len(state.ACLTokens) == 0 && state.ConsulECSTasks {
 		return s.Upsert()
 	}
 
-	if !state.ConsulECSTasks && len(state.ACLTokens) > 0 {
+	if !state.ConsulECSTasks && len(state.ACLTokens) > 0 && canDelete {
 		return s.Delete()
 	}
 

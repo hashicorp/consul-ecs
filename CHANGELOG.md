@@ -1,5 +1,10 @@
 ## UNRELEASED
 
+BUG FIXES:
+* Fix a bug in which ACL tokens are repeatedly created and destroyed, leading to
+  ECS services never reaching a steady state.
+  [[GH-49](https://github.com/hashicorp/consul-ecs/pull/49)]
+
 ## 0.2.0 (November 16, 2021)
 
 BREAKING CHANGES

@@ -98,9 +98,10 @@ func (c *Command) run() error {
 		Log:                  c.log,
 	}
 	ctrl := controller.Controller{
-		Resources:       serviceStateLister,
-		PollingInterval: controller.DefaultPollingInterval,
-		Log:             c.log,
+		Resources:             serviceStateLister,
+		UpsertPollingInterval: controller.DefaultUpsertPollingInterval,
+		DeletePollingInterval: controller.DefaultDeletePollingInterval,
+		Log:                   c.log,
 	}
 
 	ctrl.Run(context.Background())

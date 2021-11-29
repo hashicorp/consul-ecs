@@ -84,7 +84,7 @@ func (c *Command) realRun() int {
 			return exitCode
 		}
 	}
-	// We've signaled the process to exit, so wait until it does.
+	// We've signaled for the process to exit, so wait until it does.
 	c.waitForAppExit()
 	return c.appCmd.ProcessState.ExitCode()
 }
@@ -118,7 +118,7 @@ func (c *Command) waitForShutdownDelay() (int, bool) {
 			c.forwardSignal(sig)
 		case <-timer:
 			if err := syscall.Kill(-c.appCmd.Process.Pid, syscall.SIGTERM); err != nil {
-				c.log.Warn("sending sigterm to application", "error", err.Error())
+				c.log.Warn("error sending sigterm to application", "error", err.Error())
 			}
 		}
 	}

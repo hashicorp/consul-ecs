@@ -5,5 +5,5 @@ func (c *Command) Help() string {
 }
 
 func (c *Command) Synopsis() string {
-	return "Entrypoint for running Envoy in ECS"
+	return "Entrypoint for running a command in ECS"
 }

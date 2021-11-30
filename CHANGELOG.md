@@ -1,5 +1,10 @@
 ## UNRELEASED
 
+FEATURES
+* Add a `app-entrypoint` subcommand which can be used to delay application
+  shutdown after receing a TERM signal to support graceful shutdown in ECS.
+  [[GH-48](https://github.com/hashicorp/consul-ecs/pull/48)]
+
 ## 0.2.0 (November 16, 2021)
 
 BREAKING CHANGES

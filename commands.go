@@ -4,6 +4,7 @@ import (
 	"os"
 
 	cmdController "github.com/hashicorp/consul-ecs/subcommand/acl-controller"
+	cmdAppEntrypoint "github.com/hashicorp/consul-ecs/subcommand/app-entrypoint"
 	cmdEnvoyEntrypoint "github.com/hashicorp/consul-ecs/subcommand/envoy-entrypoint"
 	cmdHealthSync "github.com/hashicorp/consul-ecs/subcommand/health-sync"
 	cmdMeshInit "github.com/hashicorp/consul-ecs/subcommand/mesh-init"
@@ -33,6 +34,9 @@ func init() {
 		},
 		"envoy-entrypoint": func() (cli.Command, error) {
 			return &cmdEnvoyEntrypoint.Command{UI: ui}, nil
+		},
+		"app-entrypoint": func() (cli.Command, error) {
+			return &cmdAppEntrypoint.Command{UI: ui}, nil
 		},
 	}
 }

@@ -6,14 +6,6 @@
 // * Monitor task metadata to terminate Envoy after application container(s) stop
 package envoyentrypoint
 
-import (
-	"github.com/hashicorp/go-hclog"
-)
-
-func (c *Command) init() {
-	c.log = hclog.New(&hclog.LoggerOptions{Name: "consul-ecs"})
-}
-
 func (c *Command) Help() string {
 	return ""
 }

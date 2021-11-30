@@ -10,6 +10,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/hashicorp/consul-ecs/entrypoint"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
 )
@@ -22,8 +23,12 @@ type Command struct {
 	sigs       chan os.Signal
 	ctx        context.Context
 	cancel     context.CancelFunc
-	envoyCmd   *EnvoyCmd
+	envoyCmd   *entrypoint.Cmd
 	appMonitor *AppContainerMonitor
+}
+
+func (c *Command) init() {
+	c.log = hclog.New(&hclog.LoggerOptions{Name: "consul-ecs"})
 }
 
 func (c *Command) Run(args []string) int {
@@ -36,7 +41,7 @@ func (c *Command) Run(args []string) int {
 
 	c.sigs = make(chan os.Signal, 1)
 	c.ctx, c.cancel = context.WithCancel(context.Background())
-	c.envoyCmd = NewEnvoyCmd(c.log, args)
+	c.envoyCmd = entrypoint.NewCmd(c.log, args)
 	c.appMonitor = NewAppContainerMonitor(c.log, c.ctx)
 
 	return c.realRun()

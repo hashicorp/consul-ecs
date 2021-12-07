@@ -16,7 +16,7 @@ type Secret struct {
 
 type SidecarProxy struct {
 	// Use api.Upstream here. We can restrict allowed fields in jsonschema.
-	Upstreams []api.Upstream `json:"upstreams"`
+	Upstreams []api.Upstream `json:"upstreams,omitempty"`
 }
 
 type Sidecar struct {
@@ -24,16 +24,16 @@ type Sidecar struct {
 }
 
 type Service struct {
-	Name   string                  `json:"name"`
-	Checks []api.AgentServiceCheck `json:"checks"`
-	Port   int                     `json:"port"`
-	Tags   []string                `json:"tags"`
-	Meta   map[string]string       `json:"meta"`
+	Name   string                 `json:"name"`
+	Checks api.AgentServiceChecks `json:"checks,omitempty"`
+	Port   int                    `json:"port,omitempty"`
+	Tags   []string               `json:"tags,omitempty"`
+	Meta   map[string]string      `json:"meta,omitempty"`
 }
 
 type Mesh struct {
 	BootstrapDir         string   `json:"bootstrapDir"`
-	HealthSyncContainers []string `json:"healthSyncContainers"`
+	HealthSyncContainers []string `json:"healthSyncContainers,omitempty"`
 	Sidecar              Sidecar  `json:"sidecar"`
 	Service              Service  `json:"service"`
 }

@@ -2,7 +2,6 @@ package healthsync
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -26,15 +25,13 @@ const (
 )
 
 type Command struct {
-	UI      cli.Ui
-	config  *config.Config
-	log     hclog.Logger
-	flagSet *flag.FlagSet
-	once    sync.Once
+	UI     cli.Ui
+	config *config.Config
+	log    hclog.Logger
+	once   sync.Once
 }
 
 func (c *Command) init() {
-	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
 	c.log = hclog.New(nil)
 }
 
@@ -46,12 +43,7 @@ func (c *Command) Run(args []string) int {
 		c.UI.Error(fmt.Sprintf("invalid config: %s", err))
 		return 1
 	}
-
 	c.config = config
-
-	if err := c.flagSet.Parse(args); err != nil {
-		return 1
-	}
 
 	consulClient, err := api.NewClient(api.DefaultConfig())
 	if err != nil {

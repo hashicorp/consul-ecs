@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	configEnvironmentVariable = "CONSUL_ECS_CONFIG_JSON"
+	ConfigEnvironmentVariable = "CONSUL_ECS_CONFIG_JSON"
 )
 
 func validate(config string) error {
@@ -44,9 +44,9 @@ func Parse(encodedConfig string) (*Config, error) {
 }
 
 func FromEnv() (*Config, error) {
-	rawConfig := os.Getenv(configEnvironmentVariable)
+	rawConfig := os.Getenv(ConfigEnvironmentVariable)
 	if rawConfig == "" {
-		return nil, fmt.Errorf("%q isn't populated", configEnvironmentVariable)
+		return nil, fmt.Errorf("%q isn't populated", ConfigEnvironmentVariable)
 	}
 	return Parse(rawConfig)
 }

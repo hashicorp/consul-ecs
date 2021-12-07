@@ -48,9 +48,8 @@ var schema = `{
             "checks": {
               "type": "array",
               "items": {
-                "type": "string"
-              },
-              "uniqueItems": true
+                "type": "object"
+              }
             },
             "meta": {
               "type": "object"
@@ -96,7 +95,7 @@ var schema = `{
                       }
                     },
                     "requires": ["destinationName", "localBindPort"],
-                    "additionalProperties": false
+                    "additionalProperties": true
                   }
                 }
               },

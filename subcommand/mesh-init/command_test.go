@@ -15,20 +15,33 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/consul-ecs/awsutil"
+	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/testutil"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
 )
 
-func TestFlagValidation(t *testing.T) {
+func TestConfigValidation(t *testing.T) {
 	ui := cli.NewMockUi()
-	cmd := Command{
-		UI: ui,
-	}
+	cmd := Command{UI: ui}
 	code := cmd.Run(nil)
 	require.Equal(t, code, 1)
-	require.Contains(t, ui.ErrorWriter.String(), "-envoy-bootstrap-dir must be set")
+	require.Contains(t, ui.ErrorWriter.String(),
+		fmt.Sprintf(`invalid config: "%s" isn't populated`, config.ConfigEnvironmentVariable))
+
+	err := os.Setenv(config.ConfigEnvironmentVariable, "{}")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = os.Unsetenv(config.ConfigEnvironmentVariable)
+	})
+
+	ui = cli.NewMockUi()
+	cmd = Command{UI: ui}
+	code = cmd.Run(nil)
+	require.Equal(t, code, 1)
+	require.Contains(t, ui.ErrorWriter.String(), "invalid config: 2 errors occurred:")
+
 }
 
 // Note: this test cannot currently run in parallel with other tests
@@ -39,23 +52,32 @@ func TestRun(t *testing.T) {
 	serviceName := "service-name"
 
 	cases := map[string]struct {
-		servicePort      int
-		upstreams        string
-		expUpstreams     []api.Upstream
-		checks           api.AgentServiceChecks
-		tags             string
-		expTags          []string
-		additionalMeta   string
-		expAdditionaMeta map[string]string
-		serviceName      string
-		expServiceName   string
+		servicePort       int
+		upstreams         []api.Upstream
+		expUpstreams      []api.Upstream
+		checks            api.AgentServiceChecks
+		tags              []string
+		expTags           []string
+		additionalMeta    map[string]string
+		expAdditionalMeta map[string]string
+		serviceName       string
+		expServiceName    string
 	}{
 		"basic service": {},
 		"service with port": {
 			servicePort: 8080,
 		},
 		"service with upstreams": {
-			upstreams: "upstream1:1234,upstream2:1235",
+			upstreams: []api.Upstream{
+				{
+					DestinationName: "upstream1",
+					LocalBindPort:   1234,
+				},
+				{
+					DestinationName: "upstream2",
+					LocalBindPort:   1235,
+				},
+			},
 			expUpstreams: []api.Upstream{
 				{
 					DestinationType: "service",
@@ -101,12 +123,12 @@ func TestRun(t *testing.T) {
 			},
 		},
 		"service with tags": {
-			tags:    "tag1,tag2",
+			tags:    []string{"tag1", "tag2"},
 			expTags: []string{"tag1", "tag2"},
 		},
 		"service with additional metadata": {
-			additionalMeta:   `{"a": "1", "b": "2"}`,
-			expAdditionaMeta: map[string]string{"a": "1", "b": "2"},
+			additionalMeta:    map[string]string{"a": "1", "b": "2"},
+			expAdditionalMeta: map[string]string{"a": "1", "b": "2"},
 		},
 		"service with service name": {
 			serviceName:    serviceName,
@@ -126,7 +148,7 @@ func TestRun(t *testing.T) {
 				expectedServiceName = family
 			)
 
-			for k, v := range c.expAdditionaMeta {
+			for k, v := range c.expAdditionalMeta {
 				expectedTaskMeta[k] = v
 			}
 
@@ -144,13 +166,14 @@ func TestRun(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				_ = server.Stop()
-				os.Unsetenv("CONSUL_HTTP_ADDR")
+				_ = os.Unsetenv("CONSUL_HTTP_ADDR")
 			})
 			server.WaitForLeader(t)
 			consulClient, err := api.NewClient(&api.Config{Address: server.HTTPAddr})
 			require.NoError(t, err)
 			// We need to set this so that consul connect envoy -bootstrap will talk to the right agent.
-			os.Setenv("CONSUL_HTTP_ADDR", server.HTTPAddr)
+			err = os.Setenv("CONSUL_HTTP_ADDR", server.HTTPAddr)
+			require.NoError(t, err)
 
 			// Set up ECS container metadata server.
 			taskMetadataResponse := fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s"}`, taskARN, family)
@@ -160,16 +183,15 @@ func TestRun(t *testing.T) {
 					require.NoError(t, err)
 				}
 			}))
-			os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
+			err = os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
+			require.NoError(t, err)
 			t.Cleanup(func() {
-				os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
+				_ = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
 				ecsMetadataServer.Close()
 			})
 
 			ui := cli.NewMockUi()
-			cmd := Command{
-				UI: ui,
-			}
+			cmd := Command{UI: ui}
 
 			envoyBootstrapDir, err := ioutil.TempDir("", "")
 			require.NoError(t, err)
@@ -185,30 +207,45 @@ func TestRun(t *testing.T) {
 				}
 			})
 
-			cmdArgs := []string{"-envoy-bootstrap-dir", envoyBootstrapDir}
-			if c.serviceName != "" {
-				cmdArgs = append(cmdArgs, "-service-name", c.serviceName)
-			}
-			if c.servicePort != 0 {
-				cmdArgs = append(cmdArgs, "-port", fmt.Sprintf("%d", c.servicePort))
-			}
-			if c.upstreams != "" {
-				cmdArgs = append(cmdArgs, "-upstreams", c.upstreams)
-			}
-			if c.tags != "" {
-				cmdArgs = append(cmdArgs, "-tags", c.tags)
-			}
-			if c.additionalMeta != "" {
-				cmdArgs = append(cmdArgs, "-meta", c.additionalMeta)
+			consulEcsConfig := config.Config{
+				Secret: config.Secret{
+					Provider: "secret-manager",
+					Configuration: config.SecretConfiguration{
+						Prefix:                     "mesh-init-unittest-TestRun",
+						ConsulClientTokenSecretARN: "asdf",
+					},
+				},
+				Mesh: config.Mesh{
+					BootstrapDir:         envoyBootstrapDir,
+					HealthSyncContainers: nil,
+					Sidecar: config.Sidecar{
+						Proxy: config.SidecarProxy{
+							Upstreams: c.upstreams,
+						},
+					},
+					Service: config.Service{
+						Name:   c.serviceName,
+						Checks: c.checks,
+						Port:   c.servicePort,
+						Tags:   c.tags,
+						Meta:   c.additionalMeta,
+					},
+				},
 			}
 
-			if c.checks != nil {
-				healthCheckBytes, err := json.Marshal(c.checks)
-				require.NoError(t, err)
-				cmdArgs = append(cmdArgs, "-checks", string(healthCheckBytes))
-			}
-			code := cmd.Run(cmdArgs)
-			require.Equal(t, code, 0)
+			configBytes, err := json.MarshalIndent(consulEcsConfig, "", "  ")
+			require.NoError(t, err)
+
+			err = os.Setenv(config.ConfigEnvironmentVariable, string(configBytes))
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				_ = os.Unsetenv(config.ConfigEnvironmentVariable)
+			})
+
+			t.Logf("%s=%s", config.ConfigEnvironmentVariable, os.Getenv(config.ConfigEnvironmentVariable))
+
+			code := cmd.Run(nil)
+			require.Equal(t, code, 0, ui.ErrorWriter.String())
 
 			expServiceID := fmt.Sprintf("%s-abcdef", expectedServiceName)
 			expSidecarServiceID := fmt.Sprintf("%s-abcdef-sidecar-proxy", expectedServiceName)
@@ -279,82 +316,88 @@ func TestRun(t *testing.T) {
 }
 
 func TestConstructChecks(t *testing.T) {
+	// Bunch of test data.
 	serviceID := "serviceID"
-
-	_, err := constructChecks(serviceID, "asdf", "asdf")
-	require.Error(t, err)
-
-	argChecks := api.AgentServiceChecks{
-		&api.AgentServiceCheck{
-			CheckID:  "check-1",
-			Name:     "HTTP on port 8080",
-			HTTP:     "http://localhost:8080",
-			Interval: "20s",
-			Timeout:  "10s",
-			Header:   map[string][]string{"Content-type": {"application/json"}},
-			Method:   "GET",
-			Notes:    "unittest http check",
-		},
-		&api.AgentServiceCheck{
-			CheckID:  "check-2",
-			Name:     "TCP on port 8080",
-			TCP:      "localhost:8080",
-			Interval: "10s",
-			Timeout:  "5s",
-			Notes:    "unittest tcp check",
-		},
-		&api.AgentServiceCheck{
-			CheckID:    "check-3",
-			Name:       "GRPC on port 8081",
-			GRPC:       "localhost:8081",
-			GRPCUseTLS: false,
-			Interval:   "30s",
-			Notes:      "unittest grpc check",
-		},
-	}
-	encodedChecks, err := json.Marshal(argChecks)
-	require.NoError(t, err)
-
-	checks, err := constructChecks(serviceID, string(encodedChecks), "")
-	require.NoError(t, err)
-	require.Equal(t, argChecks, checks)
-
 	containerName1 := "containerName1"
 	containerName2 := "containerName2"
-	expectedChecks := api.AgentServiceChecks{
-		&api.AgentServiceCheck{
-			CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName1),
-			Name:    "consul ecs synced",
-			Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
-			TTL:     "100000h",
+
+	httpCheck := &api.AgentServiceCheck{
+		CheckID:  "check-1",
+		Name:     "HTTP on port 8080",
+		HTTP:     "http://localhost:8080",
+		Interval: "20s",
+		Timeout:  "10s",
+		Header:   map[string][]string{"Content-type": {"application/json"}},
+		Method:   "GET",
+		Notes:    "unittest http check",
+	}
+	tcpCheck := &api.AgentServiceCheck{
+		CheckID:  "check-2",
+		Name:     "TCP on port 8080",
+		TCP:      "localhost:8080",
+		Interval: "10s",
+		Timeout:  "5s",
+		Notes:    "unittest tcp check",
+	}
+	syncedCheck1 := &api.AgentServiceCheck{
+		CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName1),
+		Name:    "consul ecs synced",
+		Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
+		TTL:     "100000h",
+	}
+	syncedCheck2 := &api.AgentServiceCheck{
+		CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName2),
+		Name:    "consul ecs synced",
+		Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
+		TTL:     "100000h",
+	}
+
+	cases := map[string]struct {
+		checks               api.AgentServiceChecks
+		healthSyncContainers []string
+		expError             string
+		expChecks            api.AgentServiceChecks
+	}{
+		"0-checks-0-health-sync-containers": {},
+		"1-check-0-health-sync-containers": {
+			checks:    api.AgentServiceChecks{httpCheck},
+			expChecks: api.AgentServiceChecks{httpCheck},
 		},
-		&api.AgentServiceCheck{
-			CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName2),
-			Name:    "consul ecs synced",
-			Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
-			TTL:     "100000h",
+		"2-checks-0-health-sync-containers": {
+			checks:    api.AgentServiceChecks{httpCheck, tcpCheck},
+			expChecks: api.AgentServiceChecks{httpCheck, tcpCheck},
+		},
+		"1-check-1-health-sync-containers-should-error": {
+			checks:               api.AgentServiceChecks{httpCheck},
+			healthSyncContainers: []string{containerName1},
+			expError:             fmt.Sprint("only one of mesh.checks or mesh.healthSyncContainers should be set"),
+		},
+		"0-checks-1-health-sync-containers": {
+			healthSyncContainers: []string{containerName1},
+			expChecks:            api.AgentServiceChecks{syncedCheck1},
+		},
+		"0-checks-2-health-sync-containers": {
+			healthSyncContainers: []string{containerName1, containerName2},
+			expChecks:            api.AgentServiceChecks{syncedCheck1, syncedCheck2},
 		},
 	}
 
-	checks, err = constructChecks(serviceID, "", fmt.Sprintf("%s,%s", containerName1, containerName2))
-	require.NoError(t, err)
-	require.Equal(t, expectedChecks, checks)
-
-	expectedChecks = api.AgentServiceChecks{
-		&api.AgentServiceCheck{
-			CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName1),
-			Name:    "consul ecs synced",
-			Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
-			TTL:     "100000h",
-		},
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			checks, err := constructChecks(serviceID, c.checks, c.healthSyncContainers)
+			if c.expError == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				require.Equal(t, c.expError, err.Error())
+			}
+			require.Equal(t, c.expChecks, checks)
+		})
 	}
-	checks, err = constructChecks(serviceID, "[]", containerName1)
-	require.NoError(t, err)
-	require.Equal(t, expectedChecks, checks)
 }
 
 func TestConstructServiceName(t *testing.T) {
-	cmd := Command{}
+	cmd := Command{config: &config.Config{}}
 	family := "family"
 
 	serviceName := cmd.constructServiceName(family)
@@ -362,46 +405,9 @@ func TestConstructServiceName(t *testing.T) {
 
 	expectedServiceName := "service-name"
 
-	cmd.flagServiceName = expectedServiceName
+	cmd.config.Mesh.Service.Name = expectedServiceName
 	serviceName = cmd.constructServiceName(family)
 	require.Equal(t, expectedServiceName, serviceName)
-}
-
-func TestConstructTags(t *testing.T) {
-	cmd := Command{}
-	var expectedTags []string
-
-	tags, err := cmd.constructTags()
-	require.NoError(t, err)
-	require.Equal(t, expectedTags, tags)
-
-	expectedTags = []string{"tag1", "tag2", "tag3"}
-	cmd.flagTags = "tag1,tag2,tag3"
-	tags, err = cmd.constructTags()
-	require.NoError(t, err)
-	require.Equal(t, expectedTags, tags)
-}
-
-func TestConstructMeta(t *testing.T) {
-	cmd := Command{}
-
-	expectedMeta := make(map[string]string)
-	meta, err := cmd.constructMeta()
-	require.NoError(t, err)
-	require.Equal(t, expectedMeta, meta)
-
-	cmd.flagMeta = "{not valid json"
-	_, err = cmd.constructMeta()
-	require.Error(t, err)
-
-	expectedMeta = map[string]string{
-		"k1": "v1",
-		"k2": "v2",
-	}
-	cmd.flagMeta = `{"k1": "v1", "k2": "v2"}`
-	meta, err = cmd.constructMeta()
-	require.NoError(t, err)
-	require.Equal(t, expectedMeta, meta)
 }
 
 // toAgentCheck translates the request type (AgentServiceCheck) into an "expected"

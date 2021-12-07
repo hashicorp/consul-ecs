@@ -56,10 +56,10 @@ func TestParseErrors(t *testing.T) {
 
 func TestFromEnv(t *testing.T) {
 	rawConfig := OpenFile(t, "resources/test_config.json")
-	err := os.Setenv(configEnvironmentVariable, rawConfig)
+	err := os.Setenv(ConfigEnvironmentVariable, rawConfig)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		err := os.Unsetenv(configEnvironmentVariable)
+		err := os.Unsetenv(ConfigEnvironmentVariable)
 		require.NoError(t, err)
 	})
 

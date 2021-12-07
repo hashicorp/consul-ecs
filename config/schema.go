@@ -63,7 +63,7 @@ var schema = `{
             }
           },
           "requires": ["port"],
-          "additionalProperties": false
+          "additionalProperties": true
         },
         "bootstrapDir": {
           "type": "string"
@@ -99,10 +99,10 @@ var schema = `{
                   }
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": true
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         }
       },
       "requires": ["service", "bootstrapDir"],

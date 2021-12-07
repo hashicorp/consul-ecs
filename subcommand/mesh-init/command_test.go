@@ -218,12 +218,12 @@ func TestRun(t *testing.T) {
 				Mesh: config.Mesh{
 					BootstrapDir:         envoyBootstrapDir,
 					HealthSyncContainers: nil,
-					Sidecar: config.Sidecar{
-						Proxy: config.SidecarProxy{
+					Sidecar: api.AgentServiceRegistration{
+						Proxy: &api.AgentServiceConnectProxyConfig{
 							Upstreams: c.upstreams,
 						},
 					},
-					Service: config.Service{
+					Service: api.AgentServiceRegistration{
 						Name:   c.serviceName,
 						Checks: c.checks,
 						Port:   c.servicePort,
@@ -370,7 +370,7 @@ func TestConstructChecks(t *testing.T) {
 		"1-check-1-health-sync-containers-should-error": {
 			checks:               api.AgentServiceChecks{httpCheck},
 			healthSyncContainers: []string{containerName1},
-			expError:             fmt.Sprint("only one of mesh.checks or mesh.healthSyncContainers should be set"),
+			expError:             "only one of mesh.checks or mesh.healthSyncContainers should be set",
 		},
 		"0-checks-1-health-sync-containers": {
 			healthSyncContainers: []string{containerName1},

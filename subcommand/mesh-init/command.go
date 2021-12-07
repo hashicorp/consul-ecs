@@ -72,9 +72,7 @@ func (c *Command) realRun() error {
 	taskID := taskMeta.TaskID()
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
 
-	//checks, err := constructChecks(serviceID, c.flagChecks, c.flagHealthSyncContainers)
 	checks, err := constructChecks(serviceID, c.config.Mesh.Service.Checks, c.config.Mesh.HealthSyncContainers)
-
 	if err != nil {
 		return err
 	}
@@ -85,63 +83,58 @@ func (c *Command) realRun() error {
 		"source":   "consul-ecs",
 	}, c.config.Mesh.Service.Meta)
 
+	serviceRegistration := c.config.Mesh.Service
+	// Modify certain fields, but pass other fields through.
+	serviceRegistration.ID = serviceID
+	serviceRegistration.Name = serviceName
+	serviceRegistration.Meta = fullMeta
+	serviceRegistration.Checks = checks
+
 	err = backoff.RetryNotify(func() error {
 		c.log.Info("registering service")
-		return consulClient.Agent().ServiceRegister(&api.AgentServiceRegistration{
-			ID:     serviceID,
-			Name:   serviceName,
-			Port:   c.config.Mesh.Service.Port,
-			Tags:   c.config.Mesh.Service.Tags,
-			Meta:   fullMeta,
-			Checks: checks,
-		})
+		return consulClient.Agent().ServiceRegister(&serviceRegistration)
 	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
 
-	upstreams := c.config.Mesh.Sidecar.Proxy.Upstreams
-
 	// Register the proxy.
-	proxyID := fmt.Sprintf("%s-sidecar-proxy", serviceID)
+	proxyRegistration := c.config.Mesh.Sidecar
+	proxyRegistration.ID = fmt.Sprintf("%s-sidecar-proxy", serviceID)
+	proxyRegistration.Name = fmt.Sprintf("%s-sidecar-proxy", serviceName)
+	proxyRegistration.Kind = api.ServiceKindConnectProxy
+	proxyRegistration.Port = 20000
+	proxyRegistration.Meta = fullMeta
+	proxyRegistration.Tags = serviceRegistration.Tags
+	proxyRegistration.Proxy.DestinationServiceName = serviceName
+	proxyRegistration.Proxy.DestinationServiceID = serviceID
+	proxyRegistration.Proxy.LocalServicePort = serviceRegistration.Port
+
+	proxyRegistration.Checks = append(proxyRegistration.Checks,
+		&api.AgentServiceCheck{
+			Name:                           "Proxy Public Listener",
+			TCP:                            "127.0.0.1:20000",
+			Interval:                       "10s",
+			DeregisterCriticalServiceAfter: "10m",
+		},
+		&api.AgentServiceCheck{
+			Name:         "Destination Alias",
+			AliasService: serviceID,
+		},
+	)
 
 	err = backoff.RetryNotify(func() error {
 		c.log.Info("registering proxy")
-		return consulClient.Agent().ServiceRegister(&api.AgentServiceRegistration{
-			ID:   proxyID,
-			Name: fmt.Sprintf("%s-sidecar-proxy", serviceName),
-			Port: 20000,
-			Kind: api.ServiceKindConnectProxy,
-			Proxy: &api.AgentServiceConnectProxyConfig{
-				DestinationServiceName: serviceName,
-				DestinationServiceID:   serviceID,
-				LocalServicePort:       c.config.Mesh.Service.Port,
-				Upstreams:              upstreams,
-			},
-			Checks: api.AgentServiceChecks{
-				{
-					Name:                           "Proxy Public Listener",
-					TCP:                            "127.0.0.1:20000",
-					Interval:                       "10s",
-					DeregisterCriticalServiceAfter: "10m",
-				},
-				{
-					Name:         "Destination Alias",
-					AliasService: serviceID,
-				},
-			},
-			Meta: fullMeta,
-			Tags: c.config.Mesh.Service.Tags,
-		})
+		return consulClient.Agent().ServiceRegister(&proxyRegistration)
 	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
 
-	c.log.Info("service and proxy registered successfully", "name", serviceName, "id", serviceID)
+	c.log.Info("service and proxy registered successfully", "name", serviceRegistration.Name, "id", serviceRegistration.ID)
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
-	cmd := exec.Command("consul", "connect", "envoy", "-proxy-id", proxyID, "-bootstrap", "-grpc-addr=localhost:8502")
+	cmd := exec.Command("consul", "connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, string(out))

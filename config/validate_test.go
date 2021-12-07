@@ -18,14 +18,14 @@ var config = &Config{
 		},
 	},
 	Mesh: Mesh{
-		Service: Service{
+		Service: api.AgentServiceRegistration{
 			Name: "blah",
 			Port: 1234,
 			Tags: []string{"tag1"},
 			Meta: map[string]string{"a": "1"},
 		},
-		Sidecar: Sidecar{
-			Proxy: SidecarProxy{
+		Sidecar: api.AgentServiceRegistration{
+			Proxy: &api.AgentServiceConnectProxyConfig{
 				Upstreams: []api.Upstream{
 					{
 						DestinationName: "asdf",

@@ -20,35 +20,28 @@ import (
 )
 
 const (
-	flagParamStoreConfigPrefix = "parameter-store-config-prefix"
 	// pollingInterval is how often we poll the container health endpoint.
 	// The rate limit is about 40 per second, so 1 second polling seems reasonable.
 	pollInterval = 1 * time.Second
 )
 
 type Command struct {
-	UI                         cli.Ui
-	config                     config.Config
-	flagParamStoreConfigPrefix string
-	log                        hclog.Logger
-	flagSet                    *flag.FlagSet
-	once                       sync.Once
+	UI      cli.Ui
+	config  *config.Config
+	log     hclog.Logger
+	flagSet *flag.FlagSet
+	once    sync.Once
 }
 
 func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
-
-	var paramStoreConfigName string
-	c.flagSet.StringVar(&paramStoreConfigName, flagParamStoreConfigPrefix, "", "The name of the key prefix the configuration is stored at in AWS parameter store")
-
 	c.log = hclog.New(nil)
 }
 
 func (c *Command) Run(args []string) int {
 	c.once.Do(c.init)
 
-	config, err := config.Get(config.GetConfigOptions{ParamName: c.flagParamStoreConfigPrefix})
-
+	config, err := config.FromEnv()
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("invalid config: %s", err))
 		return 1

@@ -5,10 +5,11 @@ import (
 	"os"
 	"testing"
 
+	"github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/require"
 )
 
-var config = Config{
+var config = &Config{
 	Secret: Secret{
 		Provider: "secret-manager",
 		Configuration: SecretConfiguration{
@@ -25,7 +26,7 @@ var config = Config{
 		},
 		Sidecar: Sidecar{
 			Proxy: SidecarProxy{
-				Upstreams: []Upstream{
+				Upstreams: []api.Upstream{
 					{
 						DestinationName: "asdf",
 						LocalBindPort:   543,
@@ -42,12 +43,10 @@ func TestParse(t *testing.T) {
 	rawConfig := OpenFile(t, "resources/test_config.json")
 	parsedConfig, err := Parse(rawConfig)
 	require.NoError(t, err)
-
 	require.Equal(t, config, parsedConfig)
-
 }
 
-func TestParseErrrors(t *testing.T) {
+func TestParseErrors(t *testing.T) {
 	rawConfig := OpenFile(t, "resources/test_config_missing_fields.json")
 	// TODO test multiple errors
 	_, err := Parse(rawConfig)
@@ -55,27 +54,22 @@ func TestParseErrrors(t *testing.T) {
 	require.Contains(t, err.Error(), "aclTokenSecret: provider is required")
 }
 
-func TestGet(t *testing.T) {
+func TestFromEnv(t *testing.T) {
 	rawConfig := OpenFile(t, "resources/test_config.json")
-	os.Setenv(configEnvironmentVariable, rawConfig)
+	err := os.Setenv(configEnvironmentVariable, rawConfig)
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		err := os.Unsetenv(configEnvironmentVariable)
 		require.NoError(t, err)
 	})
 
-	parsedConfig, err := Get(GetConfigOptions{})
+	parsedConfig, err := FromEnv()
 	require.NoError(t, err)
 	require.Equal(t, config, parsedConfig)
 }
 
 func OpenFile(t *testing.T, path string) string {
-	file, err := os.Open(path)
-
+	byteFile, err := ioutil.ReadFile(path)
 	require.NoError(t, err)
-
-	defer file.Close()
-
-	byteFile, _ := ioutil.ReadAll(file)
-
 	return string(byteFile)
 }

@@ -1,7 +1,6 @@
 package config
 
-var schema = `
-{
+var schema = `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "TODO",
   "title": "Consul ECS Configuration",

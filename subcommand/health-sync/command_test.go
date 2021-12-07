@@ -4,6 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
@@ -13,10 +18,6 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"testing"
 )
 
 func TestEcsHealthToConsulHealth(t *testing.T) {
@@ -225,7 +226,7 @@ func TestRunWithContainerNames(t *testing.T) {
 				sanityChecks[container.name] = api.HealthCritical
 			}
 
-			config := config.Config{}
+			config := &config.Config{}
 			config.Mesh.HealthSyncContainers = expectSyncContainers
 			config.Mesh.Service.Name = c.serviceName
 
@@ -397,7 +398,9 @@ func assertHealthChecks(t *testing.T, serviceName string, ecsServiceMetadata ecs
 }
 
 func TestConstructServiceName(t *testing.T) {
-	cmd := Command{}
+	cmd := Command{
+		config: &config.Config{},
+	}
 	family := "family"
 
 	serviceName := cmd.constructServiceName(family)

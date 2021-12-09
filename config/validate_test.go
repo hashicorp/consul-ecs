@@ -5,12 +5,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/require"
 )
 
 var config = &Config{
-	Secret: Secret{
+	Secret: AclTokenSecret{
 		Provider: "secret-manager",
 		Configuration: SecretConfiguration{
 			Prefix:                     "asdf",
@@ -18,15 +17,15 @@ var config = &Config{
 		},
 	},
 	Mesh: Mesh{
-		Service: api.AgentServiceRegistration{
+		Service: ServiceRegistration{
 			Name: "blah",
 			Port: 1234,
 			Tags: []string{"tag1"},
 			Meta: map[string]string{"a": "1"},
 		},
-		Sidecar: api.AgentServiceRegistration{
-			Proxy: &api.AgentServiceConnectProxyConfig{
-				Upstreams: []api.Upstream{
+		Sidecar: SidecarProxyRegistration{
+			Proxy: &AgentServiceConnectProxyConfig{
+				Upstreams: []Upstream{
 					{
 						DestinationName: "asdf",
 						LocalBindPort:   543,

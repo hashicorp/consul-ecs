@@ -83,49 +83,50 @@ func (c *Command) realRun() error {
 		"source":   "consul-ecs",
 	}, c.config.Mesh.Service.Meta)
 
-	serviceRegistration := c.config.Mesh.Service
-	// Modify certain fields, but pass other fields through.
+	serviceRegistration := c.config.Mesh.Service.ToConsulType()
 	serviceRegistration.ID = serviceID
 	serviceRegistration.Name = serviceName
 	serviceRegistration.Meta = fullMeta
-	serviceRegistration.Checks = checks
+	serviceRegistration.Checks = nil
+	for _, check := range checks {
+		serviceRegistration.Checks = append(serviceRegistration.Checks, check.ToConsulType())
+	}
 
 	err = backoff.RetryNotify(func() error {
 		c.log.Info("registering service")
-		return consulClient.Agent().ServiceRegister(&serviceRegistration)
+		return consulClient.Agent().ServiceRegister(serviceRegistration)
 	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
 
 	// Register the proxy.
-	proxyRegistration := c.config.Mesh.Sidecar
-	proxyRegistration.ID = fmt.Sprintf("%s-sidecar-proxy", serviceID)
-	proxyRegistration.Name = fmt.Sprintf("%s-sidecar-proxy", serviceName)
+	proxyRegistration := c.config.Mesh.Sidecar.ToConsulType()
+	proxyRegistration.ID = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.ID)
+	proxyRegistration.Name = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Name)
 	proxyRegistration.Kind = api.ServiceKindConnectProxy
 	proxyRegistration.Port = 20000
-	proxyRegistration.Meta = fullMeta
+	proxyRegistration.Meta = serviceRegistration.Meta
 	proxyRegistration.Tags = serviceRegistration.Tags
-	proxyRegistration.Proxy.DestinationServiceName = serviceName
-	proxyRegistration.Proxy.DestinationServiceID = serviceID
+	proxyRegistration.Proxy.DestinationServiceName = serviceRegistration.Name
+	proxyRegistration.Proxy.DestinationServiceID = serviceRegistration.ID
 	proxyRegistration.Proxy.LocalServicePort = serviceRegistration.Port
-
-	proxyRegistration.Checks = append(proxyRegistration.Checks,
-		&api.AgentServiceCheck{
+	proxyRegistration.Checks = append(proxyRegistration.Checks, []*api.AgentServiceCheck{
+		{
 			Name:                           "Proxy Public Listener",
 			TCP:                            "127.0.0.1:20000",
 			Interval:                       "10s",
 			DeregisterCriticalServiceAfter: "10m",
 		},
-		&api.AgentServiceCheck{
+		{
 			Name:         "Destination Alias",
 			AliasService: serviceID,
 		},
-	)
+	}...)
 
 	err = backoff.RetryNotify(func() error {
 		c.log.Info("registering proxy")
-		return consulClient.Agent().ServiceRegister(&proxyRegistration)
+		return consulClient.Agent().ServiceRegister(proxyRegistration)
 	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 	if err != nil {
 		return err
@@ -182,14 +183,14 @@ func retryLogger(log hclog.Logger) backoff.Notify {
 	}
 }
 
-func constructChecks(serviceID string, checks api.AgentServiceChecks, healthSyncContainers []string) (api.AgentServiceChecks, error) {
+func constructChecks(serviceID string, checks []config.AgentServiceCheck, healthSyncContainers []string) ([]config.AgentServiceCheck, error) {
 	if len(checks) > 0 && len(healthSyncContainers) > 0 {
 		return nil, fmt.Errorf("only one of mesh.checks or mesh.healthSyncContainers should be set")
 	}
 
 	if len(healthSyncContainers) > 0 {
 		for _, containerName := range healthSyncContainers {
-			checks = append(checks, &api.AgentServiceCheck{
+			checks = append(checks, config.AgentServiceCheck{
 				CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName),
 				Name:    "consul ecs synced",
 				Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",

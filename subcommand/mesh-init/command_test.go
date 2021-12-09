@@ -53,9 +53,9 @@ func TestRun(t *testing.T) {
 
 	cases := map[string]struct {
 		servicePort       int
-		upstreams         []api.Upstream
+		upstreams         []config.Upstream
 		expUpstreams      []api.Upstream
-		checks            api.AgentServiceChecks
+		checks            []config.AgentServiceCheck
 		tags              []string
 		expTags           []string
 		additionalMeta    map[string]string
@@ -68,7 +68,7 @@ func TestRun(t *testing.T) {
 			servicePort: 8080,
 		},
 		"service with upstreams": {
-			upstreams: []api.Upstream{
+			upstreams: []config.Upstream{
 				{
 					DestinationName: "upstream1",
 					LocalBindPort:   1234,
@@ -92,8 +92,8 @@ func TestRun(t *testing.T) {
 			},
 		},
 		"service with checks": {
-			checks: api.AgentServiceChecks{
-				&api.AgentServiceCheck{
+			checks: []config.AgentServiceCheck{
+				{
 					// Check id should be "api-<type>" for assertions.
 					CheckID:  "api-http",
 					Name:     "HTTP on port 8080",
@@ -104,7 +104,7 @@ func TestRun(t *testing.T) {
 					Method:   "GET",
 					Notes:    "unittest http check",
 				},
-				&api.AgentServiceCheck{
+				{
 					CheckID:  "api-tcp",
 					Name:     "TCP on port 8080",
 					TCP:      "localhost:8080",
@@ -112,7 +112,7 @@ func TestRun(t *testing.T) {
 					Timeout:  "5s",
 					Notes:    "unittest tcp check",
 				},
-				&api.AgentServiceCheck{
+				{
 					CheckID:    "api-grpc",
 					Name:       "GRPC on port 8081",
 					GRPC:       "localhost:8081",
@@ -208,7 +208,7 @@ func TestRun(t *testing.T) {
 			})
 
 			consulEcsConfig := config.Config{
-				Secret: config.Secret{
+				Secret: config.AclTokenSecret{
 					Provider: "secret-manager",
 					Configuration: config.SecretConfiguration{
 						Prefix:                     "mesh-init-unittest-TestRun",
@@ -218,12 +218,12 @@ func TestRun(t *testing.T) {
 				Mesh: config.Mesh{
 					BootstrapDir:         envoyBootstrapDir,
 					HealthSyncContainers: nil,
-					Sidecar: api.AgentServiceRegistration{
-						Proxy: &api.AgentServiceConnectProxyConfig{
+					Sidecar: config.SidecarProxyRegistration{
+						Proxy: &config.AgentServiceConnectProxyConfig{
 							Upstreams: c.upstreams,
 						},
 					},
-					Service: api.AgentServiceRegistration{
+					Service: config.ServiceRegistration{
 						Name:   c.serviceName,
 						Checks: c.checks,
 						Port:   c.servicePort,
@@ -251,11 +251,16 @@ func TestRun(t *testing.T) {
 			expSidecarServiceID := fmt.Sprintf("%s-abcdef-sidecar-proxy", expectedServiceName)
 
 			expectedServiceRegistration := &api.AgentService{
-				ID:      expServiceID,
-				Service: expectedServiceName,
-				Port:    c.servicePort,
-				Meta:    expectedTaskMeta,
-				Tags:    expectedTags,
+				ID:         expServiceID,
+				Service:    expectedServiceName,
+				Port:       c.servicePort,
+				Meta:       expectedTaskMeta,
+				Tags:       expectedTags,
+				Datacenter: "dc1",
+				Weights: api.AgentWeights{
+					Passing: 1,
+					Warning: 1,
+				},
 			}
 
 			expectedProxyServiceRegistration := &api.AgentService{
@@ -269,20 +274,25 @@ func TestRun(t *testing.T) {
 					LocalServicePort:       c.servicePort,
 					Upstreams:              c.expUpstreams,
 				},
-				Meta: expectedTaskMeta,
-				Tags: expectedTags,
+				Meta:       expectedTaskMeta,
+				Tags:       expectedTags,
+				Datacenter: "dc1",
+				Weights: api.AgentWeights{
+					Passing: 1,
+					Warning: 1,
+				},
 			}
 
 			agentServiceIgnoreFields := cmpopts.IgnoreFields(api.AgentService{},
-				"Datacenter", "Weights", "ContentHash", "ModifyIndex", "CreateIndex")
+				"ContentHash", "ModifyIndex", "CreateIndex")
 
 			service, _, err := consulClient.Agent().Service(expServiceID, nil)
 			require.NoError(t, err)
-			require.True(t, cmp.Equal(expectedServiceRegistration, service, agentServiceIgnoreFields))
+			require.Empty(t, cmp.Diff(expectedServiceRegistration, service, agentServiceIgnoreFields))
 
 			proxyService, _, err := consulClient.Agent().Service(expSidecarServiceID, nil)
 			require.NoError(t, err)
-			require.True(t, cmp.Equal(expectedProxyServiceRegistration, proxyService, agentServiceIgnoreFields))
+			require.Empty(t, cmp.Diff(expectedProxyServiceRegistration, proxyService, agentServiceIgnoreFields))
 
 			envoyBootstrapContents, err := ioutil.ReadFile(envoyBootstrapFile)
 			require.NoError(t, err)
@@ -308,7 +318,7 @@ func TestRun(t *testing.T) {
 
 					require.Empty(t, cmp.Diff(actualChecks[expCheck.CheckID], expectedAgentCheck,
 						// Due to a Consul bug, the Definition field is always empty in the response.
-						cmpopts.IgnoreFields(api.AgentCheck{}, "Node", "Output", "ExposedPort", "Definition", "Namespace")))
+						cmpopts.IgnoreFields(api.AgentCheck{}, "Node", "Output", "ExposedPort", "Definition")))
 				}
 			}
 		})
@@ -321,7 +331,7 @@ func TestConstructChecks(t *testing.T) {
 	containerName1 := "containerName1"
 	containerName2 := "containerName2"
 
-	httpCheck := &api.AgentServiceCheck{
+	httpCheck := config.AgentServiceCheck{
 		CheckID:  "check-1",
 		Name:     "HTTP on port 8080",
 		HTTP:     "http://localhost:8080",
@@ -331,7 +341,7 @@ func TestConstructChecks(t *testing.T) {
 		Method:   "GET",
 		Notes:    "unittest http check",
 	}
-	tcpCheck := &api.AgentServiceCheck{
+	tcpCheck := config.AgentServiceCheck{
 		CheckID:  "check-2",
 		Name:     "TCP on port 8080",
 		TCP:      "localhost:8080",
@@ -339,13 +349,13 @@ func TestConstructChecks(t *testing.T) {
 		Timeout:  "5s",
 		Notes:    "unittest tcp check",
 	}
-	syncedCheck1 := &api.AgentServiceCheck{
+	syncedCheck1 := config.AgentServiceCheck{
 		CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName1),
 		Name:    "consul ecs synced",
 		Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
 		TTL:     "100000h",
 	}
-	syncedCheck2 := &api.AgentServiceCheck{
+	syncedCheck2 := config.AgentServiceCheck{
 		CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName2),
 		Name:    "consul ecs synced",
 		Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
@@ -353,32 +363,32 @@ func TestConstructChecks(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		checks               api.AgentServiceChecks
+		checks               []config.AgentServiceCheck
 		healthSyncContainers []string
 		expError             string
-		expChecks            api.AgentServiceChecks
+		expChecks            []config.AgentServiceCheck
 	}{
 		"0-checks-0-health-sync-containers": {},
 		"1-check-0-health-sync-containers": {
-			checks:    api.AgentServiceChecks{httpCheck},
-			expChecks: api.AgentServiceChecks{httpCheck},
+			checks:    []config.AgentServiceCheck{httpCheck},
+			expChecks: []config.AgentServiceCheck{httpCheck},
 		},
 		"2-checks-0-health-sync-containers": {
-			checks:    api.AgentServiceChecks{httpCheck, tcpCheck},
-			expChecks: api.AgentServiceChecks{httpCheck, tcpCheck},
+			checks:    []config.AgentServiceCheck{httpCheck, tcpCheck},
+			expChecks: []config.AgentServiceCheck{httpCheck, tcpCheck},
 		},
 		"1-check-1-health-sync-containers-should-error": {
-			checks:               api.AgentServiceChecks{httpCheck},
+			checks:               []config.AgentServiceCheck{httpCheck},
 			healthSyncContainers: []string{containerName1},
 			expError:             "only one of mesh.checks or mesh.healthSyncContainers should be set",
 		},
 		"0-checks-1-health-sync-containers": {
 			healthSyncContainers: []string{containerName1},
-			expChecks:            api.AgentServiceChecks{syncedCheck1},
+			expChecks:            []config.AgentServiceCheck{syncedCheck1},
 		},
 		"0-checks-2-health-sync-containers": {
 			healthSyncContainers: []string{containerName1, containerName2},
-			expChecks:            api.AgentServiceChecks{syncedCheck1, syncedCheck2},
+			expChecks:            []config.AgentServiceCheck{syncedCheck1, syncedCheck2},
 		},
 	}
 
@@ -412,7 +422,7 @@ func TestConstructServiceName(t *testing.T) {
 
 // toAgentCheck translates the request type (AgentServiceCheck) into an "expected"
 // response type (AgentCheck) which we can use in assertions.
-func toAgentCheck(check *api.AgentServiceCheck) *api.AgentCheck {
+func toAgentCheck(check config.AgentServiceCheck) *api.AgentCheck {
 	expInterval, _ := time.ParseDuration(check.Interval)
 	expTimeout, _ := time.ParseDuration(check.Timeout)
 	expDeregisterCriticalAfter, _ := time.ParseDuration(check.DeregisterCriticalServiceAfter)

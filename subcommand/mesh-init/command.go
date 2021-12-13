@@ -111,7 +111,7 @@ func (c *Command) realRun() error {
 	proxyRegistration.Proxy.DestinationServiceName = serviceRegistration.Name
 	proxyRegistration.Proxy.DestinationServiceID = serviceRegistration.ID
 	proxyRegistration.Proxy.LocalServicePort = serviceRegistration.Port
-	proxyRegistration.Checks = append(proxyRegistration.Checks, []*api.AgentServiceCheck{
+	proxyRegistration.Checks = []*api.AgentServiceCheck{
 		{
 			Name:                           "Proxy Public Listener",
 			TCP:                            "127.0.0.1:20000",
@@ -122,8 +122,10 @@ func (c *Command) realRun() error {
 			Name:         "Destination Alias",
 			AliasService: serviceID,
 		},
-	}...)
+	}
 	proxyRegistration.Namespace = serviceRegistration.Namespace
+	proxyRegistration.Weights = serviceRegistration.Weights
+	proxyRegistration.EnableTagOverride = serviceRegistration.EnableTagOverride
 
 	err = backoff.RetryNotify(func() error {
 		c.log.Info("registering proxy")

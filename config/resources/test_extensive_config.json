@@ -86,32 +86,7 @@
       "namespace": "test-ns"
     },
     "sidecar": {
-      "taggedAddresses": {
-        "lan": {
-          "address": "192.168.1.5",
-          "port": 20000
-        }
-      },
-      "enableTagOverride": true,
-      "weights": {
-        "passing": 4,
-        "warning": 3
-      },
-      "checks": [
-        {
-          "checkId": "frontend-proxy-http",
-          "name": "frontend-proxy-http",
-          "http": "http://localhost:19000/ready",
-          "method": "GET",
-          "interval": "10s",
-          "timeout": "5s"
-        }
-      ],
       "proxy": {
-        "destinationServiceName": "frontend",
-        "destinationServiceId": "frontend",
-        "localServiceAddress": "localhost",
-        "localServicePort": 8080,
         "config": {
           "data": "some-config-data"
         },
@@ -123,8 +98,6 @@
             "datacenter": "dc2",
             "localBindAddress": "localhost",
             "localBindPort": 1234,
-            "localBindSocketPath": "/path/to/socket",
-            "localBindSocketMode": "0700",
             "config": {
               "data": "some-upstream-config-data"
             },

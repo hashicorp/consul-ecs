@@ -19,15 +19,13 @@ func TestSidecarProxyRegistrationToConsulType(t *testing.T) {
 
 var (
 	testCheck = AgentServiceCheck{
-		CheckID:           "check-1",
-		Name:              "test-check",
-		Args:              []string{"x", "y"},
-		DockerContainerID: "0123456789",
-		Shell:             "/bin/bash",
-		Interval:          "30s",
-		Timeout:           "5s",
-		TTL:               "30s",
-		HTTP:              "http://localhost:5000/health",
+		CheckID:    "check-1",
+		Name:       "test-check",
+		ScriptArgs: []string{"x", "y"},
+		Interval:   "30s",
+		Timeout:    "5s",
+		TTL:        "30s",
+		HTTP:       "http://localhost:5000/health",
 		Header: map[string][]string{
 			"Content-Type": {"application/json"},
 		},
@@ -51,8 +49,8 @@ var (
 		CheckID:           "check-1",
 		Name:              "test-check",
 		Args:              []string{"x", "y"},
-		DockerContainerID: "0123456789",
-		Shell:             "/bin/bash",
+		DockerContainerID: "",
+		Shell:             "",
 		Interval:          "30s",
 		Timeout:           "5s",
 		TTL:               "30s",
@@ -126,24 +124,7 @@ var (
 	}
 
 	testProxyRegistration = SidecarProxyRegistration{
-		TaggedAddresses: map[string]ServiceAddress{
-			"lan": {
-				Address: "192.168.1.1",
-				Port:    1235,
-			},
-		},
-		EnableTagOverride: true,
-		Weights: &AgentWeights{
-			Passing: 3,
-			Warning: 2,
-		},
-		Checks: []AgentServiceCheck{testCheck},
 		Proxy: &AgentServiceConnectProxyConfig{
-			DestinationServiceName: "service-1",
-			DestinationServiceID:   "service-1-id",
-			LocalServiceAddress:    "localhost",
-			LocalServicePort:       1234,
-			LocalServiceSocketPath: "/path/to/socket",
 			Config: map[string]interface{}{
 				"data": "some-test-data",
 			},
@@ -155,8 +136,6 @@ var (
 					Datacenter:           "dc2",
 					LocalBindAddress:     "localhost",
 					LocalBindPort:        1235,
-					LocalBindSocketPath:  "/path/to/socket",
-					LocalBindSocketMode:  "0700",
 					Config: map[string]interface{}{
 						"data": "some-upstream-test-data",
 					},
@@ -183,33 +162,25 @@ var (
 	}
 
 	expectedConsulProxyRegistration = &api.AgentServiceRegistration{
-		Kind:       "",
-		ID:         "",
-		Name:       "",
-		Tags:       nil,
-		Port:       0,
-		Address:    "",
-		SocketPath: "",
-		TaggedAddresses: map[string]api.ServiceAddress{
-			"lan": {
-				Address: "192.168.1.1",
-				Port:    1235,
-			},
-		},
-		EnableTagOverride: true,
+		Kind:              "",
+		ID:                "",
+		Name:              "",
+		Tags:              nil,
+		Port:              0,
+		Address:           "",
+		SocketPath:        "",
+		TaggedAddresses:   nil,
+		EnableTagOverride: false,
 		Meta:              nil,
-		Weights: &api.AgentWeights{
-			Passing: 3,
-			Warning: 2,
-		},
-		Check:  nil,
-		Checks: api.AgentServiceChecks{expectedConsulCheck},
+		Weights:           nil,
+		Check:             nil,
+		Checks:            nil,
 		Proxy: &api.AgentServiceConnectProxyConfig{
-			DestinationServiceName: "service-1",
-			DestinationServiceID:   "service-1-id",
-			LocalServiceAddress:    "localhost",
-			LocalServicePort:       1234,
-			LocalServiceSocketPath: "/path/to/socket",
+			DestinationServiceName: "",
+			DestinationServiceID:   "",
+			LocalServiceAddress:    "",
+			LocalServicePort:       0,
+			LocalServiceSocketPath: "",
 			Config: map[string]interface{}{
 				"data": "some-test-data",
 			},
@@ -221,8 +192,8 @@ var (
 					Datacenter:           "dc2",
 					LocalBindAddress:     "localhost",
 					LocalBindPort:        1235,
-					LocalBindSocketPath:  "/path/to/socket",
-					LocalBindSocketMode:  "0700",
+					LocalBindSocketPath:  "",
+					LocalBindSocketMode:  "",
 					Config: map[string]interface{}{
 						"data": "some-upstream-test-data",
 					},

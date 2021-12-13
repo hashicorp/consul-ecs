@@ -93,50 +93,34 @@ func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
 //
 // NOTE:
 // - The Kind and Port are set by mesh-init, so these fields are not configurable.
-// - The ID, Name, Tags, and Meta are inferred or copied from the service registration by mesh-init.
+// - The ID, Name, Tags, Meta, EnableTagOverride, and Weights fields are inferred or copied
+//   from the service registration by mesh-init.
 // - The bind address will always be localhost in ECS, so the Address and SocketPath are excluded.
 // - The Connect field is excluded. Since the sidecar proxy is being used, it's not a Connect-native
 //   service, and we don't need the recursive proxy config included in the Connect field.
 // - The Namespace field is excluded. mesh-init will use the namespace from the service registration.
+// - There's not a use-case for specifying TaggedAddresses with Consul ECS.
 type SidecarProxyRegistration struct {
-	TaggedAddresses   map[string]ServiceAddress       `json:"taggedAddresses,omitempty"`
-	EnableTagOverride bool                            `json:"enableTagOverride,omitempty"`
-	Weights           *AgentWeights                   `json:"weights,omitempty"`
-	Checks            []AgentServiceCheck             `json:"checks,omitempty"`
-	Proxy             *AgentServiceConnectProxyConfig `json:"proxy,omitempty"`
+	Proxy *AgentServiceConnectProxyConfig `json:"proxy,omitempty"`
 }
 
 func (p *SidecarProxyRegistration) ToConsulType() *api.AgentServiceRegistration {
-	proxyConfig := p.Proxy.ToConsulType()
-	result := &api.AgentServiceRegistration{
-		TaggedAddresses:   nil,
-		EnableTagOverride: p.EnableTagOverride,
-		Weights:           nil,
-		Checks:            nil,
-		Proxy:             &proxyConfig,
+	return &api.AgentServiceRegistration{
+		Proxy: p.Proxy.ToConsulType(),
 	}
-	if p.TaggedAddresses != nil {
-		result.TaggedAddresses = map[string]api.ServiceAddress{}
-		for k, v := range p.TaggedAddresses {
-			result.TaggedAddresses[k] = v.ToConsulType()
-		}
-	}
-	if p.Weights != nil {
-		result.Weights = p.Weights.ToConsulType()
-	}
-	for _, check := range p.Checks {
-		result.Checks = append(result.Checks, check.ToConsulType())
-	}
-	return result
 }
 
 // AgentServiceCheck configures a Consul Check.
+//
+// NOTE:
+// - The DockerContainerID and Shell fields are excluded. Shell is only used for Docker checks, and
+//   Docker checks won't work on ECS. They cannot work on Fargate, and require specific config to access
+//   the host's Docker daemon on the EC2 launch type.
 type AgentServiceCheck struct {
-	CheckID                        string              `json:"checkId,omitempty"`
-	Name                           string              `json:"name,omitempty"`
-	Args                           []string            `json:"args,omitempty"`
-	DockerContainerID              string              `json:"dockerContainerId,omitempty"`
-	Shell                          string              `json:"shell,omitempty"` // Only supported for Docker.
+	CheckID string `json:"checkId,omitempty"`
+	Name    string `json:"name,omitempty"`
+	// "Args" is deprecated. Use ScriptArgs instead.
+	ScriptArgs                     []string            `json:"scriptArgs,omitempty"`
 	Interval                       string              `json:"interval,omitempty"`
 	Timeout                        string              `json:"timeout,omitempty"`
 	TTL                            string              `json:"ttl,omitempty"`
@@ -162,9 +146,7 @@ func (c *AgentServiceCheck) ToConsulType() *api.AgentServiceCheck {
 	return &api.AgentServiceCheck{
 		CheckID:                        c.CheckID,
 		Name:                           c.Name,
-		Args:                           c.Args,
-		DockerContainerID:              c.DockerContainerID,
-		Shell:                          c.Shell,
+		Args:                           c.ScriptArgs,
 		Interval:                       c.Interval,
 		Timeout:                        c.Timeout,
 		TTL:                            c.TTL,
@@ -214,30 +196,24 @@ func (w *AgentWeights) ToConsulType() *api.AgentWeights {
 // AgentServiceConnectProxyConfig defines the sidecar proxy configuration.
 //
 // NOTE:
+// - The Kind, Port, DestinationServiceName, DestinationServiceId, LocalServiceAddress, and LocalServicePort
+//   are all set by mesh-init, based on the service configuration.
+// - The LocalServiceSocketPath is excluded, since it would conflict with the address/port set by mesh-init.
+// - Checks are excluded. mesh-init automatically configures useful checks for the proxy.
 // - TProxy is not supported on ECS, so the Mode and TransparentProxy fields are excluded.
 type AgentServiceConnectProxyConfig struct {
-	DestinationServiceName string                 `json:"destinationServiceName,omitempty"`
-	DestinationServiceID   string                 `json:"destinationServiceId,omitempty"`
-	LocalServiceAddress    string                 `json:"localServiceAddress,omitempty"`
-	LocalServicePort       int                    `json:"localServicePort,omitempty"`
-	LocalServiceSocketPath string                 `json:"localServiceSocketPath,omitempty"`
-	Config                 map[string]interface{} `json:"config,omitempty"`
-	Upstreams              []Upstream             `json:"upstreams,omitempty"`
-	MeshGateway            MeshGatewayConfig      `json:"meshGateway,omitempty"`
-	Expose                 ExposeConfig           `json:"expose,omitempty"`
+	Config      map[string]interface{} `json:"config,omitempty"`
+	Upstreams   []Upstream             `json:"upstreams,omitempty"`
+	MeshGateway MeshGatewayConfig      `json:"meshGateway,omitempty"`
+	Expose      ExposeConfig           `json:"expose,omitempty"`
 }
 
-func (a *AgentServiceConnectProxyConfig) ToConsulType() api.AgentServiceConnectProxyConfig {
-	result := api.AgentServiceConnectProxyConfig{
-		DestinationServiceName: a.DestinationServiceName,
-		DestinationServiceID:   a.DestinationServiceID,
-		LocalServiceAddress:    a.LocalServiceAddress,
-		LocalServicePort:       a.LocalServicePort,
-		LocalServiceSocketPath: a.LocalServiceSocketPath,
-		Config:                 a.Config,
-		Upstreams:              nil,
-		MeshGateway:            a.MeshGateway.ToConsulType(),
-		Expose:                 a.Expose.ToConsulType(),
+func (a *AgentServiceConnectProxyConfig) ToConsulType() *api.AgentServiceConnectProxyConfig {
+	result := &api.AgentServiceConnectProxyConfig{
+		Config:      a.Config,
+		Upstreams:   nil,
+		MeshGateway: a.MeshGateway.ToConsulType(),
+		Expose:      a.Expose.ToConsulType(),
 	}
 	for _, u := range a.Upstreams {
 		result.Upstreams = append(result.Upstreams, u.ToConsulType())
@@ -246,6 +222,10 @@ func (a *AgentServiceConnectProxyConfig) ToConsulType() api.AgentServiceConnectP
 }
 
 // Upstream describes an upstream Consul Service.
+//
+// NOTE:
+// - The LocalBindSocketPath and LocalBindSocketMode are excluded. This level of control/restriction
+//   is not as relevant in ECS since each proxy runs in an isolated Docker container.
 type Upstream struct {
 	DestinationType      api.UpstreamDestType   `json:"destinationType,omitempty"`
 	DestinationNamespace string                 `json:"destinationNamespace,omitempty"`
@@ -253,8 +233,6 @@ type Upstream struct {
 	Datacenter           string                 `json:"datacenter,omitempty"`
 	LocalBindAddress     string                 `json:"localBindAddress,omitempty"`
 	LocalBindPort        int                    `json:"localBindPort,omitempty"`
-	LocalBindSocketPath  string                 `json:"localBindSocketPath,omitempty"`
-	LocalBindSocketMode  string                 `json:"localBindSocketMode,omitempty"`
 	Config               map[string]interface{} `json:"config,omitempty"`
 	MeshGateway          MeshGatewayConfig      `json:"meshGateway,omitempty"`
 }
@@ -267,8 +245,6 @@ func (u *Upstream) ToConsulType() api.Upstream {
 		Datacenter:           u.Datacenter,
 		LocalBindAddress:     u.LocalBindAddress,
 		LocalBindPort:        u.LocalBindPort,
-		LocalBindSocketPath:  u.LocalBindSocketPath,
-		LocalBindSocketMode:  u.LocalBindSocketMode,
 		Config:               u.Config,
 		MeshGateway:          u.MeshGateway.ToConsulType(),
 	}

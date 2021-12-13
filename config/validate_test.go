@@ -179,33 +179,7 @@ var (
 				Namespace: "test-ns",
 			},
 			Sidecar: SidecarProxyRegistration{
-				TaggedAddresses: map[string]ServiceAddress{
-					"lan": {
-						Address: "192.168.1.5",
-						Port:    20000,
-					},
-				},
-				EnableTagOverride: true,
-				Weights: &AgentWeights{
-					Passing: 4,
-					Warning: 3,
-				},
-				Checks: []AgentServiceCheck{
-					{
-						CheckID:  "frontend-proxy-http",
-						Name:     "frontend-proxy-http",
-						HTTP:     "http://localhost:19000/ready",
-						Method:   "GET",
-						Interval: "10s",
-						Timeout:  "5s",
-					},
-				},
 				Proxy: &AgentServiceConnectProxyConfig{
-					DestinationServiceName: "frontend",
-					DestinationServiceID:   "frontend",
-					LocalServiceAddress:    "localhost",
-					LocalServicePort:       8080,
-					LocalServiceSocketPath: "",
 					Config: map[string]interface{}{
 						"data": "some-config-data",
 					},
@@ -217,8 +191,6 @@ var (
 							Datacenter:           "dc2",
 							LocalBindAddress:     "localhost",
 							LocalBindPort:        1234,
-							LocalBindSocketPath:  "/path/to/socket",
-							LocalBindSocketMode:  "0700",
 							Config: map[string]interface{}{
 								"data": "some-upstream-config-data",
 							},

@@ -102,76 +102,116 @@ var schema = `{
             "weights": {
               "type": "object",
               "properties": {
-                "passing": {"type": "integer"},
-                "warning": {"type": "integer"}
+                "passing": {
+                  "type": "integer"
+                },
+                "warning": {
+                  "type": "integer"
+                }
               },
               "additionalProperties": false
             },
             "checks": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "checkId": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "scriptArgs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "interval": {
+                    "type": "string"
+                  },
+                  "timeout": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "string"
+                  },
+                  "http": {
+                    "type": "string"
+                  },
+                  "header": {
+                    "type": "object",
+                    "patternProperties": {
+                      ".*": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "method": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string"
+                  },
+                  "tcp": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "tlsServerName": {
+                    "type": "string"
+                  },
+                  "tlsSkipVerify": {
+                    "type": "boolean"
+                  },
+                  "grpc": {
+                    "type": "string"
+                  },
+                  "grpcUseTls": {
+                    "type": "boolean"
+                  },
+                  "aliasNode": {
+                    "type": "string"
+                  },
+                  "aliasService": {
+                    "type": "string"
+                  },
+                  "successBeforePassing": {
+                    "type": "integer"
+                  },
+                  "failuresBeforeCritical": {
+                    "type": "integer"
+                  },
+                  "deregisterCriticalServiceAfter": {
+                    "type": "string"
+                  }
+                }
               }
             },
             "namespace": {
               "type": "string"
             }
           },
-          "requires": ["name", "port"],
+          "requires": [
+            "name",
+            "port"
+          ],
           "additionalProperties": true
         },
         "sidecar": {
           "type": "object",
           "properties": {
-            "taggedAddresses": {
-              "type": "object",
-              "patternProperties": {
-                ".*": {
-                  "type": "object",
-                  "properties": {
-                    "address": {
-                      "type": "string"
-                    },
-                    "port": {
-                      "type": "integer"
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              }
-            },
-            "enableTagOverride": {
-              "type": "boolean"
-            },
-            "weights": {
-              "type": "object",
-              "properties": {
-                "passing": {"type": "integer"},
-                "warning": {"type": "integer"}
-              },
-              "additionalProperties": false
-            },
-            "checks": {
-              "type": "array",
-              "items": {
-                "type": "object"
-              }
-            },
             "proxy": {
               "type": "object",
               "properties": {
-                "destinationServiceName": {
-                  "type": "string"
-                },
-                "destinationServiceId": {
-                  "type": "string"
-                },
-                "localServiceAddress": {
-                  "type": "string"
-                },
-                "localServicePort": {
-                  "type": "integer"
-                },
                 "config": {
                   "type": "object"
                 },
@@ -197,12 +237,6 @@ var schema = `{
                       },
                       "localBindPort": {
                         "type": "integer"
-                      },
-                      "localBindSocketPath": {
-                        "type": "string"
-                      },
-                      "localBindSocketMode": {
-                        "type": "string"
                       },
                       "config": {
                         "type": "object"
@@ -249,7 +283,6 @@ var schema = `{
                       }
                     }
                   }
-
                 }
               },
               "additionalProperties": false
@@ -262,6 +295,6 @@ var schema = `{
       "additionalProperties": false
     }
   },
-  "required": [ "aclTokenSecret", "mesh" ],
+  "required": ["aclTokenSecret", "mesh"],
   "additionalProperties": false
 }`

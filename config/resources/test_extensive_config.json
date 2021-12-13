@@ -1,0 +1,153 @@
+{
+  "aclTokenSecret": {
+    "provider": "secrets-manager",
+    "configuration": {
+      "prefix": "abc123",
+      "consulClientTokenSecretArn": "some-long-arn"
+    }
+  },
+  "mesh": {
+    "bootstrapDir": "/consul/",
+    "healthSyncContainers": ["frontend"],
+    "service": {
+      "name": "frontend",
+      "tags": ["frontend"],
+      "port": 8080,
+      "address": "127.0.0.1",
+      "socketPath": "/path/to/socket",
+      "taggedAddresses": {
+        "lan": {
+          "address": "192.168.1.5",
+          "port": 8080
+        }
+      },
+      "enableTagOverride": true,
+      "meta": {
+        "env": "test",
+        "version": "x.y.z"
+      },
+      "weights": {
+        "passing": 6,
+        "warning": 5
+      },
+      "checks": [
+        {
+          "checkId": "frontend-http",
+          "name": "frontend-http",
+          "http": "http://localhost:8080/health",
+          "method": "POST",
+          "body": "{\"method\": \"health\"}",
+          "notes": "Health check for the frontend service",
+          "header": {
+            "Content-Type": ["application/json"]
+          },
+          "interval": "30s",
+          "timeout": "10s",
+          "successBeforePassing": 3,
+          "failuresBeforeCritical": 4,
+          "deregisterCriticalServiceAfter": "60m"
+        },
+        {
+          "checkId": "frontend-tcp",
+          "name": "frontend-tcp",
+          "tcp": "localhost:8080",
+          "interval": "15s",
+          "timeout": "5s"
+        },
+        {
+          "checkId": "frontend-grpc",
+          "name": "frontend-grpc",
+          "grpc": "localhost:8080",
+          "grpc_use_tls": true,
+          "interval": "20s",
+          "timeout": "5s"
+        },
+        {
+          "checkId": "frontend-ttl",
+          "name": "frontend-ttl",
+          "ttl": "10m",
+          "status": "passing"
+        },
+        {
+          "checkId": "frontend-http2",
+          "name": "frontend-http2",
+          "h2ping": "localhost:8080",
+          "tlsSkipVerify": true,
+          "interval": "25s",
+          "timeout": "5s"
+        },
+        {
+          "checkId": "frontend-backend-alias",
+          "name": "frontend-backend-alias",
+          "aliasNode": "backend-node",
+          "aliasService": "backend"
+        }
+      ],
+      "namespace": "test-ns"
+    },
+    "sidecar": {
+      "taggedAddresses": {
+        "lan": {
+          "address": "192.168.1.5",
+          "port": 20000
+        }
+      },
+      "enableTagOverride": true,
+      "weights": {
+        "passing": 4,
+        "warning": 3
+      },
+      "checks": [
+        {
+          "checkId": "frontend-proxy-http",
+          "name": "frontend-proxy-http",
+          "http": "http://localhost:19000/ready",
+          "method": "GET",
+          "interval": "10s",
+          "timeout": "5s"
+        }
+      ],
+      "proxy": {
+        "destinationServiceName": "frontend",
+        "destinationServiceId": "frontend",
+        "localServiceAddress": "localhost",
+        "localServicePort": 8080,
+        "config": {
+          "data": "some-config-data"
+        },
+        "upstreams": [
+          {
+            "destinationType": "service",
+            "destinationNamespace": "test-ns",
+            "destinationName": "backend",
+            "datacenter": "dc2",
+            "localBindAddress": "localhost",
+            "localBindPort": 1234,
+            "localBindSocketPath": "/path/to/socket",
+            "localBindSocketMode": "0700",
+            "config": {
+              "data": "some-upstream-config-data"
+            },
+            "meshGateway": {
+              "mode": "local"
+            }
+          }
+        ],
+        "meshGateway": {
+          "mode": "local"
+        },
+        "expose": {
+          "checks": true,
+          "paths": [
+            {
+              "listenerPort": 20001,
+              "path": "/things",
+              "localPathPort": 8080,
+              "protocol": "http2"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

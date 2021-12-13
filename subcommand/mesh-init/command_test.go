@@ -209,7 +209,7 @@ func TestRun(t *testing.T) {
 
 			consulEcsConfig := config.Config{
 				Secret: config.AclTokenSecret{
-					Provider: "secret-manager",
+					Provider: "secrets-manager",
 					Configuration: config.SecretConfiguration{
 						Prefix:                     "mesh-init-unittest-TestRun",
 						ConsulClientTokenSecretARN: "asdf",

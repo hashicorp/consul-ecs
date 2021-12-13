@@ -123,6 +123,7 @@ func (c *Command) realRun() error {
 			AliasService: serviceID,
 		},
 	}...)
+	proxyRegistration.Namespace = serviceRegistration.Namespace
 
 	err = backoff.RetryNotify(func() error {
 		c.log.Info("registering proxy")

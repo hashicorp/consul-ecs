@@ -5,44 +5,33 @@ import (
 	"os"
 	"testing"
 
+	"github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/require"
 )
 
-var config = &Config{
-	Secret: AclTokenSecret{
-		Provider: "secret-manager",
-		Configuration: SecretConfiguration{
-			Prefix:                     "asdf",
-			ConsulClientTokenSecretARN: "ARN",
-		},
-	},
-	Mesh: Mesh{
-		Service: ServiceRegistration{
-			Name: "blah",
-			Port: 1234,
-			Tags: []string{"tag1"},
-			Meta: map[string]string{"a": "1"},
-		},
-		Sidecar: SidecarProxyRegistration{
-			Proxy: &AgentServiceConnectProxyConfig{
-				Upstreams: []Upstream{
-					{
-						DestinationName: "asdf",
-						LocalBindPort:   543,
-					},
-				},
-			},
-		},
-		HealthSyncContainers: []string{"container1"},
-		BootstrapDir:         "/consul/",
-	},
-}
-
 func TestParse(t *testing.T) {
-	rawConfig := OpenFile(t, "resources/test_config.json")
-	parsedConfig, err := Parse(rawConfig)
-	require.NoError(t, err)
-	require.Equal(t, config, parsedConfig)
+	cases := map[string]struct {
+		filename       string
+		expectedConfig *Config
+	}{
+		"basic_config": {
+			filename:       "resources/test_config.json",
+			expectedConfig: expectedConfig,
+		},
+		"extensive_config": {
+			filename:       "resources/test_extensive_config.json",
+			expectedConfig: expectedExtensiveConfig,
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			rawConfig := OpenFile(t, c.filename)
+			parsedConfig, err := Parse(rawConfig)
+			require.NoError(t, err)
+			require.Equal(t, c.expectedConfig, parsedConfig)
+		})
+	}
 }
 
 func TestParseErrors(t *testing.T) {
@@ -64,7 +53,7 @@ func TestFromEnv(t *testing.T) {
 
 	parsedConfig, err := FromEnv()
 	require.NoError(t, err)
-	require.Equal(t, config, parsedConfig)
+	require.Equal(t, expectedConfig, parsedConfig)
 }
 
 func OpenFile(t *testing.T, path string) string {
@@ -72,3 +61,188 @@ func OpenFile(t *testing.T, path string) string {
 	require.NoError(t, err)
 	return string(byteFile)
 }
+
+var (
+	expectedConfig = &Config{
+		Secret: AclTokenSecret{
+			Provider: "secrets-manager",
+			Configuration: SecretConfiguration{
+				Prefix:                     "asdf",
+				ConsulClientTokenSecretARN: "ARN",
+			},
+		},
+		Mesh: Mesh{
+			Service: ServiceRegistration{
+				Name: "blah",
+				Port: 1234,
+				Tags: []string{"tag1"},
+				Meta: map[string]string{"a": "1"},
+			},
+			Sidecar: SidecarProxyRegistration{
+				Proxy: &AgentServiceConnectProxyConfig{
+					Upstreams: []Upstream{
+						{
+							DestinationName: "asdf",
+							LocalBindPort:   543,
+						},
+					},
+				},
+			},
+			HealthSyncContainers: []string{"container1"},
+			BootstrapDir:         "/consul/",
+		},
+	}
+
+	expectedExtensiveConfig = &Config{
+		Secret: AclTokenSecret{
+			Provider: "secrets-manager",
+			Configuration: SecretConfiguration{
+				Prefix:                     "abc123",
+				ConsulClientTokenSecretARN: "some-long-arn",
+			},
+		},
+		Mesh: Mesh{
+			BootstrapDir:         "/consul/",
+			HealthSyncContainers: []string{"frontend"},
+			Service: ServiceRegistration{
+				Name:       "frontend",
+				Tags:       []string{"frontend"},
+				Port:       8080,
+				Address:    "127.0.0.1",
+				SocketPath: "/path/to/socket",
+				TaggedAddresses: map[string]ServiceAddress{
+					"lan": {
+						Address: "192.168.1.5",
+						Port:    8080,
+					},
+				},
+				EnableTagOverride: true,
+				Meta: map[string]string{
+					"env":     "test",
+					"version": "x.y.z",
+				},
+				Weights: &AgentWeights{
+					Passing: 6,
+					Warning: 5,
+				},
+				Checks: []AgentServiceCheck{
+					{
+						CheckID: "frontend-http",
+						Name:    "frontend-http",
+						HTTP:    "http://localhost:8080/health",
+						Method:  "POST",
+						Body:    "{\"method\": \"health\"}",
+						Notes:   "Health check for the frontend service",
+						Header: map[string][]string{
+							"Content-Type": {"application/json"},
+						},
+						Interval:                       "30s",
+						Timeout:                        "10s",
+						SuccessBeforePassing:           3,
+						FailuresBeforeCritical:         4,
+						DeregisterCriticalServiceAfter: "60m",
+					},
+					{
+						CheckID:  "frontend-tcp",
+						Name:     "frontend-tcp",
+						TCP:      "localhost:8080",
+						Interval: "15s",
+						Timeout:  "5s",
+					},
+					{
+						CheckID:  "frontend-grpc",
+						Name:     "frontend-grpc",
+						GRPC:     "localhost:8080",
+						Interval: "20s",
+						Timeout:  "5s",
+					},
+					{
+						CheckID: "frontend-ttl",
+						Name:    "frontend-ttl",
+						TTL:     "10m",
+						Status:  "passing",
+					},
+					{
+						CheckID:       "frontend-http2",
+						Name:          "frontend-http2",
+						TLSSkipVerify: true,
+						Interval:      "25s",
+						Timeout:       "5s",
+					},
+					{
+						CheckID:      "frontend-backend-alias",
+						Name:         "frontend-backend-alias",
+						AliasNode:    "backend-node",
+						AliasService: "backend",
+					},
+				},
+				Namespace: "test-ns",
+			},
+			Sidecar: SidecarProxyRegistration{
+				TaggedAddresses: map[string]ServiceAddress{
+					"lan": {
+						Address: "192.168.1.5",
+						Port:    20000,
+					},
+				},
+				EnableTagOverride: true,
+				Weights: &AgentWeights{
+					Passing: 4,
+					Warning: 3,
+				},
+				Checks: []AgentServiceCheck{
+					{
+						CheckID:  "frontend-proxy-http",
+						Name:     "frontend-proxy-http",
+						HTTP:     "http://localhost:19000/ready",
+						Method:   "GET",
+						Interval: "10s",
+						Timeout:  "5s",
+					},
+				},
+				Proxy: &AgentServiceConnectProxyConfig{
+					DestinationServiceName: "frontend",
+					DestinationServiceID:   "frontend",
+					LocalServiceAddress:    "localhost",
+					LocalServicePort:       8080,
+					LocalServiceSocketPath: "",
+					Config: map[string]interface{}{
+						"data": "some-config-data",
+					},
+					Upstreams: []Upstream{
+						{
+							DestinationType:      api.UpstreamDestTypeService,
+							DestinationNamespace: "test-ns",
+							DestinationName:      "backend",
+							Datacenter:           "dc2",
+							LocalBindAddress:     "localhost",
+							LocalBindPort:        1234,
+							LocalBindSocketPath:  "/path/to/socket",
+							LocalBindSocketMode:  "0700",
+							Config: map[string]interface{}{
+								"data": "some-upstream-config-data",
+							},
+							MeshGateway: MeshGatewayConfig{
+								Mode: api.MeshGatewayModeLocal,
+							},
+						},
+					},
+					MeshGateway: MeshGatewayConfig{
+						Mode: api.MeshGatewayModeLocal,
+					},
+					Expose: ExposeConfig{
+						Checks: true,
+						Paths: []ExposePath{
+							{
+								ListenerPort:  20001,
+								Path:          "/things",
+								LocalPathPort: 8080,
+								Protocol:      "http2",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+)

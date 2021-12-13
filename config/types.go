@@ -1,3 +1,5 @@
+//go:generate go run gen.go
+
 package config
 
 import "github.com/hashicorp/consul/api"
@@ -54,7 +56,7 @@ type ServiceRegistration struct {
 	Meta              map[string]string         `json:"meta,omitempty"`
 	Weights           *AgentWeights             `json:"weights,omitempty"`
 	Checks            []AgentServiceCheck       `json:"checks,omitempty"`
-	Namespace         string                    `json:"ns,omitempty"`
+	Namespace         string                    `json:"namespace,omitempty"`
 }
 
 func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
@@ -95,13 +97,12 @@ func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
 // - The bind address will always be localhost in ECS, so the Address and SocketPath are excluded.
 // - The Connect field is excluded. Since the sidecar proxy is being used, it's not a Connect-native
 //   service, and we don't need the recursive proxy config included in the Connect field.
+// - The Namespace field is excluded. mesh-init will use the namespace from the service registration.
 type SidecarProxyRegistration struct {
 	TaggedAddresses   map[string]ServiceAddress       `json:"taggedAddresses,omitempty"`
 	EnableTagOverride bool                            `json:"enableTagOverride,omitempty"`
-	Meta              map[string]string               `json:"meta,omitempty"`
 	Weights           *AgentWeights                   `json:"weights,omitempty"`
 	Checks            []AgentServiceCheck             `json:"checks,omitempty"`
-	Namespace         string                          `json:"ns,omitempty"`
 	Proxy             *AgentServiceConnectProxyConfig `json:"proxy,omitempty"`
 }
 
@@ -110,11 +111,9 @@ func (p *SidecarProxyRegistration) ToConsulType() *api.AgentServiceRegistration 
 	result := &api.AgentServiceRegistration{
 		TaggedAddresses:   nil,
 		EnableTagOverride: p.EnableTagOverride,
-		Meta:              p.Meta,
 		Weights:           nil,
 		Checks:            nil,
 		Proxy:             &proxyConfig,
-		Namespace:         p.Namespace,
 	}
 	if p.TaggedAddresses != nil {
 		result.TaggedAddresses = map[string]api.ServiceAddress{}
@@ -217,17 +216,15 @@ func (w *AgentWeights) ToConsulType() *api.AgentWeights {
 // NOTE:
 // - TProxy is not supported on ECS, so the Mode and TransparentProxy fields are excluded.
 type AgentServiceConnectProxyConfig struct {
-	DestinationServiceName string `json:"destinationServiceName,omitempty"`
-	DestinationServiceID   string `json:"destinationServiceId,omitempty"`
-	LocalServiceAddress    string `json:"localServiceAddress,omitempty"`
-	LocalServicePort       int    `json:"localServicePort,omitempty"`
-	LocalServiceSocketPath string `json:"localServiceSocketPath,omitempty"`
-	//Mode                   api.ProxyMode `json:"mode,omitempty"`
-	//TransparentProxy       *api.TransparentProxyConfig `json:"transparentProxy,omitempty"`
-	Config      map[string]interface{} `json:"config,omitempty"`
-	Upstreams   []Upstream             `json:"upstreams,omitempty"`
-	MeshGateway MeshGatewayConfig      `json:"meshGateway,omitempty"`
-	Expose      ExposeConfig           `json:"expose,omitempty"`
+	DestinationServiceName string                 `json:"destinationServiceName,omitempty"`
+	DestinationServiceID   string                 `json:"destinationServiceId,omitempty"`
+	LocalServiceAddress    string                 `json:"localServiceAddress,omitempty"`
+	LocalServicePort       int                    `json:"localServicePort,omitempty"`
+	LocalServiceSocketPath string                 `json:"localServiceSocketPath,omitempty"`
+	Config                 map[string]interface{} `json:"config,omitempty"`
+	Upstreams              []Upstream             `json:"upstreams,omitempty"`
+	MeshGateway            MeshGatewayConfig      `json:"meshGateway,omitempty"`
+	Expose                 ExposeConfig           `json:"expose,omitempty"`
 }
 
 func (a *AgentServiceConnectProxyConfig) ToConsulType() api.AgentServiceConnectProxyConfig {
@@ -237,12 +234,10 @@ func (a *AgentServiceConnectProxyConfig) ToConsulType() api.AgentServiceConnectP
 		LocalServiceAddress:    a.LocalServiceAddress,
 		LocalServicePort:       a.LocalServicePort,
 		LocalServiceSocketPath: a.LocalServiceSocketPath,
-		//Mode: a.Mode,
-		//TransparentProxy: a.TransparentProxy,
-		Config: a.Config,
-		//Upstreams: a.Upstreams,
-		MeshGateway: a.MeshGateway.ToConsulType(),
-		Expose:      a.Expose.ToConsulType(),
+		Config:                 a.Config,
+		Upstreams:              nil,
+		MeshGateway:            a.MeshGateway.ToConsulType(),
+		Expose:                 a.Expose.ToConsulType(),
 	}
 	for _, u := range a.Upstreams {
 		result.Upstreams = append(result.Upstreams, u.ToConsulType())

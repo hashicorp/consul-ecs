@@ -174,7 +174,8 @@
                   "failuresBeforeCritical": {
                     "type": "integer"
                   }
-                }
+                },
+                "additionalProperties": false
               }
             },
             "namespace": {

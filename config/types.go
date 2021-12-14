@@ -86,6 +86,7 @@ func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
 //   Docker checks won't work on ECS. They cannot work on Fargate, and require specific config to access
 //   the host's Docker daemon on the EC2 launch type.
 // - DeregisterCriticalServiceAfter is also excluded. We have health check support to handle service deregistration.
+// TODO: Add H2Ping field with future release Consul `api` package.
 type AgentServiceCheck struct {
 	CheckID string `json:"checkId,omitempty"`
 	Name    string `json:"name,omitempty"`

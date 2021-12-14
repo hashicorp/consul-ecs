@@ -43,8 +43,7 @@
           "interval": "30s",
           "timeout": "10s",
           "successBeforePassing": 3,
-          "failuresBeforeCritical": 4,
-          "deregisterCriticalServiceAfter": "60m"
+          "failuresBeforeCritical": 4
         },
         {
           "checkId": "frontend-tcp",
@@ -57,7 +56,7 @@
           "checkId": "frontend-grpc",
           "name": "frontend-grpc",
           "grpc": "localhost:8080",
-          "grpc_use_tls": true,
+          "grpcUseTls": true,
           "interval": "20s",
           "timeout": "5s"
         },
@@ -66,14 +65,6 @@
           "name": "frontend-ttl",
           "ttl": "10m",
           "status": "passing"
-        },
-        {
-          "checkId": "frontend-http2",
-          "name": "frontend-http2",
-          "h2ping": "localhost:8080",
-          "tlsSkipVerify": true,
-          "interval": "25s",
-          "timeout": "5s"
         },
         {
           "checkId": "frontend-backend-alias",

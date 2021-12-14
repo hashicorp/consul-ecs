@@ -140,11 +140,12 @@ var (
 						Timeout:  "5s",
 					},
 					{
-						CheckID:  "frontend-grpc",
-						Name:     "frontend-grpc",
-						GRPC:     "localhost:8080",
-						Interval: "20s",
-						Timeout:  "5s",
+						CheckID:    "frontend-grpc",
+						Name:       "frontend-grpc",
+						GRPC:       "localhost:8080",
+						GRPCUseTLS: true,
+						Interval:   "20s",
+						Timeout:    "5s",
 					},
 					{
 						CheckID: "frontend-ttl",
@@ -152,13 +153,16 @@ var (
 						TTL:     "10m",
 						Status:  "passing",
 					},
-					{
-						CheckID:       "frontend-http2",
-						Name:          "frontend-http2",
-						TLSSkipVerify: true,
-						Interval:      "25s",
-						Timeout:       "5s",
-					},
+					// TODO: api.AgentServiceCheck has no H2Ping field (in v1.10.1)
+					// 		 Looks like it's been added to the api package on Consul main,
+					// 		 so should come in a future release.
+					//{
+					//	CheckID:       "frontend-http2",
+					//	Name:          "frontend-http2",
+					//	TLSSkipVerify: true,
+					//	Interval:      "25s",
+					//	Timeout:       "5s",
+					//},
 					{
 						CheckID:      "frontend-backend-alias",
 						Name:         "frontend-backend-alias",

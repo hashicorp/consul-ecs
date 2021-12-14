@@ -178,7 +178,8 @@ var schema = `{
                   "failuresBeforeCritical": {
                     "type": "integer"
                   }
-                }
+                },
+                "additionalProperties": false
               }
             },
             "namespace": {

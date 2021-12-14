@@ -10,22 +10,26 @@ var schema = `{
   "type": "object",
   "properties": {
     "aclTokenSecret": {
-      "description": "Configure the ACL token secret provider",
+      "description": "Configuration for the ACL controller secret provider.",
       "type": "object",
       "properties": {
         "provider": {
+          "description": "The ACL controller secret provider to use.",
           "type": "string",
           "enum": [
             "secrets-manager"
           ]
         },
         "configuration": {
+          "description": "Configuration values for the ACL controller secret provider.",
           "type": "object",
           "properties": {
             "prefix": {
+              "description": "The prefix of Secrets Manager secret names created by the ACL controller.",
               "type": "string"
             },
             "consulClientTokenSecretArn": {
+              "description": "The ARN of the Secrets Manager secret where the Consul client token is stored.",
               "type": "string"
             }
           },
@@ -43,13 +47,16 @@ var schema = `{
       "additionalProperties": false
     },
     "mesh": {
-      "description": "Configure the Consul mesh",
+      "description": "Configuration for Consul service mesh.",
       "type": "object",
       "properties": {
         "bootstrapDir": {
-          "type": "string"
+          "description": "The directory of the shared data volume where Envoy bootstrap configuration is written.",
+          "type": "string",
+          "minLength": 1
         },
         "healthSyncContainers": {
+          "description": "The names of containers that will have health check status synced from ECS into Consul. Cannot be specified if Consul-native checks are specified in mesh.service.checks.",
           "type": "array",
           "items": {
             "type": "string"
@@ -58,9 +65,11 @@ var schema = `{
           "uniqueItems": true
         },
         "service": {
+          "description": "Configuration for Consul service registration.",
           "type": "object",
           "properties": {
             "name": {
+              "description": "The name the service will be registered as in Consul. Defaults to the Task family name.",
               "type": "string"
             },
             "tags": {
@@ -100,6 +109,7 @@ var schema = `{
               "additionalProperties": false
             },
             "checks": {
+              "description": "Consul checks for the service. Cannot be specified if mesh.healthSyncContainers is set.",
               "type": "array",
               "items": {
                 "type": "object",
@@ -193,6 +203,7 @@ var schema = `{
           "additionalProperties": true
         },
         "proxy": {
+          "description": "Configuration for the sidecar proxy registration.",
           "type": "object",
           "properties": {
             "config": {

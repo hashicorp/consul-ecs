@@ -42,11 +42,6 @@ func (c *Command) Run(_ []string) int {
 	}
 	c.config = config
 
-	if c.config.Mesh.BootstrapDir == "" {
-		c.UI.Error("config value mesh.bootstrapDir must be set")
-		return 1
-	}
-
 	err = c.realRun()
 	if err != nil {
 		c.log.Error(err.Error())

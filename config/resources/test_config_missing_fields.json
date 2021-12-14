@@ -9,6 +9,6 @@
     "service": {
       "port": 1234
     },
-    "bootstrapDir": "/consul/"
+    "bootstrapDir": ""
   }
 }

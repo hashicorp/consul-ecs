@@ -17,15 +17,13 @@
       },
       "port": 1234
     },
-    "sidecar": {
-      "proxy": {
-        "upstreams": [
-          {
-            "destinationName": "asdf",
-            "localBindPort": 543
-          }
-        ]
-      }
+    "proxy": {
+      "upstreams": [
+        {
+          "destinationName": "asdf",
+          "localBindPort": 543
+        }
+      ]
     },
     "healthSyncContainers": [
       "container1"

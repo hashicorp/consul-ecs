@@ -12,10 +12,10 @@ type Config struct {
 
 // Mesh is the configuration for joining the service mesh.
 type Mesh struct {
-	BootstrapDir         string                   `json:"bootstrapDir"`
-	HealthSyncContainers []string                 `json:"healthSyncContainers,omitempty"`
-	Sidecar              SidecarProxyRegistration `json:"sidecar"`
-	Service              ServiceRegistration      `json:"service"`
+	BootstrapDir         string                          `json:"bootstrapDir"`
+	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
+	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
+	Service              ServiceRegistration             `json:"service"`
 }
 
 // AclTokenSecret is the configuration for ACL tokens.
@@ -46,17 +46,15 @@ const (
 //   - Proxy registration occurs in a separate request, so no need to inline the proxy config.
 //     See the SidecarProxyRegistration type.
 type ServiceRegistration struct {
-	Name              string                    `json:"name"`
-	Tags              []string                  `json:"tags,omitempty"`
-	Port              int                       `json:"port"`
-	Address           string                    `json:"address,omitempty"`
-	SocketPath        string                    `json:"socketPath,omitempty"`
-	TaggedAddresses   map[string]ServiceAddress `json:"taggedAddresses,omitempty"`
-	EnableTagOverride bool                      `json:"enableTagOverride,omitempty"`
-	Meta              map[string]string         `json:"meta,omitempty"`
-	Weights           *AgentWeights             `json:"weights,omitempty"`
-	Checks            []AgentServiceCheck       `json:"checks,omitempty"`
-	Namespace         string                    `json:"namespace,omitempty"`
+	Name              string              `json:"name"`
+	Tags              []string            `json:"tags,omitempty"`
+	Port              int                 `json:"port"`
+	Address           string              `json:"address,omitempty"`
+	EnableTagOverride bool                `json:"enableTagOverride,omitempty"`
+	Meta              map[string]string   `json:"meta,omitempty"`
+	Weights           *AgentWeights       `json:"weights,omitempty"`
+	Checks            []AgentServiceCheck `json:"checks,omitempty"`
+	Namespace         string              `json:"namespace,omitempty"`
 }
 
 func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
@@ -65,19 +63,11 @@ func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
 		Tags:              r.Tags,
 		Port:              r.Port,
 		Address:           r.Address,
-		SocketPath:        r.SocketPath,
-		TaggedAddresses:   nil,
 		EnableTagOverride: r.EnableTagOverride,
 		Meta:              r.Meta,
 		Weights:           nil,
 		Checks:            nil,
 		Namespace:         r.Namespace,
-	}
-	if r.TaggedAddresses != nil {
-		result.TaggedAddresses = map[string]api.ServiceAddress{}
-		for k, v := range r.TaggedAddresses {
-			result.TaggedAddresses[k] = v.ToConsulType()
-		}
 	}
 	if r.Weights != nil {
 		result.Weights = r.Weights.ToConsulType()
@@ -89,83 +79,61 @@ func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
 
 }
 
-// SidecarProxyRegistration configures the sidecar proxy registration.
-//
-// NOTE:
-// - The Kind and Port are set by mesh-init, so these fields are not configurable.
-// - The ID, Name, Tags, Meta, EnableTagOverride, and Weights fields are inferred or copied
-//   from the service registration by mesh-init.
-// - The bind address will always be localhost in ECS, so the Address and SocketPath are excluded.
-// - The Connect field is excluded. Since the sidecar proxy is being used, it's not a Connect-native
-//   service, and we don't need the recursive proxy config included in the Connect field.
-// - The Namespace field is excluded. mesh-init will use the namespace from the service registration.
-// - There's not a use-case for specifying TaggedAddresses with Consul ECS.
-type SidecarProxyRegistration struct {
-	Proxy *AgentServiceConnectProxyConfig `json:"proxy,omitempty"`
-}
-
-func (p *SidecarProxyRegistration) ToConsulType() *api.AgentServiceRegistration {
-	return &api.AgentServiceRegistration{
-		Proxy: p.Proxy.ToConsulType(),
-	}
-}
-
 // AgentServiceCheck configures a Consul Check.
 //
 // NOTE:
 // - The DockerContainerID and Shell fields are excluded. Shell is only used for Docker checks, and
 //   Docker checks won't work on ECS. They cannot work on Fargate, and require specific config to access
 //   the host's Docker daemon on the EC2 launch type.
+// - DeregisterCriticalServiceAfter is also excluded. We have health check support to handle service deregistration.
 type AgentServiceCheck struct {
 	CheckID string `json:"checkId,omitempty"`
 	Name    string `json:"name,omitempty"`
 	// "Args" is deprecated. Use ScriptArgs instead.
-	ScriptArgs                     []string            `json:"scriptArgs,omitempty"`
-	Interval                       string              `json:"interval,omitempty"`
-	Timeout                        string              `json:"timeout,omitempty"`
-	TTL                            string              `json:"ttl,omitempty"`
-	HTTP                           string              `json:"http,omitempty"`
-	Header                         map[string][]string `json:"header,omitempty"`
-	Method                         string              `json:"method,omitempty"`
-	Body                           string              `json:"body,omitempty"`
-	TCP                            string              `json:"tcp,omitempty"`
-	Status                         string              `json:"status,omitempty"`
-	Notes                          string              `json:"notes,omitempty"`
-	TLSServerName                  string              `json:"tlsServerName,omitempty"`
-	TLSSkipVerify                  bool                `json:"tlsSkipVerify,omitempty"`
-	GRPC                           string              `json:"grpc,omitempty"`
-	GRPCUseTLS                     bool                `json:"grpcUseTls,omitempty"`
-	AliasNode                      string              `json:"aliasNode,omitempty"`
-	AliasService                   string              `json:"aliasService,omitempty"`
-	SuccessBeforePassing           int                 `json:"successBeforePassing,omitempty"`
-	FailuresBeforeCritical         int                 `json:"failuresBeforeCritical,omitempty"`
-	DeregisterCriticalServiceAfter string              `json:"deregisterCriticalServiceAfter,omitempty"`
+	ScriptArgs             []string            `json:"scriptArgs,omitempty"`
+	Interval               string              `json:"interval,omitempty"`
+	Timeout                string              `json:"timeout,omitempty"`
+	TTL                    string              `json:"ttl,omitempty"`
+	HTTP                   string              `json:"http,omitempty"`
+	Header                 map[string][]string `json:"header,omitempty"`
+	Method                 string              `json:"method,omitempty"`
+	Body                   string              `json:"body,omitempty"`
+	TCP                    string              `json:"tcp,omitempty"`
+	Status                 string              `json:"status,omitempty"`
+	Notes                  string              `json:"notes,omitempty"`
+	TLSServerName          string              `json:"tlsServerName,omitempty"`
+	TLSSkipVerify          bool                `json:"tlsSkipVerify,omitempty"`
+	GRPC                   string              `json:"grpc,omitempty"`
+	GRPCUseTLS             bool                `json:"grpcUseTls,omitempty"`
+	AliasNode              string              `json:"aliasNode,omitempty"`
+	AliasService           string              `json:"aliasService,omitempty"`
+	SuccessBeforePassing   int                 `json:"successBeforePassing,omitempty"`
+	FailuresBeforeCritical int                 `json:"failuresBeforeCritical,omitempty"`
 }
 
 func (c *AgentServiceCheck) ToConsulType() *api.AgentServiceCheck {
 	return &api.AgentServiceCheck{
-		CheckID:                        c.CheckID,
-		Name:                           c.Name,
-		Args:                           c.ScriptArgs,
-		Interval:                       c.Interval,
-		Timeout:                        c.Timeout,
-		TTL:                            c.TTL,
-		HTTP:                           c.HTTP,
-		Header:                         c.Header,
-		Method:                         c.Method,
-		Body:                           c.Body,
-		TCP:                            c.TCP,
-		Status:                         c.Status,
-		Notes:                          c.Notes,
-		TLSServerName:                  c.TLSServerName,
-		TLSSkipVerify:                  c.TLSSkipVerify,
-		GRPC:                           c.GRPC,
-		GRPCUseTLS:                     c.GRPCUseTLS,
-		AliasNode:                      c.AliasNode,
-		AliasService:                   c.AliasService,
-		SuccessBeforePassing:           c.SuccessBeforePassing,
-		FailuresBeforeCritical:         c.FailuresBeforeCritical,
-		DeregisterCriticalServiceAfter: c.DeregisterCriticalServiceAfter,
+		CheckID:                c.CheckID,
+		Name:                   c.Name,
+		Args:                   c.ScriptArgs,
+		Interval:               c.Interval,
+		Timeout:                c.Timeout,
+		TTL:                    c.TTL,
+		HTTP:                   c.HTTP,
+		Header:                 c.Header,
+		Method:                 c.Method,
+		Body:                   c.Body,
+		TCP:                    c.TCP,
+		Status:                 c.Status,
+		Notes:                  c.Notes,
+		TLSServerName:          c.TLSServerName,
+		TLSSkipVerify:          c.TLSSkipVerify,
+		GRPC:                   c.GRPC,
+		GRPCUseTLS:             c.GRPCUseTLS,
+		AliasNode:              c.AliasNode,
+		AliasService:           c.AliasService,
+		SuccessBeforePassing:   c.SuccessBeforePassing,
+		FailuresBeforeCritical: c.FailuresBeforeCritical,
 	}
 }
 
@@ -196,7 +164,17 @@ func (w *AgentWeights) ToConsulType() *api.AgentWeights {
 // AgentServiceConnectProxyConfig defines the sidecar proxy configuration.
 //
 // NOTE:
-// - The Kind, Port, DestinationServiceName, DestinationServiceId, LocalServiceAddress, and LocalServicePort
+// For the proxy registration request (api.AgentServiceRegistration in Consul),
+// - The Kind and Port are set by mesh-init, so these fields are not configurable.
+// - The ID, Name, Tags, Meta, EnableTagOverride, and Weights fields are inferred or copied
+//   from the service registration by mesh-init.
+// - The bind address is always localhost in ECS, so the Address and SocketPath are excluded.
+// - The Connect field is excluded. Since the sidecar proxy is being used, it's not a Connect-native
+//   service, and we don't need the nested proxy config included in the Connect field.
+// - The Namespace field is excluded. mesh-init will use the namespace from the service registration.
+// - There's not a use-case for specifying TaggedAddresses with Consul ECS, and Enable
+// For the proxy configuration (api.AgentServiceConnectProxyConfig in Consul),
+// - The DestinationServiceName, DestinationServiceId, LocalServiceAddress, and LocalServicePort
 //   are all set by mesh-init, based on the service configuration.
 // - The LocalServiceSocketPath is excluded, since it would conflict with the address/port set by mesh-init.
 // - Checks are excluded. mesh-init automatically configures useful checks for the proxy.

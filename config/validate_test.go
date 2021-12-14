@@ -78,13 +78,11 @@ var (
 				Tags: []string{"tag1"},
 				Meta: map[string]string{"a": "1"},
 			},
-			Sidecar: SidecarProxyRegistration{
-				Proxy: &AgentServiceConnectProxyConfig{
-					Upstreams: []Upstream{
-						{
-							DestinationName: "asdf",
-							LocalBindPort:   543,
-						},
+			Proxy: &AgentServiceConnectProxyConfig{
+				Upstreams: []Upstream{
+					{
+						DestinationName: "asdf",
+						LocalBindPort:   543,
 					},
 				},
 			},
@@ -105,17 +103,10 @@ var (
 			BootstrapDir:         "/consul/",
 			HealthSyncContainers: []string{"frontend"},
 			Service: ServiceRegistration{
-				Name:       "frontend",
-				Tags:       []string{"frontend"},
-				Port:       8080,
-				Address:    "127.0.0.1",
-				SocketPath: "/path/to/socket",
-				TaggedAddresses: map[string]ServiceAddress{
-					"lan": {
-						Address: "192.168.1.5",
-						Port:    8080,
-					},
-				},
+				Name:              "frontend",
+				Tags:              []string{"frontend"},
+				Port:              8080,
+				Address:           "127.0.0.1",
 				EnableTagOverride: true,
 				Meta: map[string]string{
 					"env":     "test",
@@ -136,11 +127,10 @@ var (
 						Header: map[string][]string{
 							"Content-Type": {"application/json"},
 						},
-						Interval:                       "30s",
-						Timeout:                        "10s",
-						SuccessBeforePassing:           3,
-						FailuresBeforeCritical:         4,
-						DeregisterCriticalServiceAfter: "60m",
+						Interval:               "30s",
+						Timeout:                "10s",
+						SuccessBeforePassing:   3,
+						FailuresBeforeCritical: 4,
 					},
 					{
 						CheckID:  "frontend-tcp",
@@ -178,39 +168,37 @@ var (
 				},
 				Namespace: "test-ns",
 			},
-			Sidecar: SidecarProxyRegistration{
-				Proxy: &AgentServiceConnectProxyConfig{
-					Config: map[string]interface{}{
-						"data": "some-config-data",
-					},
-					Upstreams: []Upstream{
-						{
-							DestinationType:      api.UpstreamDestTypeService,
-							DestinationNamespace: "test-ns",
-							DestinationName:      "backend",
-							Datacenter:           "dc2",
-							LocalBindAddress:     "localhost",
-							LocalBindPort:        1234,
-							Config: map[string]interface{}{
-								"data": "some-upstream-config-data",
-							},
-							MeshGateway: MeshGatewayConfig{
-								Mode: api.MeshGatewayModeLocal,
-							},
+			Proxy: &AgentServiceConnectProxyConfig{
+				Config: map[string]interface{}{
+					"data": "some-config-data",
+				},
+				Upstreams: []Upstream{
+					{
+						DestinationType:      api.UpstreamDestTypeService,
+						DestinationNamespace: "test-ns",
+						DestinationName:      "backend",
+						Datacenter:           "dc2",
+						LocalBindAddress:     "localhost",
+						LocalBindPort:        1234,
+						Config: map[string]interface{}{
+							"data": "some-upstream-config-data",
+						},
+						MeshGateway: MeshGatewayConfig{
+							Mode: api.MeshGatewayModeLocal,
 						},
 					},
-					MeshGateway: MeshGatewayConfig{
-						Mode: api.MeshGatewayModeLocal,
-					},
-					Expose: ExposeConfig{
-						Checks: true,
-						Paths: []ExposePath{
-							{
-								ListenerPort:  20001,
-								Path:          "/things",
-								LocalPathPort: 8080,
-								Protocol:      "http2",
-							},
+				},
+				MeshGateway: MeshGatewayConfig{
+					Mode: api.MeshGatewayModeLocal,
+				},
+				Expose: ExposeConfig{
+					Checks: true,
+					Paths: []ExposePath{
+						{
+							ListenerPort:  20001,
+							Path:          "/things",
+							LocalPathPort: 8080,
+							Protocol:      "http2",
 						},
 					},
 				},

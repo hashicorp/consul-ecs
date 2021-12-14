@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -27,7 +28,7 @@ func TestParse(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			rawConfig := OpenFile(t, c.filename)
-			parsedConfig, err := Parse(rawConfig)
+			parsedConfig, err := parse(rawConfig)
 			require.NoError(t, err)
 			require.Equal(t, c.expectedConfig, parsedConfig)
 		})
@@ -36,10 +37,17 @@ func TestParse(t *testing.T) {
 
 func TestParseErrors(t *testing.T) {
 	rawConfig := OpenFile(t, "resources/test_config_missing_fields.json")
-	// TODO test multiple errors
-	_, err := Parse(rawConfig)
+	_, err := parse(rawConfig)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "aclTokenSecret: provider is required")
+
+	expectedErrors := []string{
+		"mesh.bootstrapDir: String length must be greater than or equal to 1",
+		"aclTokenSecret: provider is required",
+	}
+	require.Contains(t, err.Error(), fmt.Sprintf("%d errors occurred:", len(expectedErrors)))
+	for _, expError := range expectedErrors {
+		require.Contains(t, err.Error(), expError)
+	}
 }
 
 func TestFromEnv(t *testing.T) {

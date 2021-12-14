@@ -31,7 +31,7 @@ func validate(config string) error {
 	return err
 }
 
-func Parse(encodedConfig string) (*Config, error) {
+func parse(encodedConfig string) (*Config, error) {
 	if err := validate(encodedConfig); err != nil {
 		return nil, err
 	}
@@ -48,5 +48,5 @@ func FromEnv() (*Config, error) {
 	if rawConfig == "" {
 		return nil, fmt.Errorf("%q isn't populated", ConfigEnvironmentVariable)
 	}
-	return Parse(rawConfig)
+	return parse(rawConfig)
 }

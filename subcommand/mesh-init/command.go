@@ -66,32 +66,10 @@ func (c *Command) realRun() error {
 		return err
 	}
 
-	serviceName := c.constructServiceName(taskMeta.Family)
-
-	// Register the service.
-	taskID := taskMeta.TaskID()
-	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
-
-	checks, err := constructChecks(serviceID, c.config.Mesh.Service.Checks, c.config.Mesh.HealthSyncContainers)
+	serviceRegistration, err := c.constructServiceRegistration(taskMeta)
 	if err != nil {
 		return err
 	}
-
-	fullMeta := mergeMeta(map[string]string{
-		"task-id":  taskID,
-		"task-arn": taskMeta.TaskARN,
-		"source":   "consul-ecs",
-	}, c.config.Mesh.Service.Meta)
-
-	serviceRegistration := c.config.Mesh.Service.ToConsulType()
-	serviceRegistration.ID = serviceID
-	serviceRegistration.Name = serviceName
-	serviceRegistration.Meta = fullMeta
-	serviceRegistration.Checks = nil
-	for _, check := range checks {
-		serviceRegistration.Checks = append(serviceRegistration.Checks, check.ToConsulType())
-	}
-
 	err = backoff.RetryNotify(func() error {
 		c.log.Info("registering service")
 		return consulClient.Agent().ServiceRegister(serviceRegistration)
@@ -101,32 +79,7 @@ func (c *Command) realRun() error {
 	}
 
 	// Register the proxy.
-	proxyRegistration := c.config.Mesh.Sidecar.ToConsulType()
-	proxyRegistration.ID = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.ID)
-	proxyRegistration.Name = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Name)
-	proxyRegistration.Kind = api.ServiceKindConnectProxy
-	proxyRegistration.Port = 20000
-	proxyRegistration.Meta = serviceRegistration.Meta
-	proxyRegistration.Tags = serviceRegistration.Tags
-	proxyRegistration.Proxy.DestinationServiceName = serviceRegistration.Name
-	proxyRegistration.Proxy.DestinationServiceID = serviceRegistration.ID
-	proxyRegistration.Proxy.LocalServicePort = serviceRegistration.Port
-	proxyRegistration.Checks = []*api.AgentServiceCheck{
-		{
-			Name:                           "Proxy Public Listener",
-			TCP:                            "127.0.0.1:20000",
-			Interval:                       "10s",
-			DeregisterCriticalServiceAfter: "10m",
-		},
-		{
-			Name:         "Destination Alias",
-			AliasService: serviceID,
-		},
-	}
-	proxyRegistration.Namespace = serviceRegistration.Namespace
-	proxyRegistration.Weights = serviceRegistration.Weights
-	proxyRegistration.EnableTagOverride = serviceRegistration.EnableTagOverride
-
+	proxyRegistration := c.constructProxyRegistration(serviceRegistration)
 	err = backoff.RetryNotify(func() error {
 		c.log.Info("registering proxy")
 		return consulClient.Agent().ServiceRegister(proxyRegistration)
@@ -224,4 +177,63 @@ func mergeMeta(m1, m2 map[string]string) map[string]string {
 	}
 
 	return result
+}
+
+// constructServiceRegistration returns the service registration request body.
+// May return an error due to invalid inputs from the config file.
+func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*api.AgentServiceRegistration, error) {
+	serviceName := c.constructServiceName(taskMeta.Family)
+	taskID := taskMeta.TaskID()
+	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
+	checks, err := constructChecks(serviceID, c.config.Mesh.Service.Checks, c.config.Mesh.HealthSyncContainers)
+	if err != nil {
+		return nil, err
+	}
+
+	fullMeta := mergeMeta(map[string]string{
+		"task-id":  taskID,
+		"task-arn": taskMeta.TaskARN,
+		"source":   "consul-ecs",
+	}, c.config.Mesh.Service.Meta)
+
+	serviceRegistration := c.config.Mesh.Service.ToConsulType()
+	serviceRegistration.ID = serviceID
+	serviceRegistration.Name = serviceName
+	serviceRegistration.Meta = fullMeta
+	serviceRegistration.Checks = nil
+	for _, check := range checks {
+		serviceRegistration.Checks = append(serviceRegistration.Checks, check.ToConsulType())
+	}
+	return serviceRegistration, nil
+}
+
+// constructProxyRegistration returns the proxy registration request body.
+func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServiceRegistration) *api.AgentServiceRegistration {
+	proxyRegistration := &api.AgentServiceRegistration{}
+	proxyRegistration.ID = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.ID)
+	proxyRegistration.Name = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Name)
+	proxyRegistration.Kind = api.ServiceKindConnectProxy
+	proxyRegistration.Port = 20000
+	proxyRegistration.Meta = serviceRegistration.Meta
+	proxyRegistration.Tags = serviceRegistration.Tags
+	proxyRegistration.Proxy = c.config.Mesh.Proxy.ToConsulType()
+	proxyRegistration.Proxy.DestinationServiceName = serviceRegistration.Name
+	proxyRegistration.Proxy.DestinationServiceID = serviceRegistration.ID
+	proxyRegistration.Proxy.LocalServicePort = serviceRegistration.Port
+	proxyRegistration.Checks = []*api.AgentServiceCheck{
+		{
+			Name:                           "Proxy Public Listener",
+			TCP:                            "127.0.0.1:20000",
+			Interval:                       "10s",
+			DeregisterCriticalServiceAfter: "10m",
+		},
+		{
+			Name:         "Destination Alias",
+			AliasService: serviceRegistration.ID,
+		},
+	}
+	proxyRegistration.Namespace = serviceRegistration.Namespace
+	proxyRegistration.Weights = serviceRegistration.Weights
+	proxyRegistration.EnableTagOverride = serviceRegistration.EnableTagOverride
+	return proxyRegistration
 }

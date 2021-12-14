@@ -15,7 +15,9 @@ var schema = `{
       "properties": {
         "provider": {
           "type": "string",
-          "enum": ["secrets-manager"]
+          "enum": [
+            "secrets-manager"
+          ]
         },
         "configuration": {
           "type": "object",
@@ -27,11 +29,17 @@ var schema = `{
               "type": "string"
             }
           },
-          "required": ["prefix", "consulClientTokenSecretArn"],
+          "required": [
+            "prefix",
+            "consulClientTokenSecretArn"
+          ],
           "additionalProperties": false
         }
       },
-      "required": ["provider", "configuration"],
+      "required": [
+        "provider",
+        "configuration"
+      ],
       "additionalProperties": false
     },
     "mesh": {
@@ -67,26 +75,6 @@ var schema = `{
             },
             "address": {
               "type": "string"
-            },
-            "socketPath": {
-              "type": "string"
-            },
-            "taggedAddresses": {
-              "type": "object",
-              "patternProperties": {
-                ".*": {
-                  "type": "object",
-                  "properties": {
-                    "address": {
-                      "type": "string"
-                    },
-                    "port": {
-                      "type": "integer"
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              }
             },
             "enableTagOverride": {
               "type": "boolean"
@@ -189,9 +177,6 @@ var schema = `{
                   },
                   "failuresBeforeCritical": {
                     "type": "integer"
-                  },
-                  "deregisterCriticalServiceAfter": {
-                    "type": "string"
                   }
                 }
               }
@@ -206,95 +191,112 @@ var schema = `{
           ],
           "additionalProperties": true
         },
-        "sidecar": {
+        "proxy": {
           "type": "object",
           "properties": {
-            "proxy": {
+            "config": {
+              "type": "object"
+            },
+            "upstreams": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "destinationType": {
+                    "enum": [
+                      "service",
+                      "prepared_query"
+                    ]
+                  },
+                  "destinationNamespace": {
+                    "type": "string"
+                  },
+                  "destinationName": {
+                    "type": "string"
+                  },
+                  "datacenter": {
+                    "type": "string"
+                  },
+                  "localBindAddress": {
+                    "type": "string"
+                  },
+                  "localBindPort": {
+                    "type": "integer"
+                  },
+                  "config": {
+                    "type": "object"
+                  },
+                  "meshGateway": {
+                    "mode": {
+                      "enum": [
+                        "none",
+                        "local",
+                        "remote"
+                      ]
+                    }
+                  }
+                },
+                "requires": [
+                  "destinationName",
+                  "localBindPort"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "meshGateway": {
+              "mode": {
+                "enum": [
+                  "none",
+                  "local",
+                  "remote"
+                ]
+              }
+            },
+            "expose": {
               "type": "object",
               "properties": {
-                "config": {
-                  "type": "object"
+                "checks": {
+                  "type": "boolean"
                 },
-                "upstreams": {
+                "paths": {
                   "type": "array",
                   "items": {
                     "type": "object",
                     "properties": {
-                      "destinationType": {
-                        "enum": ["service", "prepared_query"]
-                      },
-                      "destinationNamespace": {
-                        "type": "string"
-                      },
-                      "destinationName": {
-                        "type": "string"
-                      },
-                      "datacenter": {
-                        "type": "string"
-                      },
-                      "localBindAddress": {
-                        "type": "string"
-                      },
-                      "localBindPort": {
+                      "listenerPort": {
                         "type": "integer"
                       },
-                      "config": {
-                        "type": "object"
+                      "path": {
+                        "type": "string"
                       },
-                      "meshGateway": {
-                        "mode": {
-                          "enum": ["none", "local", "remote"]
-                        }
-                      }
-                    },
-                    "requires": ["destinationName", "localBindPort"],
-                    "additionalProperties": false
-                  }
-                },
-                "meshGateway": {
-                  "mode": {
-                    "enum": ["none", "local", "remote"]
-                  }
-                },
-                "expose": {
-                  "type": "object",
-                  "properties": {
-                    "checks": {
-                      "type": "boolean"
-                    },
-                    "paths": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "listenerPort": {
-                            "type": "integer"
-                          },
-                          "path": {
-                            "type": "string"
-                          },
-                          "localPathPort": {
-                            "type": "integer"
-                          },
-                          "protocol": {
-                            "enum": ["http", "http2"]
-                          }
-                        }
+                      "localPathPort": {
+                        "type": "integer"
+                      },
+                      "protocol": {
+                        "enum": [
+                          "http",
+                          "http2"
+                        ]
                       }
                     }
                   }
                 }
-              },
-              "additionalProperties": false
+              }
             }
           },
           "additionalProperties": false
         }
       },
-      "requires": ["service", "bootstrapDir"],
+      "requires": [
+        "service",
+        "bootstrapDir"
+      ],
       "additionalProperties": false
     }
   },
-  "required": ["aclTokenSecret", "mesh"],
+  "required": [
+    "aclTokenSecret",
+    "mesh"
+  ],
   "additionalProperties": false
 }`

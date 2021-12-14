@@ -218,10 +218,8 @@ func TestRun(t *testing.T) {
 				Mesh: config.Mesh{
 					BootstrapDir:         envoyBootstrapDir,
 					HealthSyncContainers: nil,
-					Sidecar: config.SidecarProxyRegistration{
-						Proxy: &config.AgentServiceConnectProxyConfig{
-							Upstreams: c.upstreams,
-						},
+					Proxy: &config.AgentServiceConnectProxyConfig{
+						Upstreams: c.upstreams,
 					},
 					Service: config.ServiceRegistration{
 						Name:   c.serviceName,
@@ -425,26 +423,23 @@ func TestConstructServiceName(t *testing.T) {
 func toAgentCheck(check config.AgentServiceCheck) *api.AgentCheck {
 	expInterval, _ := time.ParseDuration(check.Interval)
 	expTimeout, _ := time.ParseDuration(check.Timeout)
-	expDeregisterCriticalAfter, _ := time.ParseDuration(check.DeregisterCriticalServiceAfter)
 	return &api.AgentCheck{
 		CheckID: check.CheckID,
 		Name:    check.Name,
 		Notes:   check.Notes,
 		Definition: api.HealthCheckDefinition{
 			// HealthCheckDefinition does not have GRPC or TTL fields.
-			HTTP:                                   check.HTTP,
-			Header:                                 check.Header,
-			Method:                                 check.HTTP,
-			Body:                                   check.Body,
-			TLSServerName:                          check.TLSServerName,
-			TLSSkipVerify:                          check.TLSSkipVerify,
-			TCP:                                    check.TCP,
-			IntervalDuration:                       expInterval,
-			TimeoutDuration:                        expTimeout,
-			DeregisterCriticalServiceAfterDuration: expDeregisterCriticalAfter,
-			Interval:                               api.ReadableDuration(expInterval),
-			Timeout:                                api.ReadableDuration(expTimeout),
-			DeregisterCriticalServiceAfter:         api.ReadableDuration(expDeregisterCriticalAfter),
+			HTTP:             check.HTTP,
+			Header:           check.Header,
+			Method:           check.HTTP,
+			Body:             check.Body,
+			TLSServerName:    check.TLSServerName,
+			TLSSkipVerify:    check.TLSSkipVerify,
+			TCP:              check.TCP,
+			IntervalDuration: expInterval,
+			TimeoutDuration:  expTimeout,
+			Interval:         api.ReadableDuration(expInterval),
+			Timeout:          api.ReadableDuration(expTimeout),
 		},
 	}
 }

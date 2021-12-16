@@ -1,0 +1,24 @@
+{
+  "service": {
+    "name": "blah",
+    "tags": [
+      "tag1"
+    ],
+    "meta": {
+      "a": "1"
+    },
+    "port": 1234
+  },
+  "proxy": {
+    "upstreams": [
+      {
+        "destinationName": "asdf",
+        "localBindPort": 543
+      }
+    ]
+  },
+  "healthSyncContainers": [
+    "container1"
+  ],
+  "bootstrapDir": "/consul/"
+}

@@ -41,6 +41,7 @@ const (
 //
 // NOTE:
 // - The Kind and Id fields are set by mesh-init during service/proxy registration.
+// - The Address field excluded. The agent's address (task ip) should always be used in ECS.
 // - The Connect field is not supported:
 //   - No Connect-native support for now. We assume Envoy is used.
 //   - Proxy registration occurs in a separate request, so no need to inline the proxy config.
@@ -49,7 +50,6 @@ type ServiceRegistration struct {
 	Name              string              `json:"name"`
 	Tags              []string            `json:"tags,omitempty"`
 	Port              int                 `json:"port"`
-	Address           string              `json:"address,omitempty"`
 	EnableTagOverride bool                `json:"enableTagOverride,omitempty"`
 	Meta              map[string]string   `json:"meta,omitempty"`
 	Weights           *AgentWeights       `json:"weights,omitempty"`
@@ -62,7 +62,6 @@ func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
 		Name:              r.Name,
 		Tags:              r.Tags,
 		Port:              r.Port,
-		Address:           r.Address,
 		EnableTagOverride: r.EnableTagOverride,
 		Meta:              r.Meta,
 		Weights:           nil,

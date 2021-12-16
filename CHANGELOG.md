@@ -1,5 +1,11 @@
 ## UNRELEASED
 
+BREAKING CHANGES
+* mesh-init, health-sync: Switch to file-based config. All CLI flags and options are removed 
+  from the `mesh-init` and `health-sync` commands. Instead, use the `CONSUL_ECS_CONFIG_JSON`
+  environment variable to pass JSON configuration which follows this [schema](config/schema.json).
+  [[GH-53](https://github.com/hashicorp/consul-ecs/pull/53)]
+
 FEATURES
 * Add a `app-entrypoint` subcommand which can be used to delay application
   shutdown after receing a TERM signal to support graceful shutdown in ECS.

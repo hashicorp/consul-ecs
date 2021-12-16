@@ -2,17 +2,16 @@ package healthsync
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
+	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
@@ -20,41 +19,31 @@ import (
 )
 
 const (
-	flagHealthSyncContainers = "health-sync-containers"
-	flagServiceName          = "service-name"
 	// pollingInterval is how often we poll the container health endpoint.
 	// The rate limit is about 40 per second, so 1 second polling seems reasonable.
 	pollInterval = 1 * time.Second
 )
 
 type Command struct {
-	UI                       cli.Ui
-	flagHealthSyncContainers string
-	flagServiceName          string
-	log                      hclog.Logger
-	flagSet                  *flag.FlagSet
-	once                     sync.Once
+	UI     cli.Ui
+	config *config.Config
+	log    hclog.Logger
+	once   sync.Once
 }
 
 func (c *Command) init() {
-	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
-	c.flagSet.StringVar(&c.flagHealthSyncContainers, flagHealthSyncContainers, "", "Comma-separated list of container names for which to sync health status into Consul")
-	c.flagSet.StringVar(&c.flagServiceName, flagServiceName, "", "Name of the service that needs health checks synced to Consul. If not provided, the task family will be used as the service name.")
 	c.log = hclog.New(nil)
 }
 
 func (c *Command) Run(args []string) int {
 	c.once.Do(c.init)
-	if err := c.flagSet.Parse(args); err != nil {
-		return 1
-	}
 
-	// We expect this command to be invoked with a list of containers
-	// so error out if the list is empty.
-	if len(c.flagHealthSyncContainers) == 0 {
-		c.UI.Error(fmt.Sprintf("-%v doesn't have a value. exiting", flagHealthSyncContainers))
+	config, err := config.FromEnv()
+	if err != nil {
+		c.UI.Error(fmt.Sprintf("invalid config: %s", err))
 		return 1
 	}
+	c.config = config
 
 	consulClient, err := api.NewClient(api.DefaultConfig())
 	if err != nil {
@@ -79,19 +68,17 @@ func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
 	if err != nil {
 		return err
 	}
-
-	// Duplicate code from mesh-init. Service ID must match here and in mesh-init.
+	healthSyncContainers := c.config.HealthSyncContainers
 	serviceName := c.constructServiceName(taskMeta.Family)
 
 	currentStatuses := make(map[string]string)
-	parsedContainerNames := strings.Split(c.flagHealthSyncContainers, ",")
 
 	for {
 		select {
 		case <-time.After(pollInterval):
-			currentStatuses = c.syncChecks(consulClient, currentStatuses, serviceName, parsedContainerNames)
+			currentStatuses = c.syncChecks(consulClient, currentStatuses, serviceName, healthSyncContainers)
 		case <-ctx.Done():
-			return c.setChecksCritical(consulClient, taskMeta.TaskID(), serviceName, parsedContainerNames)
+			return c.setChecksCritical(consulClient, taskMeta.TaskID(), serviceName, healthSyncContainers)
 		}
 	}
 }
@@ -229,11 +216,11 @@ func updateConsulHealthStatus(consulClient *api.Client, checkID string, ecsHealt
 }
 
 func (c *Command) constructServiceName(family string) string {
-	if c.flagServiceName == "" {
-		return family
+	if serviceName := c.config.Service.Name; serviceName != "" {
+		return serviceName
 	}
 
-	return c.flagServiceName
+	return family
 }
 
 func (c *Command) Synopsis() string {

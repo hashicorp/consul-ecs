@@ -1,0 +1,104 @@
+{
+  "bootstrapDir": "/consul/",
+  "healthSyncContainers": [
+    "frontend"
+  ],
+  "service": {
+    "name": "frontend",
+    "tags": [
+      "frontend"
+    ],
+    "port": 8080,
+    "enableTagOverride": true,
+    "meta": {
+      "env": "test",
+      "version": "x.y.z"
+    },
+    "weights": {
+      "passing": 6,
+      "warning": 5
+    },
+    "checks": [
+      {
+        "checkId": "frontend-http",
+        "name": "frontend-http",
+        "http": "http://localhost:8080/health",
+        "method": "POST",
+        "body": "{\"method\": \"health\"}",
+        "notes": "Health check for the frontend service",
+        "header": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "interval": "30s",
+        "timeout": "10s",
+        "successBeforePassing": 3,
+        "failuresBeforeCritical": 4
+      },
+      {
+        "checkId": "frontend-tcp",
+        "name": "frontend-tcp",
+        "tcp": "localhost:8080",
+        "interval": "15s",
+        "timeout": "5s"
+      },
+      {
+        "checkId": "frontend-grpc",
+        "name": "frontend-grpc",
+        "grpc": "localhost:8080",
+        "grpcUseTls": true,
+        "interval": "20s",
+        "timeout": "5s"
+      },
+      {
+        "checkId": "frontend-ttl",
+        "name": "frontend-ttl",
+        "ttl": "10m",
+        "status": "passing"
+      },
+      {
+        "checkId": "frontend-backend-alias",
+        "name": "frontend-backend-alias",
+        "aliasNode": "backend-node",
+        "aliasService": "backend"
+      }
+    ],
+    "namespace": "test-ns"
+  },
+  "proxy": {
+    "config": {
+      "data": "some-config-data"
+    },
+    "upstreams": [
+      {
+        "destinationType": "service",
+        "destinationNamespace": "test-ns",
+        "destinationName": "backend",
+        "datacenter": "dc2",
+        "localBindAddress": "localhost",
+        "localBindPort": 1234,
+        "config": {
+          "data": "some-upstream-config-data"
+        },
+        "meshGateway": {
+          "mode": "local"
+        }
+      }
+    ],
+    "meshGateway": {
+      "mode": "local"
+    },
+    "expose": {
+      "checks": true,
+      "paths": [
+        {
+          "listenerPort": 20001,
+          "path": "/things",
+          "localPathPort": 8080,
+          "protocol": "http2"
+        }
+      ]
+    }
+  }
+}

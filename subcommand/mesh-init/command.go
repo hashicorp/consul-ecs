@@ -92,7 +92,7 @@ func (c *Command) realRun() error {
 		return fmt.Errorf("%s: %s", err, string(out))
 	}
 
-	envoyBootstrapFile := path.Join(c.config.Mesh.BootstrapDir, envoyBoostrapConfigFilename)
+	envoyBootstrapFile := path.Join(c.config.BootstrapDir, envoyBoostrapConfigFilename)
 	err = ioutil.WriteFile(envoyBootstrapFile, out, 0444)
 	if err != nil {
 		return err
@@ -111,7 +111,7 @@ func (c *Command) realRun() error {
 		return err
 	}
 
-	copyConsulECSBinary := path.Join(c.config.Mesh.BootstrapDir, "consul-ecs")
+	copyConsulECSBinary := path.Join(c.config.BootstrapDir, "consul-ecs")
 	err = ioutil.WriteFile(copyConsulECSBinary, data, 0755)
 	if err != nil {
 		return err
@@ -136,7 +136,7 @@ func retryLogger(log hclog.Logger) backoff.Notify {
 
 func constructChecks(serviceID string, checks []config.AgentServiceCheck, healthSyncContainers []string) ([]config.AgentServiceCheck, error) {
 	if len(checks) > 0 && len(healthSyncContainers) > 0 {
-		return nil, fmt.Errorf("only one of mesh.checks or mesh.healthSyncContainers should be set")
+		return nil, fmt.Errorf("only one of service.checks or healthSyncContainers should be set")
 	}
 
 	if len(healthSyncContainers) > 0 {
@@ -153,7 +153,7 @@ func constructChecks(serviceID string, checks []config.AgentServiceCheck, health
 }
 
 func (c *Command) constructServiceName(family string) string {
-	configName := c.config.Mesh.Service.Name
+	configName := c.config.Service.Name
 	if configName == "" {
 		return family
 	}
@@ -180,7 +180,7 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*a
 	serviceName := c.constructServiceName(taskMeta.Family)
 	taskID := taskMeta.TaskID()
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
-	checks, err := constructChecks(serviceID, c.config.Mesh.Service.Checks, c.config.Mesh.HealthSyncContainers)
+	checks, err := constructChecks(serviceID, c.config.Service.Checks, c.config.HealthSyncContainers)
 	if err != nil {
 		return nil, err
 	}
@@ -189,9 +189,9 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*a
 		"task-id":  taskID,
 		"task-arn": taskMeta.TaskARN,
 		"source":   "consul-ecs",
-	}, c.config.Mesh.Service.Meta)
+	}, c.config.Service.Meta)
 
-	serviceRegistration := c.config.Mesh.Service.ToConsulType()
+	serviceRegistration := c.config.Service.ToConsulType()
 	serviceRegistration.ID = serviceID
 	serviceRegistration.Name = serviceName
 	serviceRegistration.Meta = fullMeta
@@ -211,7 +211,7 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServi
 	proxyRegistration.Port = 20000
 	proxyRegistration.Meta = serviceRegistration.Meta
 	proxyRegistration.Tags = serviceRegistration.Tags
-	proxyRegistration.Proxy = c.config.Mesh.Proxy.ToConsulType()
+	proxyRegistration.Proxy = c.config.Proxy.ToConsulType()
 	proxyRegistration.Proxy.DestinationServiceName = serviceRegistration.Name
 	proxyRegistration.Proxy.DestinationServiceID = serviceRegistration.ID
 	proxyRegistration.Proxy.LocalServicePort = serviceRegistration.Port

@@ -68,7 +68,7 @@ func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
 	if err != nil {
 		return err
 	}
-	healthSyncContainers := c.config.Mesh.HealthSyncContainers
+	healthSyncContainers := c.config.HealthSyncContainers
 	serviceName := c.constructServiceName(taskMeta.Family)
 
 	currentStatuses := make(map[string]string)
@@ -216,7 +216,7 @@ func updateConsulHealthStatus(consulClient *api.Client, checkID string, ecsHealt
 }
 
 func (c *Command) constructServiceName(family string) string {
-	if serviceName := c.config.Mesh.Service.Name; serviceName != "" {
+	if serviceName := c.config.Service.Name; serviceName != "" {
 		return serviceName
 	}
 

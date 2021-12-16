@@ -227,8 +227,8 @@ func TestRunWithContainerNames(t *testing.T) {
 			}
 
 			config := &config.Config{}
-			config.Mesh.HealthSyncContainers = expectSyncContainers
-			config.Mesh.Service.Name = c.serviceName
+			config.HealthSyncContainers = expectSyncContainers
+			config.Service.Name = c.serviceName
 
 			// First sanity check that Consul is in the expected state before we start our command
 			assertHealthChecks(t, expectedServiceName, ecsServiceMetadata, consulClient, c.initialContainers, sanityChecks)
@@ -408,7 +408,7 @@ func TestConstructServiceName(t *testing.T) {
 
 	expectedServiceName := "service-name"
 
-	cmd.config.Mesh.Service.Name = expectedServiceName
+	cmd.config.Service.Name = expectedServiceName
 	serviceName = cmd.constructServiceName(family)
 	require.Equal(t, expectedServiceName, serviceName)
 }

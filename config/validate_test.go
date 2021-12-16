@@ -114,7 +114,6 @@ var (
 				Name:              "frontend",
 				Tags:              []string{"frontend"},
 				Port:              8080,
-				Address:           "127.0.0.1",
 				EnableTagOverride: true,
 				Meta: map[string]string{
 					"env":     "test",

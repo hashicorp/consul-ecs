@@ -78,9 +78,6 @@
             "port": {
               "type": "integer"
             },
-            "address": {
-              "type": "string"
-            },
             "enableTagOverride": {
               "type": "boolean"
             },

@@ -76,7 +76,6 @@ var (
 		Name:              "service-1",
 		Tags:              []string{"tag1", "tag2"},
 		Port:              1234,
-		Address:           "127.0.0.1",
 		EnableTagOverride: true,
 		Meta:              map[string]string{"env": "test", "version": "x.y.z"},
 		Weights: &AgentWeights{
@@ -93,7 +92,7 @@ var (
 		Name:              "service-1",
 		Tags:              []string{"tag1", "tag2"},
 		Port:              1234,
-		Address:           "127.0.0.1",
+		Address:           "",
 		SocketPath:        "",
 		TaggedAddresses:   nil,
 		EnableTagOverride: true,

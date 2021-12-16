@@ -208,26 +208,17 @@ func TestRun(t *testing.T) {
 			})
 
 			consulEcsConfig := config.Config{
-				Secret: config.AclTokenSecret{
-					Provider: "secrets-manager",
-					Configuration: config.SecretConfiguration{
-						Prefix:                     "mesh-init-unittest-TestRun",
-						ConsulClientTokenSecretARN: "asdf",
-					},
+				BootstrapDir:         envoyBootstrapDir,
+				HealthSyncContainers: nil,
+				Proxy: &config.AgentServiceConnectProxyConfig{
+					Upstreams: c.upstreams,
 				},
-				Mesh: config.Mesh{
-					BootstrapDir:         envoyBootstrapDir,
-					HealthSyncContainers: nil,
-					Proxy: &config.AgentServiceConnectProxyConfig{
-						Upstreams: c.upstreams,
-					},
-					Service: config.ServiceRegistration{
-						Name:   c.serviceName,
-						Checks: c.checks,
-						Port:   c.servicePort,
-						Tags:   c.tags,
-						Meta:   c.additionalMeta,
-					},
+				Service: config.ServiceRegistration{
+					Name:   c.serviceName,
+					Checks: c.checks,
+					Port:   c.servicePort,
+					Tags:   c.tags,
+					Meta:   c.additionalMeta,
 				},
 			}
 
@@ -378,7 +369,7 @@ func TestConstructChecks(t *testing.T) {
 		"1-check-1-health-sync-containers-should-error": {
 			checks:               []config.AgentServiceCheck{httpCheck},
 			healthSyncContainers: []string{containerName1},
-			expError:             "only one of mesh.checks or mesh.healthSyncContainers should be set",
+			expError:             "only one of service.checks or healthSyncContainers should be set",
 		},
 		"0-checks-1-health-sync-containers": {
 			healthSyncContainers: []string{containerName1},
@@ -413,7 +404,7 @@ func TestConstructServiceName(t *testing.T) {
 
 	expectedServiceName := "service-name"
 
-	cmd.config.Mesh.Service.Name = expectedServiceName
+	cmd.config.Service.Name = expectedServiceName
 	serviceName = cmd.constructServiceName(family)
 	require.Equal(t, expectedServiceName, serviceName)
 }

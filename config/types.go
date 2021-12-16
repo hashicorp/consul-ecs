@@ -6,36 +6,11 @@ import "github.com/hashicorp/consul/api"
 
 // Config is the top-level config object.
 type Config struct {
-	Secret AclTokenSecret `json:"aclTokenSecret"`
-	Mesh   Mesh           `json:"mesh"`
-}
-
-// Mesh is the configuration for joining the service mesh.
-type Mesh struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
 	Service              ServiceRegistration             `json:"service"`
 }
-
-// AclTokenSecret is the configuration for ACL tokens.
-type AclTokenSecret struct {
-	Provider      SecretProvider      `json:"provider"`
-	Configuration SecretConfiguration `json:"configuration"`
-}
-
-// SecretConfiguration is the configuration for secret management for ACL tokens.
-type SecretConfiguration struct {
-	Prefix                     string `json:"prefix"`
-	ConsulClientTokenSecretARN string `json:"consulClientTokenSecretArn"`
-}
-
-// SecretProvider is the secret provider to use for secrets management.
-type SecretProvider string
-
-const (
-	SecretsManagerProvider SecretProvider = "secrets-manager"
-)
 
 // ServiceRegistration configures the Consul service registration.
 //

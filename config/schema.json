@@ -1,307 +1,259 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$schema": "https://json-schema.org/draft-07/schema",
   "$id": "https://hashicorp.com/schemas/consul-ecs",
   "title": "Consul ECS Configuration",
   "description": "Configuration for the consul-ecs binary",
   "type": "object",
   "properties": {
-    "aclTokenSecret": {
-      "description": "Configuration for the ACL controller secret provider.",
-      "type": "object",
-      "properties": {
-        "provider": {
-          "description": "The ACL controller secret provider to use.",
-          "type": "string",
-          "enum": [
-            "secrets-manager"
-          ]
-        },
-        "configuration": {
-          "description": "Configuration values for the ACL controller secret provider.",
-          "type": "object",
-          "properties": {
-            "prefix": {
-              "description": "The prefix of Secrets Manager secret names created by the ACL controller.",
-              "type": "string"
-            },
-            "consulClientTokenSecretArn": {
-              "description": "The ARN of the Secrets Manager secret where the Consul client token is stored.",
-              "type": "string"
-            }
-          },
-          "required": [
-            "prefix",
-            "consulClientTokenSecretArn"
-          ],
-          "additionalProperties": false
-        }
-      },
-      "required": [
-        "provider",
-        "configuration"
-      ],
-      "additionalProperties": false
+    "bootstrapDir": {
+      "description": "The directory of the shared data volume where Envoy bootstrap configuration is written.",
+      "type": "string",
+      "minLength": 1
     },
-    "mesh": {
-      "description": "Configuration for Consul service mesh.",
+    "healthSyncContainers": {
+      "description": "The names of containers that will have health check status synced from ECS into Consul. Cannot be specified if Consul-native checks are specified in service.checks.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "service": {
+      "description": "Configuration for Consul service registration.",
       "type": "object",
       "properties": {
-        "bootstrapDir": {
-          "description": "The directory of the shared data volume where Envoy bootstrap configuration is written.",
-          "type": "string",
-          "minLength": 1
+        "name": {
+          "description": "The name the service will be registered as in Consul. Defaults to the Task family name.",
+          "type": "string"
         },
-        "healthSyncContainers": {
-          "description": "The names of containers that will have health check status synced from ECS into Consul. Cannot be specified if Consul-native checks are specified in mesh.service.checks.",
+        "tags": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "minItems": 1,
           "uniqueItems": true
         },
-        "service": {
-          "description": "Configuration for Consul service registration.",
+        "port": {
+          "type": "integer"
+        },
+        "enableTagOverride": {
+          "type": "boolean"
+        },
+        "meta": {
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "type": "string"
+            }
+          }
+        },
+        "weights": {
           "type": "object",
           "properties": {
-            "name": {
-              "description": "The name the service will be registered as in Consul. Defaults to the Task family name.",
-              "type": "string"
-            },
-            "tags": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "uniqueItems": true
-            },
-            "port": {
+            "passing": {
               "type": "integer"
             },
-            "enableTagOverride": {
-              "type": "boolean"
-            },
-            "meta": {
-              "type": "object",
-              "patternProperties": {
-                ".*": {
+            "warning": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false
+        },
+        "checks": {
+          "description": "Consul checks for the service. Cannot be specified if healthSyncContainers is set.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "checkId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "scriptArgs": {
+                "type": "array",
+                "items": {
                   "type": "string"
                 }
-              }
-            },
-            "weights": {
-              "type": "object",
-              "properties": {
-                "passing": {
-                  "type": "integer"
-                },
-                "warning": {
-                  "type": "integer"
-                }
               },
-              "additionalProperties": false
-            },
-            "checks": {
-              "description": "Consul checks for the service. Cannot be specified if mesh.healthSyncContainers is set.",
-              "type": "array",
-              "items": {
+              "interval": {
+                "type": "string"
+              },
+              "timeout": {
+                "type": "string"
+              },
+              "ttl": {
+                "type": "string"
+              },
+              "http": {
+                "type": "string"
+              },
+              "header": {
                 "type": "object",
-                "properties": {
-                  "checkId": {
-                    "type": "string"
-                  },
-                  "name": {
-                    "type": "string"
-                  },
-                  "scriptArgs": {
+                "patternProperties": {
+                  ".*": {
                     "type": "array",
                     "items": {
                       "type": "string"
                     }
-                  },
-                  "interval": {
-                    "type": "string"
-                  },
-                  "timeout": {
-                    "type": "string"
-                  },
-                  "ttl": {
-                    "type": "string"
-                  },
-                  "http": {
-                    "type": "string"
-                  },
-                  "header": {
-                    "type": "object",
-                    "patternProperties": {
-                      ".*": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      }
-                    }
-                  },
-                  "method": {
-                    "type": "string"
-                  },
-                  "body": {
-                    "type": "string"
-                  },
-                  "tcp": {
-                    "type": "string"
-                  },
-                  "status": {
-                    "type": "string"
-                  },
-                  "notes": {
-                    "type": "string"
-                  },
-                  "tlsServerName": {
-                    "type": "string"
-                  },
-                  "tlsSkipVerify": {
-                    "type": "boolean"
-                  },
-                  "grpc": {
-                    "type": "string"
-                  },
-                  "grpcUseTls": {
-                    "type": "boolean"
-                  },
-                  "aliasNode": {
-                    "type": "string"
-                  },
-                  "aliasService": {
-                    "type": "string"
-                  },
-                  "successBeforePassing": {
-                    "type": "integer"
-                  },
-                  "failuresBeforeCritical": {
-                    "type": "integer"
                   }
-                },
-                "additionalProperties": false
+                }
+              },
+              "method": {
+                "type": "string"
+              },
+              "body": {
+                "type": "string"
+              },
+              "tcp": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "string"
+              },
+              "tlsServerName": {
+                "type": "string"
+              },
+              "tlsSkipVerify": {
+                "type": "boolean"
+              },
+              "grpc": {
+                "type": "string"
+              },
+              "grpcUseTls": {
+                "type": "boolean"
+              },
+              "aliasNode": {
+                "type": "string"
+              },
+              "aliasService": {
+                "type": "string"
+              },
+              "successBeforePassing": {
+                "type": "integer"
+              },
+              "failuresBeforeCritical": {
+                "type": "integer"
               }
             },
-            "namespace": {
-              "type": "string"
-            }
-          },
-          "requires": [
-            "name",
-            "port"
-          ],
-          "additionalProperties": true
+            "additionalProperties": false
+          }
         },
-        "proxy": {
-          "description": "Configuration for the sidecar proxy registration.",
+        "namespace": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "port"
+      ],
+      "additionalProperties": true
+    },
+    "proxy": {
+      "description": "Configuration for the sidecar proxy registration.",
+      "type": "object",
+      "properties": {
+        "config": {
+          "type": "object"
+        },
+        "upstreams": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "destinationType": {
+                "enum": [
+                  "service",
+                  "prepared_query"
+                ]
+              },
+              "destinationNamespace": {
+                "type": "string"
+              },
+              "destinationName": {
+                "type": "string"
+              },
+              "datacenter": {
+                "type": "string"
+              },
+              "localBindAddress": {
+                "type": "string"
+              },
+              "localBindPort": {
+                "type": "integer"
+              },
+              "config": {
+                "type": "object"
+              },
+              "meshGateway": {
+                "mode": {
+                  "enum": [
+                    "none",
+                    "local",
+                    "remote"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "destinationName",
+              "localBindPort"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "meshGateway": {
+          "mode": {
+            "enum": [
+              "none",
+              "local",
+              "remote"
+            ]
+          }
+        },
+        "expose": {
           "type": "object",
           "properties": {
-            "config": {
-              "type": "object"
+            "checks": {
+              "type": "boolean"
             },
-            "upstreams": {
+            "paths": {
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
-                  "destinationType": {
-                    "enum": [
-                      "service",
-                      "prepared_query"
-                    ]
-                  },
-                  "destinationNamespace": {
-                    "type": "string"
-                  },
-                  "destinationName": {
-                    "type": "string"
-                  },
-                  "datacenter": {
-                    "type": "string"
-                  },
-                  "localBindAddress": {
-                    "type": "string"
-                  },
-                  "localBindPort": {
+                  "listenerPort": {
                     "type": "integer"
                   },
-                  "config": {
-                    "type": "object"
+                  "path": {
+                    "type": "string"
                   },
-                  "meshGateway": {
-                    "mode": {
-                      "enum": [
-                        "none",
-                        "local",
-                        "remote"
-                      ]
-                    }
-                  }
-                },
-                "requires": [
-                  "destinationName",
-                  "localBindPort"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "meshGateway": {
-              "mode": {
-                "enum": [
-                  "none",
-                  "local",
-                  "remote"
-                ]
-              }
-            },
-            "expose": {
-              "type": "object",
-              "properties": {
-                "checks": {
-                  "type": "boolean"
-                },
-                "paths": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "listenerPort": {
-                        "type": "integer"
-                      },
-                      "path": {
-                        "type": "string"
-                      },
-                      "localPathPort": {
-                        "type": "integer"
-                      },
-                      "protocol": {
-                        "enum": [
-                          "http",
-                          "http2"
-                        ]
-                      }
-                    }
+                  "localPathPort": {
+                    "type": "integer"
+                  },
+                  "protocol": {
+                    "enum": [
+                      "http",
+                      "http2"
+                    ]
                   }
                 }
               }
             }
-          },
-          "additionalProperties": false
+          }
         }
       },
-      "requires": [
-        "service",
-        "bootstrapDir"
-      ],
       "additionalProperties": false
     }
   },
   "required": [
-    "aclTokenSecret",
-    "mesh"
+    "service",
+    "bootstrapDir"
   ],
   "additionalProperties": false
 }

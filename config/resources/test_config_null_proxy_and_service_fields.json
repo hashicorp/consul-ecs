@@ -1,0 +1,55 @@
+{
+  "bootstrapDir": "/consul/",
+  "healthSyncContainers": null,
+  "service": {
+    "name": null,
+    "tags": null,
+    "port": 9000,
+    "enableTagOverride": null,
+    "meta": null,
+    "weights": null,
+    "checks": [
+      {
+        "name": "check-null",
+        "checkId": null,
+        "scriptArgs": null,
+        "interval": null,
+        "timeout": null,
+        "ttl": null,
+        "http": null,
+        "header": null,
+        "method": null,
+        "body": null,
+        "tcp": null,
+        "status": null,
+        "notes": null,
+        "tlsServerName": null,
+        "tlsSkipVerify": null,
+        "grpc": null,
+        "grpcUseTls": null,
+        "aliasNode": null,
+        "aliasService": null,
+        "successBeforePassing": null,
+        "failuresBeforeCritical": null
+      }
+    ],
+    "namespace": null
+  },
+  "proxy": {
+    "config": null,
+    "upstreams": [
+      {
+        "destinationType": null,
+        "destinationNamespace": null,
+        "destinationName": "backend",
+        "datacenter": null,
+        "localBindAddress": null,
+        "localBindPort": 2345,
+        "config": null,
+        "meshGateway": null
+      }
+    ],
+    "meshGateway": null,
+    "expose": null
+  }
+}

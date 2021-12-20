@@ -11,12 +11,11 @@
       "minLength": 1
     },
     "healthSyncContainers": {
-      "description": "The names of containers that will have health check status synced from ECS into Consul. Cannot be specified if Consul-native checks are specified in service.checks.",
-      "type": "array",
+      "description": "The names of containers that will have health check status synced from ECS into Consul. Cannot be specified with service.checks.",
+      "type": ["array", "null"],
       "items": {
         "type": "string"
       },
-      "minItems": 1,
       "uniqueItems": true
     },
     "service": {
@@ -24,11 +23,11 @@
       "type": "object",
       "properties": {
         "name": {
-          "description": "The name the service will be registered as in Consul. Defaults to the Task family name.",
-          "type": "string"
+          "description": "The name the service will be registered as in Consul. Defaults to the Task family name if empty or null.",
+          "type": ["string", "null"]
         },
         "tags": {
-          "type": "array",
+          "type": ["array", "null"],
           "items": {
             "type": "string"
           },
@@ -38,10 +37,10 @@
           "type": "integer"
         },
         "enableTagOverride": {
-          "type": "boolean"
+          "type": ["boolean", "null"]
         },
         "meta": {
-          "type": "object",
+          "type": ["object", "null"],
           "patternProperties": {
             ".*": {
               "type": "string"
@@ -49,7 +48,7 @@
           }
         },
         "weights": {
-          "type": "object",
+          "type": ["object", "null"],
           "properties": {
             "passing": {
               "type": "integer"
@@ -58,40 +57,41 @@
               "type": "integer"
             }
           },
+          "required": ["passing", "warning"],
           "additionalProperties": false
         },
         "checks": {
-          "description": "Consul checks for the service. Cannot be specified if healthSyncContainers is set.",
-          "type": "array",
+          "description": "Consul checks for the service. Cannot be specified with healthSyncContainers.",
+          "type": ["array", "null"],
           "items": {
             "type": "object",
             "properties": {
               "checkId": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "name": {
                 "type": "string"
               },
               "scriptArgs": {
-                "type": "array",
+                "type": ["array", "null"],
                 "items": {
                   "type": "string"
                 }
               },
               "interval": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "timeout": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "ttl": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "http": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "header": {
-                "type": "object",
+                "type": ["object", "null"],
                 "patternProperties": {
                   ".*": {
                     "type": "array",
@@ -102,158 +102,145 @@
                 }
               },
               "method": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "body": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "tcp": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "status": {
-                "type": "string"
+                "type": ["string", "null"],
+                "enum": ["passing", "warning", "critical", "maintenance", null]
               },
               "notes": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "tlsServerName": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "tlsSkipVerify": {
-                "type": "boolean"
+                "type": ["boolean", "null"]
               },
               "grpc": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "grpcUseTls": {
-                "type": "boolean"
+                "type": ["boolean", "null"]
               },
               "aliasNode": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "aliasService": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "successBeforePassing": {
-                "type": "integer"
+                "type": ["integer", "null"]
               },
               "failuresBeforeCritical": {
-                "type": "integer"
+                "type": ["integer", "null"]
               }
             },
             "additionalProperties": false
           }
         },
         "namespace": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
-      "required": [
-        "name",
-        "port"
-      ],
+      "required": ["port"],
       "additionalProperties": true
     },
     "proxy": {
       "description": "Configuration for the sidecar proxy registration.",
-      "type": "object",
+      "type": ["object", "null"],
       "properties": {
         "config": {
-          "type": "object"
+          "type": ["object", "null"]
         },
         "upstreams": {
-          "type": "array",
+          "type": ["array", "null"],
           "items": {
             "type": "object",
             "properties": {
               "destinationType": {
-                "enum": [
-                  "service",
-                  "prepared_query"
-                ]
+                "type": ["string", "null"],
+                "enum": ["service", "prepared_query", null]
               },
               "destinationNamespace": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "destinationName": {
                 "type": "string"
               },
               "datacenter": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "localBindAddress": {
-                "type": "string"
+                "type": ["string", "null"]
               },
               "localBindPort": {
                 "type": "integer"
               },
               "config": {
-                "type": "object"
+                "type": ["object", "null"]
               },
               "meshGateway": {
-                "mode": {
-                  "enum": [
-                    "none",
-                    "local",
-                    "remote"
-                  ]
-                }
+                "type": ["object", "null"],
+                "properties": {
+                  "mode": {
+                    "enum": ["none", "local", "remote"]
+                  }
+                },
+                "required": ["mode"]
               }
             },
-            "required": [
-              "destinationName",
-              "localBindPort"
-            ],
+            "required": ["destinationName", "localBindPort"],
             "additionalProperties": false
           }
         },
         "meshGateway": {
-          "mode": {
-            "enum": [
-              "none",
-              "local",
-              "remote"
-            ]
-          }
-        },
-        "expose": {
-          "type": "object",
+          "type": ["object", "null"],
           "properties": {
-            "checks": {
-              "type": "boolean"
-            },
-            "paths": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "listenerPort": {
-                    "type": "integer"
-                  },
-                  "path": {
-                    "type": "string"
-                  },
-                  "localPathPort": {
-                    "type": "integer"
-                  },
-                  "protocol": {
-                    "enum": [
-                      "http",
-                      "http2"
-                    ]
-                  }
+            "mode": {
+              "enum": ["none", "local", "remote"]
+            }
+          },
+          "required": ["mode"]
+        }
+      },
+      "expose": {
+        "type": ["object", "null"],
+        "properties": {
+          "checks": {
+            "type": "boolean"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "listenerPort": {
+                  "type": "integer"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "localPathPort": {
+                  "type": "integer"
+                },
+                "protocol": {
+                  "enum": ["http", "http2"]
                 }
               }
             }
           }
         }
-      },
-      "additionalProperties": false
-    }
+      }
+    },
+    "additionalProperties": false
   },
-  "required": [
-    "service",
-    "bootstrapDir"
-  ],
+  "required": ["service", "bootstrapDir"],
   "additionalProperties": false
 }

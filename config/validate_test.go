@@ -24,6 +24,18 @@ func TestParse(t *testing.T) {
 			filename:       "resources/test_extensive_config.json",
 			expectedConfig: expectedExtensiveConfig,
 		},
+		"null_top_level_fields": {
+			filename:       "resources/test_config_null_top_level_fields.json",
+			expectedConfig: expectedConfigNullTopLevelFields,
+		},
+		"null_proxy_and_service_fields": {
+			filename:       "resources/test_config_null_proxy_and_service_fields.json",
+			expectedConfig: expectedConfigNullProxyAndServiceFields,
+		},
+		"empty_fields": {
+			filename:       "resources/test_config_empty_fields.json",
+			expectedConfig: expectedConfigEmptyFields,
+		},
 	}
 
 	for name, c := range cases {
@@ -187,15 +199,15 @@ var (
 					Config: map[string]interface{}{
 						"data": "some-upstream-config-data",
 					},
-					MeshGateway: MeshGatewayConfig{
+					MeshGateway: &MeshGatewayConfig{
 						Mode: api.MeshGatewayModeLocal,
 					},
 				},
 			},
-			MeshGateway: MeshGatewayConfig{
+			MeshGateway: &MeshGatewayConfig{
 				Mode: api.MeshGatewayModeLocal,
 			},
-			Expose: ExposeConfig{
+			Expose: &ExposeConfig{
 				Checks: true,
 				Paths: []ExposePath{
 					{
@@ -206,6 +218,99 @@ var (
 					},
 				},
 			},
+		},
+	}
+
+	expectedConfigNullTopLevelFields = &Config{
+		BootstrapDir:         "/consul/",
+		HealthSyncContainers: nil,
+		Service: ServiceRegistration{
+			Name:              "",
+			Tags:              nil,
+			Port:              9000,
+			EnableTagOverride: false,
+			Meta:              nil,
+			Weights:           nil,
+			Checks:            nil,
+			Namespace:         "",
+		},
+		Proxy: nil,
+	}
+
+	expectedConfigNullProxyAndServiceFields = &Config{
+		BootstrapDir:         "/consul/",
+		HealthSyncContainers: nil,
+		Service: ServiceRegistration{
+			Name:              "",
+			Tags:              nil,
+			Port:              9000,
+			EnableTagOverride: false,
+			Meta:              nil,
+			Weights:           nil,
+			Checks: []AgentServiceCheck{
+				{
+					CheckID:                "",
+					Name:                   "check-null",
+					ScriptArgs:             nil,
+					Interval:               "",
+					Timeout:                "",
+					TTL:                    "",
+					HTTP:                   "",
+					Header:                 nil,
+					Method:                 "",
+					Body:                   "",
+					TCP:                    "",
+					Status:                 "",
+					Notes:                  "",
+					TLSServerName:          "",
+					TLSSkipVerify:          false,
+					GRPC:                   "",
+					GRPCUseTLS:             false,
+					AliasNode:              "",
+					AliasService:           "",
+					SuccessBeforePassing:   0,
+					FailuresBeforeCritical: 0,
+				},
+			},
+			Namespace: "",
+		},
+		Proxy: &AgentServiceConnectProxyConfig{
+			Config: nil,
+			Upstreams: []Upstream{
+				{
+					DestinationType:      "",
+					DestinationNamespace: "",
+					DestinationName:      "backend",
+					Datacenter:           "",
+					LocalBindAddress:     "",
+					LocalBindPort:        2345,
+					Config:               nil,
+					MeshGateway:          nil,
+				},
+			},
+			MeshGateway: nil,
+			Expose:      nil,
+		},
+	}
+
+	expectedConfigEmptyFields = &Config{
+		BootstrapDir:         "/consul/",
+		HealthSyncContainers: []string{},
+		Service: ServiceRegistration{
+			Name:              "",
+			Tags:              []string{},
+			Port:              9000,
+			EnableTagOverride: false,
+			Meta:              map[string]string{},
+			Weights:           nil,
+			Checks:            []AgentServiceCheck{},
+			Namespace:         "",
+		},
+		Proxy: &AgentServiceConnectProxyConfig{
+			Config:      nil,
+			Upstreams:   nil,
+			MeshGateway: nil,
+			Expose:      nil,
 		},
 	}
 )

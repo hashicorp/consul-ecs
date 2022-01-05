@@ -13,6 +13,22 @@ FROM alpine:3.13
 ARG NAME=consul-ecs
 ARG VERSION
 
+LABEL name=$NAME \
+      org.opencontainers.image.title=$NAME \
+      maintainer="Consul Team <consul@hashicorp.com>" \
+      org.opencontainers.image.authors="Consul Team <consul@hashicorp.com>" \
+      vendor="HashiCorp" \
+      org.opencontainers.image.vendor="HashiCorp" \
+      version=$VERSION \
+      org.opencontainers.image.version=$VERSION \
+      release=$VERSION \
+      summary="consul-ecs provides first-class integration between Consul and AWS ECS." \
+      description="consul-ecs provides first-class integration between Consul and AWS ECS." \
+      org.opencontainers.image.description="consul-ecs provides first-class integration between Consul and AWS ECS." \
+      org.opencontainers.image.url="https://www.consul.io/" \
+      org.opencontainers.image.documentation="https://www.consul.io/docs/ecs" \
+      org.opencontainers.image.source="https://github.com/hashicorp/consul-ecs"
+
 # This is the location of the releases.
 ENV HASHICORP_RELEASES=https://releases.hashicorp.com
 

@@ -1,0 +1,15 @@
+{
+  "bootstrapDir": "/consul/",
+  "healthSyncContainers": null,
+  "service": {
+    "name": null,
+    "tags": null,
+    "port": 9000,
+    "enableTagOverride": null,
+    "meta": null,
+    "weights": null,
+    "checks": null,
+    "namespace": null
+  },
+  "proxy": null
+}

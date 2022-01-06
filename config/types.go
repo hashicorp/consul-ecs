@@ -157,16 +157,20 @@ func (w *AgentWeights) ToConsulType() *api.AgentWeights {
 type AgentServiceConnectProxyConfig struct {
 	Config      map[string]interface{} `json:"config,omitempty"`
 	Upstreams   []Upstream             `json:"upstreams,omitempty"`
-	MeshGateway MeshGatewayConfig      `json:"meshGateway,omitempty"`
-	Expose      ExposeConfig           `json:"expose,omitempty"`
+	MeshGateway *MeshGatewayConfig     `json:"meshGateway,omitempty"`
+	Expose      *ExposeConfig          `json:"expose,omitempty"`
 }
 
 func (a *AgentServiceConnectProxyConfig) ToConsulType() *api.AgentServiceConnectProxyConfig {
 	result := &api.AgentServiceConnectProxyConfig{
-		Config:      a.Config,
-		Upstreams:   nil,
-		MeshGateway: a.MeshGateway.ToConsulType(),
-		Expose:      a.Expose.ToConsulType(),
+		Config:    a.Config,
+		Upstreams: nil,
+	}
+	if a.MeshGateway != nil {
+		result.MeshGateway = a.MeshGateway.ToConsulType()
+	}
+	if a.Expose != nil {
+		result.Expose = a.Expose.ToConsulType()
 	}
 	for _, u := range a.Upstreams {
 		result.Upstreams = append(result.Upstreams, u.ToConsulType())
@@ -187,11 +191,11 @@ type Upstream struct {
 	LocalBindAddress     string                 `json:"localBindAddress,omitempty"`
 	LocalBindPort        int                    `json:"localBindPort,omitempty"`
 	Config               map[string]interface{} `json:"config,omitempty"`
-	MeshGateway          MeshGatewayConfig      `json:"meshGateway,omitempty"`
+	MeshGateway          *MeshGatewayConfig     `json:"meshGateway,omitempty"`
 }
 
 func (u *Upstream) ToConsulType() api.Upstream {
-	return api.Upstream{
+	result := api.Upstream{
 		DestinationType:      u.DestinationType,
 		DestinationNamespace: u.DestinationNamespace,
 		DestinationName:      u.DestinationName,
@@ -199,8 +203,11 @@ func (u *Upstream) ToConsulType() api.Upstream {
 		LocalBindAddress:     u.LocalBindAddress,
 		LocalBindPort:        u.LocalBindPort,
 		Config:               u.Config,
-		MeshGateway:          u.MeshGateway.ToConsulType(),
 	}
+	if u.MeshGateway != nil {
+		result.MeshGateway = u.MeshGateway.ToConsulType()
+	}
+	return result
 }
 
 // MeshGatewayConfig describes how to use mesh gateways to reach other services.

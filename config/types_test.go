@@ -123,15 +123,15 @@ var (
 				Config: map[string]interface{}{
 					"data": "some-upstream-test-data",
 				},
-				MeshGateway: MeshGatewayConfig{
+				MeshGateway: &MeshGatewayConfig{
 					Mode: api.MeshGatewayModeLocal,
 				},
 			},
 		},
-		MeshGateway: MeshGatewayConfig{
+		MeshGateway: &MeshGatewayConfig{
 			Mode: api.MeshGatewayModeLocal,
 		},
-		Expose: ExposeConfig{
+		Expose: &ExposeConfig{
 			Checks: true,
 			Paths: []ExposePath{
 				{

@@ -5,6 +5,7 @@ BREAKING CHANGES
   from the `mesh-init` and `health-sync` commands. Instead, use the `CONSUL_ECS_CONFIG_JSON`
   environment variable to pass JSON configuration which follows this [schema](config/schema.json).
   [[GH-53](https://github.com/hashicorp/consul-ecs/pull/53)]
+  [[GH-54](https://github.com/hashicorp/consul-ecs/pull/54)]
 
 FEATURES
 * Add a `app-entrypoint` subcommand which can be used to delay application

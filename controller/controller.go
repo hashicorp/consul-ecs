@@ -23,13 +23,21 @@ type Controller struct {
 }
 
 // Run starts the Controller loop. The loop will exit when ctx is canceled.
-func (c *Controller) Run(ctx context.Context) {
+func (c *Controller) Run(ctx context.Context, mode string) {
 	for {
 		select {
 		case <-time.After(c.PollingInterval):
-			err := c.reconcile()
-			if err != nil {
-				c.Log.Error("error during reconcile", "err", err)
+			if mode == "acl" {
+				err := c.reconcile()
+				if err != nil {
+					c.Log.Error("error during reconcile", "err", err)
+				}
+			} else {
+
+				err := c.reap()
+				if err != nil {
+					c.Log.Error("error during reap", "err", err)
+				}
 			}
 		case <-ctx.Done():
 			return
@@ -52,5 +60,31 @@ func (c *Controller) reconcile() error {
 	}
 
 	c.Log.Info("reconcile finished successfully")
+	return nil
+}
+
+func (c *Controller) reap() error {
+	c.Log.Info("starting reap")
+	ecsNodes, err := c.Resources.fetchNodesRunningOnECS()
+	if err != nil {
+		return fmt.Errorf("listing ecs nodes: %w", err)
+	}
+
+	consulNodes, err := c.Resources.fetchConsulNodes()
+
+	if err != nil {
+		return fmt.Errorf("listing consul nodes: %w", err)
+	}
+
+	for _, consulNode := range consulNodes {
+		if _, ok := ecsNodes[consulNode]; !ok {
+			err := c.Resources.reap(consulNode)
+			if err != nil {
+				c.Log.Error("error reaping resource", "err", err)
+			}
+		}
+	}
+
+	c.Log.Info("reap finished")
 	return nil
 }

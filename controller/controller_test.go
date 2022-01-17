@@ -32,7 +32,7 @@ func TestRun(t *testing.T) {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	t.Cleanup(cancelFunc)
 
-	go ctrl.Run(ctx)
+	go ctrl.Run(ctx, "acl")
 
 	retry.Run(t, func(r *retry.R) {
 		for _, resource := range lister.resources {
@@ -61,5 +61,17 @@ func (t testResourceLister) List() ([]Resource, error) {
 func (t *testResource) Reconcile() error {
 	t.reconciled = true
 
+	return nil
+}
+
+func (t *testResourceLister) fetchConsulNodes() ([]string, error) {
+	return []string{}, nil
+}
+
+func (t *testResourceLister) fetchNodesRunningOnECS() (map[string]struct{}, error) {
+	return map[string]struct{}{}, nil
+}
+
+func (t *testResourceLister) reap(n string) error {
 	return nil
 }

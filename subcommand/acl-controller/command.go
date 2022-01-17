@@ -18,6 +18,7 @@ import (
 const (
 	flagConsulClientSecretARN = "consul-client-secret-arn"
 	flagSecretNamePrefix      = "secret-name-prefix"
+	flagMode                  = "mode"
 
 	consulCACertEnvVar = "CONSUL_CACERT_PEM"
 )
@@ -26,6 +27,7 @@ type Command struct {
 	UI                        cli.Ui
 	flagConsulClientSecretARN string
 	flagSecretNamePrefix      string
+	flagMode                  string
 
 	log     hclog.Logger
 	flagSet *flag.FlagSet
@@ -36,6 +38,7 @@ func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
 	c.flagSet.StringVar(&c.flagConsulClientSecretARN, flagConsulClientSecretARN, "", "ARN of AWS Secrets Manager secret for Consul client")
 	c.flagSet.StringVar(&c.flagSecretNamePrefix, flagSecretNamePrefix, "", "The prefix for secret names stored in AWS Secrets Manager")
+	c.flagSet.StringVar(&c.flagMode, flagMode, "acl", "Mode")
 
 	c.log = hclog.New(nil)
 }
@@ -103,7 +106,7 @@ func (c *Command) run() error {
 		Log:             c.log,
 	}
 
-	ctrl.Run(context.Background())
+	ctrl.Run(context.Background(), c.flagMode)
 
 	return nil
 }

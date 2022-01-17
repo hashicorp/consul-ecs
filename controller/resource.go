@@ -24,6 +24,9 @@ const clusterTag = "consul.hashicorp.com/cluster"
 // ResourceLister is an interface for listing Resources.
 type ResourceLister interface {
 	List() ([]Resource, error)
+	fetchConsulNodes() ([]string, error)
+	fetchNodesRunningOnECS() (map[string]struct{}, error)
+	reap(string) error
 }
 
 // Resource is a generic type that needs to be reconciled by the Controller.
@@ -144,6 +147,81 @@ func (s ServiceStateLister) fetchECSTasks() (map[string]struct{}, error) {
 		}
 	}
 	return resources, nil
+}
+
+func (s ServiceStateLister) fetchNodesRunningOnECS() (map[string]struct{}, error) {
+	resources := make(map[string]struct{})
+	// nextToken is to handle paginated responses from AWS.
+	var nextToken *string
+
+	// This isn't an infinite loop, instead this is a "do while" loop
+	// because we'll break out of it as soon as nextToken is nil.
+	for {
+		taskListOutput, err := s.ECSClient.ListTasks(&ecs.ListTasksInput{
+			Cluster:   aws.String(s.Cluster),
+			NextToken: nextToken,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("listing tasks: %w", err)
+		}
+		nextToken = taskListOutput.NextToken
+
+		tasks, err := s.ECSClient.DescribeTasks(&ecs.DescribeTasksInput{
+			Cluster: aws.String(s.Cluster),
+			Tasks:   taskListOutput.TaskArns,
+			Include: []*string{aws.String("TAGS")},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("describing tasks: %w", err)
+		}
+		for _, task := range tasks.Tasks {
+			if task == nil {
+				s.Log.Info("task is nil")
+				continue
+			}
+
+			if !isMeshTask(task) {
+				s.Log.Info("skipping non-mesh task", "task-arn", task.TaskArn)
+				continue
+			}
+
+			for _, container := range task.Containers {
+				var ipAddress string
+				if *container.Name == "consul-client" {
+					ipAddress = *container.NetworkInterfaces[0].PrivateIpv4Address
+				}
+				resources[fmt.Sprintf("%s.%s.internal", ipAddress, "us-west-2")] = struct{}{}
+			}
+		}
+
+		if nextToken == nil {
+			break
+		}
+	}
+	return resources, nil
+}
+
+func (s ServiceStateLister) fetchConsulNodes() ([]string, error) {
+	var nodeNames []string
+	nodes, _, err := s.ConsulClient.Catalog().Nodes(nil)
+
+	if err != nil {
+		return nodeNames, err
+	}
+
+	for _, node := range nodes {
+		if node.Meta["ecs"] == "" {
+			continue
+		}
+
+		nodeNames = append(nodeNames, node.Node)
+	}
+
+	return nodeNames, err
+}
+
+func (s ServiceStateLister) reap(nodeName string) error {
+	return s.ConsulClient.Agent().ForceLeavePrune(nodeName)
 }
 
 // fetchACLTokens retrieves all of the ACL tokens from Consul and

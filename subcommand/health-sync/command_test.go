@@ -20,6 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	agentToken = "2b7040d3-84af-4ee2-931f-eafdb3c4119e"
+)
+
 func TestEcsHealthToConsulHealth(t *testing.T) {
 	require.Equal(t, api.HealthPassing, ecsHealthToConsulHealth(ecs.HealthStatusHealthy))
 	require.Equal(t, api.HealthCritical, ecsHealthToConsulHealth(ecs.HealthStatusUnknown))
@@ -58,6 +62,9 @@ func TestRunWithContainerNames(t *testing.T) {
 		initialExpChecks  map[string]string
 		updatedContainers []minimalContainerMetadata
 		updatedExpChecks  map[string]string
+
+		serverConfigCallback testutil.ServerConfigCallback
+		configToken          string
 	}{
 		"one expectSync healthy container": {
 			initialContainers: []minimalContainerMetadata{
@@ -181,6 +188,25 @@ func TestRunWithContainerNames(t *testing.T) {
 				"container1": api.HealthPassing,
 			},
 		},
+		"token from config": {
+			initialContainers: []minimalContainerMetadata{
+				{
+					name:       "container1",
+					status:     "HEALTHY",
+					expectSync: true,
+					missing:    false,
+				},
+			},
+			initialExpChecks: map[string]string{
+				"container1": api.HealthPassing,
+			},
+			serverConfigCallback: func(c *testutil.TestServerConfig) {
+				c.ACL.Enabled = true
+				c.ACL.DefaultPolicy = "deny"
+				c.ACL.Tokens.Master = agentToken
+			},
+			configToken: agentToken,
+		},
 	}
 
 	for name, c := range cases {
@@ -191,13 +217,14 @@ func TestRunWithContainerNames(t *testing.T) {
 			}
 			initialStage := true
 
-			server, err := testutil.NewTestServerConfigT(t, nil)
+			server, err := testutil.NewTestServerConfigT(t, c.serverConfigCallback)
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				_ = server.Stop()
 			})
+			server.WaitForLeader(t)
 
-			consulClient, err := api.NewClient(&api.Config{Address: server.HTTPAddr})
+			consulClient, err := api.NewClient(&api.Config{Address: server.HTTPAddr, Token: c.configToken})
 			require.NoError(t, err)
 
 			setupServiceAndChecks(t, expectedServiceName, ecsServiceMetadata, consulClient, c.initialContainers)
@@ -226,9 +253,13 @@ func TestRunWithContainerNames(t *testing.T) {
 				sanityChecks[container.name] = api.HealthCritical
 			}
 
-			config := &config.Config{}
-			config.HealthSyncContainers = expectSyncContainers
-			config.Service.Name = c.serviceName
+			config := &config.Config{
+				HealthSyncContainers: expectSyncContainers,
+				Service: config.ServiceRegistration{
+					Name: c.serviceName,
+				},
+				Token: c.configToken,
+			}
 
 			// First sanity check that Consul is in the expected state before we start our command
 			assertHealthChecks(t, expectedServiceName, ecsServiceMetadata, consulClient, c.initialContainers, sanityChecks)

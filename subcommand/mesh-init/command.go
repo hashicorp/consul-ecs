@@ -52,6 +52,10 @@ func (c *Command) Run(_ []string) int {
 
 func (c *Command) realRun() error {
 	cfg := api.DefaultConfig()
+	// Config file token takes precedence over CONSUL_HTTP_TOKEN.
+	if c.config.Token != "" {
+		cfg.Token = c.config.Token
+	}
 	consulClient, err := api.NewClient(cfg)
 	if err != nil {
 		return fmt.Errorf("constructing consul client: %s", err)
@@ -86,7 +90,14 @@ func (c *Command) realRun() error {
 	c.log.Info("service and proxy registered successfully", "name", serviceRegistration.Name, "id", serviceRegistration.ID)
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
-	cmd := exec.Command("consul", "connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502")
+	connectCmd := []string{
+		"consul", "connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502",
+	}
+	// Pass the token explicitly, in case the token was passed via config file.
+	if cfg.Token != "" {
+		connectCmd = append(connectCmd, "-token", cfg.Token)
+	}
+	cmd := exec.Command(connectCmd[0], connectCmd[1:]...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, string(out))

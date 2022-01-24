@@ -22,6 +22,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	agentToken = "353c5683-7a1b-4ae2-8c09-f2711fe76764"
+)
+
 func TestConfigValidation(t *testing.T) {
 	ui := cli.NewMockUi()
 	cmd := Command{UI: ui}
@@ -52,16 +56,18 @@ func TestRun(t *testing.T) {
 	serviceName := "service-name"
 
 	cases := map[string]struct {
-		servicePort       int
-		upstreams         []config.Upstream
-		expUpstreams      []api.Upstream
-		checks            []config.AgentServiceCheck
-		tags              []string
-		expTags           []string
-		additionalMeta    map[string]string
-		expAdditionalMeta map[string]string
-		serviceName       string
-		expServiceName    string
+		servicePort          int
+		upstreams            []config.Upstream
+		expUpstreams         []api.Upstream
+		checks               []config.AgentServiceCheck
+		tags                 []string
+		expTags              []string
+		additionalMeta       map[string]string
+		expAdditionalMeta    map[string]string
+		serviceName          string
+		expServiceName       string
+		serverConfigCallback testutil.ServerConfigCallback
+		configToken          string
 	}{
 		"basic service": {},
 		"service with port": {
@@ -134,6 +140,14 @@ func TestRun(t *testing.T) {
 			serviceName:    serviceName,
 			expServiceName: serviceName,
 		},
+		"token from config": {
+			serverConfigCallback: func(c *testutil.TestServerConfig) {
+				c.ACL.Enabled = true
+				c.ACL.DefaultPolicy = "deny"
+				c.ACL.Tokens.Master = agentToken
+			},
+			configToken: agentToken,
+		},
 	}
 
 	for name, c := range cases {
@@ -162,14 +176,14 @@ func TestRun(t *testing.T) {
 			}
 
 			// Set up Consul server.
-			server, err := testutil.NewTestServerConfigT(t, nil)
+			server, err := testutil.NewTestServerConfigT(t, c.serverConfigCallback)
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				_ = server.Stop()
 				_ = os.Unsetenv("CONSUL_HTTP_ADDR")
 			})
 			server.WaitForLeader(t)
-			consulClient, err := api.NewClient(&api.Config{Address: server.HTTPAddr})
+			consulClient, err := api.NewClient(&api.Config{Address: server.HTTPAddr, Token: c.configToken})
 			require.NoError(t, err)
 			// We need to set this so that consul connect envoy -bootstrap will talk to the right agent.
 			err = os.Setenv("CONSUL_HTTP_ADDR", server.HTTPAddr)
@@ -210,6 +224,7 @@ func TestRun(t *testing.T) {
 			consulEcsConfig := config.Config{
 				BootstrapDir:         envoyBootstrapDir,
 				HealthSyncContainers: nil,
+				Token:                c.configToken,
 				Proxy: &config.AgentServiceConnectProxyConfig{
 					Upstreams: c.upstreams,
 				},

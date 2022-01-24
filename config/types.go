@@ -8,6 +8,7 @@ import "github.com/hashicorp/consul/api"
 type Config struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
+	Token                string                          `json:"token,omitempty"`
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
 	Service              ServiceRegistration             `json:"service"`
 }

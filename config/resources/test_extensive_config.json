@@ -3,6 +3,7 @@
   "healthSyncContainers": [
     "frontend"
   ],
+  "token": "abc123",
   "service": {
     "name": "frontend",
     "tags": [

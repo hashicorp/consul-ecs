@@ -45,6 +45,11 @@ func (c *Command) Run(args []string) int {
 	}
 	c.config = config
 
+	cfg := api.DefaultConfig()
+	// Config file token takes precedence over CONSUL_HTTP_TOKEN.
+	if c.config.Token != "" {
+		cfg.Token = c.config.Token
+	}
 	consulClient, err := api.NewClient(api.DefaultConfig())
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("constructing consul client: %s", err))

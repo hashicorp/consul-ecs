@@ -115,6 +115,7 @@ var (
 	expectedExtensiveConfig = &Config{
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: []string{"frontend"},
+		Token:                "abc123",
 		Service: ServiceRegistration{
 			Name:              "frontend",
 			Tags:              []string{"frontend"},
@@ -296,6 +297,7 @@ var (
 	expectedConfigEmptyFields = &Config{
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: []string{},
+		Token:                "",
 		Service: ServiceRegistration{
 			Name:              "",
 			Tags:              []string{},

@@ -18,6 +18,10 @@
       },
       "uniqueItems": true
     },
+    "token": {
+      "description": "Consul ACL token for service registration and health syncing.",
+      "type": "string"
+    },
     "service": {
       "description": "Configuration for Consul service registration.",
       "type": "object",

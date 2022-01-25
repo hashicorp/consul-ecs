@@ -12,7 +12,7 @@
       {
         "name": "check-null",
         "checkId": null,
-        "scriptArgs": null,
+        "args": null,
         "interval": null,
         "timeout": null,
         "ttl": null,
@@ -27,6 +27,8 @@
         "tlsSkipVerify": null,
         "grpc": null,
         "grpcUseTls": null,
+        "h2ping": null,
+        "h2pingUseTls": null,
         "aliasNode": null,
         "aliasService": null,
         "successBeforePassing": null,
@@ -41,6 +43,7 @@
       {
         "destinationType": null,
         "destinationNamespace": null,
+        "destinationPartition": null,
         "destinationName": "backend",
         "datacenter": null,
         "localBindAddress": null,

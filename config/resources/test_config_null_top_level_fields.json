@@ -9,7 +9,8 @@
     "meta": null,
     "weights": null,
     "checks": null,
-    "namespace": null
+    "namespace": null,
+    "partition": null
   },
   "proxy": null
 }

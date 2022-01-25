@@ -9,7 +9,8 @@
     "meta": {},
     "weights": null,
     "checks": [],
-    "namespace": ""
+    "namespace": "",
+    "partition": ""
   },
   "proxy": {}
 }

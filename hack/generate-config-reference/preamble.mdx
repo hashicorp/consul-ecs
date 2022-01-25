@@ -1,0 +1,38 @@
+---
+layout: docs
+page_title: AWS ECS
+description: >-
+  Configuration Reference for Consul on AWS ECS (Elastic Container Service).
+  Do not modify by hand! This is automatically generated documentation.
+---
+
+# Configuration Reference
+
+This pages details the configuration options for the JSON config format used
+by the `consul-ecs` binary. This configuration is passed to the `consul-ecs`
+binary as a string using the `CONSUL_ECS_CONFIG_JSON` environment variable.
+
+This configuration format follows a [JSON schema](https://github.com/hashicorp/consul-ecs/blob/main/config/schema.json)
+that can be used for validation.
+
+## Terraform Mesh Task Module Configuration
+
+The `mesh-task` Terraform module provides input variables for commonly used fields.
+The following table shows which Terraform input variables correspond to each field
+of the Consul ECS configuration. Refer to the
+[Terraform registry documentation](https://registry.terraform.io/modules/hashicorp/consul-ecs/aws/latest/submodules/mesh-task?tab=inputs)
+for a complete reference of supported input variables for the `mesh-task` module.
+
+| Terraform Input Variable | Consul ECS Config Field               |
+| ------------------------ | ------------------------------------- |
+| `upstreams`              | [`proxy.upstreams`](#proxy-upstreams) |
+| `checks`                 | [`service.checks`](#service-checks)   |
+| `consul_service_name`    | [`service.name`](#service)            |
+| `consul_service_tags`    | [`service.tags`](#service)            |
+| `consul_service_meta`    | [`service.meta`](#service)            |
+| `consul_namespace`       | [`service.namespace`](#service)       |
+| `consul_partition`       | [`service.partition`](#service)       |
+
+Each of these Terraform input variables follow the Consul ECS config schema.
+The remaining fields of the Consul ECS configuration not listed in this table can be passed
+using the `consul_ecs_config` input variable.

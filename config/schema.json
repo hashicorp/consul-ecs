@@ -72,7 +72,7 @@
               "name": {
                 "type": "string"
               },
-              "scriptArgs": {
+              "args": {
                 "type": ["array", "null"],
                 "items": {
                   "type": "string"
@@ -129,6 +129,14 @@
               "grpcUseTls": {
                 "type": ["boolean", "null"]
               },
+              "h2ping": {
+                "description": "Specifies this is an h2ping check. Must be an address, which will be pinged every `interval`.",
+                "type": ["string", "null"]
+              },
+              "h2pingUseTls": {
+                "description": "Specifies whether TLS is used for an h2ping check.",
+                "type": ["boolean", "null"]
+              },
               "aliasNode": {
                 "type": ["string", "null"]
               },
@@ -146,6 +154,10 @@
           }
         },
         "namespace": {
+          "type": ["string", "null"]
+        },
+        "partition": {
+          "description": "The Consul admin partition where the service will be registered.",
           "type": ["string", "null"]
         }
       },
@@ -169,6 +181,10 @@
                 "enum": ["service", "prepared_query", null]
               },
               "destinationNamespace": {
+                "type": ["string", "null"]
+              },
+              "destinationPartition": {
+                "description": "The name of the admin partition containing the upstream service.",
                 "type": ["string", "null"]
               },
               "destinationName": {

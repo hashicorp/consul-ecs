@@ -272,8 +272,10 @@ func TestRun(t *testing.T) {
 				},
 			}
 
+			// Note: TaggedAddressees may be set, but it seems like a race.
+			// We don't support tproxy in ECS, so I don't think we care about this?
 			agentServiceIgnoreFields := cmpopts.IgnoreFields(api.AgentService{},
-				"ContentHash", "ModifyIndex", "CreateIndex")
+				"ContentHash", "ModifyIndex", "CreateIndex", "TaggedAddresses")
 
 			service, _, err := consulClient.Agent().Service(expServiceID, nil)
 			require.NoError(t, err)

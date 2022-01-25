@@ -1,7 +1,7 @@
 ## UNRELEASED
 
 BREAKING CHANGES
-* mesh-init, health-sync: Switch to file-based config. All CLI flags and options are removed 
+* mesh-init, health-sync: Switch to file-based config. All CLI flags and options are removed
   from the `mesh-init` and `health-sync` commands. Instead, use the `CONSUL_ECS_CONFIG_JSON`
   environment variable to pass JSON configuration which follows this [schema](config/schema.json).
   [[GH-53](https://github.com/hashicorp/consul-ecs/pull/53)]
@@ -11,6 +11,9 @@ FEATURES
 * Add a `app-entrypoint` subcommand which can be used to delay application
   shutdown after receing a TERM signal to support graceful shutdown in ECS.
   [[GH-48](https://github.com/hashicorp/consul-ecs/pull/48)]
+* Update `github.com/hashicorp/consul/api` package to `v1.12.0` to support
+  passing service registration fields for admin partitions and h2ping checks. 
+  [[GH-59](https://github.com/hashicorp/consul-ecs/pull/59)]
 
 ## 0.2.0 (November 16, 2021)
 

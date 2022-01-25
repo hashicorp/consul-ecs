@@ -30,6 +30,7 @@ type ServiceRegistration struct {
 	Weights           *AgentWeights       `json:"weights,omitempty"`
 	Checks            []AgentServiceCheck `json:"checks,omitempty"`
 	Namespace         string              `json:"namespace,omitempty"`
+	Partition         string              `json:"partition,omitempty"`
 }
 
 func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
@@ -42,6 +43,7 @@ func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
 		Weights:           nil,
 		Checks:            nil,
 		Namespace:         r.Namespace,
+		Partition:         r.Partition,
 	}
 	if r.Weights != nil {
 		result.Weights = r.Weights.ToConsulType()
@@ -60,12 +62,10 @@ func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
 //   Docker checks won't work on ECS. They cannot work on Fargate, and require specific config to access
 //   the host's Docker daemon on the EC2 launch type.
 // - DeregisterCriticalServiceAfter is also excluded. We have health check support to handle service deregistration.
-// TODO: Add H2Ping field with future release Consul `api` package.
 type AgentServiceCheck struct {
-	CheckID string `json:"checkId,omitempty"`
-	Name    string `json:"name,omitempty"`
-	// "Args" is deprecated. Use ScriptArgs instead.
-	ScriptArgs             []string            `json:"scriptArgs,omitempty"`
+	CheckID                string              `json:"checkId,omitempty"`
+	Name                   string              `json:"name,omitempty"`
+	Args                   []string            `json:"args,omitempty"`
 	Interval               string              `json:"interval,omitempty"`
 	Timeout                string              `json:"timeout,omitempty"`
 	TTL                    string              `json:"ttl,omitempty"`
@@ -80,6 +80,8 @@ type AgentServiceCheck struct {
 	TLSSkipVerify          bool                `json:"tlsSkipVerify,omitempty"`
 	GRPC                   string              `json:"grpc,omitempty"`
 	GRPCUseTLS             bool                `json:"grpcUseTls,omitempty"`
+	H2PPING                string              `json:"h2ping,omitempty"`
+	H2PingUseTLS           bool                `json:"h2pingUseTLS,omitempty"`
 	AliasNode              string              `json:"aliasNode,omitempty"`
 	AliasService           string              `json:"aliasService,omitempty"`
 	SuccessBeforePassing   int                 `json:"successBeforePassing,omitempty"`
@@ -90,7 +92,7 @@ func (c *AgentServiceCheck) ToConsulType() *api.AgentServiceCheck {
 	return &api.AgentServiceCheck{
 		CheckID:                c.CheckID,
 		Name:                   c.Name,
-		Args:                   c.ScriptArgs,
+		Args:                   c.Args,
 		Interval:               c.Interval,
 		Timeout:                c.Timeout,
 		TTL:                    c.TTL,
@@ -105,6 +107,8 @@ func (c *AgentServiceCheck) ToConsulType() *api.AgentServiceCheck {
 		TLSSkipVerify:          c.TLSSkipVerify,
 		GRPC:                   c.GRPC,
 		GRPCUseTLS:             c.GRPCUseTLS,
+		H2PING:                 c.H2PPING,
+		H2PingUseTLS:           c.H2PingUseTLS,
 		AliasNode:              c.AliasNode,
 		AliasService:           c.AliasService,
 		SuccessBeforePassing:   c.SuccessBeforePassing,
@@ -186,6 +190,7 @@ func (a *AgentServiceConnectProxyConfig) ToConsulType() *api.AgentServiceConnect
 type Upstream struct {
 	DestinationType      api.UpstreamDestType   `json:"destinationType,omitempty"`
 	DestinationNamespace string                 `json:"destinationNamespace,omitempty"`
+	DestinationPartition string                 `json:"destinationPartition,omitempty"`
 	DestinationName      string                 `json:"destinationName,omitempty"`
 	Datacenter           string                 `json:"datacenter,omitempty"`
 	LocalBindAddress     string                 `json:"localBindAddress,omitempty"`
@@ -198,6 +203,7 @@ func (u *Upstream) ToConsulType() api.Upstream {
 	result := api.Upstream{
 		DestinationType:      u.DestinationType,
 		DestinationNamespace: u.DestinationNamespace,
+		DestinationPartition: u.DestinationPartition,
 		DestinationName:      u.DestinationName,
 		Datacenter:           u.Datacenter,
 		LocalBindAddress:     u.LocalBindAddress,

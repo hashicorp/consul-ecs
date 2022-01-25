@@ -165,16 +165,14 @@ var (
 					TTL:     "10m",
 					Status:  "passing",
 				},
-				// TODO: api.AgentServiceCheck has no H2Ping field (in v1.10.1)
-				// 		 Looks like it's been added to the api package on Consul main,
-				// 		 so should come in a future release.
-				//{
-				//	CheckID:       "frontend-http2",
-				//	Name:          "frontend-http2",
-				//	TLSSkipVerify: true,
-				//	Interval:      "25s",
-				//	Timeout:       "5s",
-				//},
+				{
+					CheckID:      "frontend-h2ping",
+					Name:         "frontend-h2ping",
+					H2PPING:      "localhost:2222",
+					H2PingUseTLS: true,
+					Interval:     "30s",
+					Timeout:      "9s",
+				},
 				{
 					CheckID:      "frontend-backend-alias",
 					Name:         "frontend-backend-alias",
@@ -183,6 +181,7 @@ var (
 				},
 			},
 			Namespace: "test-ns",
+			Partition: "test-partition",
 		},
 		Proxy: &AgentServiceConnectProxyConfig{
 			Config: map[string]interface{}{
@@ -192,6 +191,7 @@ var (
 				{
 					DestinationType:      api.UpstreamDestTypeService,
 					DestinationNamespace: "test-ns",
+					DestinationPartition: "test-partition",
 					DestinationName:      "backend",
 					Datacenter:           "dc2",
 					LocalBindAddress:     "localhost",
@@ -233,6 +233,7 @@ var (
 			Weights:           nil,
 			Checks:            nil,
 			Namespace:         "",
+			Partition:         "",
 		},
 		Proxy: nil,
 	}
@@ -251,7 +252,7 @@ var (
 				{
 					CheckID:                "",
 					Name:                   "check-null",
-					ScriptArgs:             nil,
+					Args:                   nil,
 					Interval:               "",
 					Timeout:                "",
 					TTL:                    "",
@@ -266,6 +267,8 @@ var (
 					TLSSkipVerify:          false,
 					GRPC:                   "",
 					GRPCUseTLS:             false,
+					H2PPING:                "",
+					H2PingUseTLS:           false,
 					AliasNode:              "",
 					AliasService:           "",
 					SuccessBeforePassing:   0,
@@ -273,6 +276,7 @@ var (
 				},
 			},
 			Namespace: "",
+			Partition: "",
 		},
 		Proxy: &AgentServiceConnectProxyConfig{
 			Config: nil,
@@ -280,6 +284,7 @@ var (
 				{
 					DestinationType:      "",
 					DestinationNamespace: "",
+					DestinationPartition: "",
 					DestinationName:      "backend",
 					Datacenter:           "",
 					LocalBindAddress:     "",
@@ -305,6 +310,7 @@ var (
 			Weights:           nil,
 			Checks:            []AgentServiceCheck{},
 			Namespace:         "",
+			Partition:         "",
 		},
 		Proxy: &AgentServiceConnectProxyConfig{
 			Config:      nil,

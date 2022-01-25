@@ -19,13 +19,13 @@ func TestProxyRegistrationToConsulType(t *testing.T) {
 
 var (
 	testCheck = AgentServiceCheck{
-		CheckID:    "check-1",
-		Name:       "test-check",
-		ScriptArgs: []string{"x", "y"},
-		Interval:   "30s",
-		Timeout:    "5s",
-		TTL:        "30s",
-		HTTP:       "http://localhost:5000/health",
+		CheckID:  "check-1",
+		Name:     "test-check",
+		Args:     []string{"x", "y"},
+		Interval: "30s",
+		Timeout:  "5s",
+		TTL:      "30s",
+		HTTP:     "http://localhost:5000/health",
 		Header: map[string][]string{
 			"Content-Type": {"application/json"},
 		},
@@ -38,6 +38,8 @@ var (
 		TLSSkipVerify:          true,
 		GRPC:                   "127.0.0.1:5000",
 		GRPCUseTLS:             true,
+		H2PPING:                "localhost:2222",
+		H2PingUseTLS:           true,
 		AliasNode:              "node-1",
 		AliasService:           "service-1",
 		SuccessBeforePassing:   5,
@@ -66,6 +68,8 @@ var (
 		TLSSkipVerify:          true,
 		GRPC:                   "127.0.0.1:5000",
 		GRPCUseTLS:             true,
+		H2PING:                 "localhost:2222",
+		H2PingUseTLS:           true,
 		AliasNode:              "node-1",
 		AliasService:           "service-1",
 		SuccessBeforePassing:   5,
@@ -84,6 +88,7 @@ var (
 		},
 		Checks:    []AgentServiceCheck{testCheck},
 		Namespace: "test-ns",
+		Partition: "test-partition",
 	}
 
 	expectedConsulServiceRegistration = &api.AgentServiceRegistration{
@@ -106,6 +111,7 @@ var (
 		Proxy:     nil,
 		Connect:   nil,
 		Namespace: "test-ns",
+		Partition: "test-partition",
 	}
 
 	testProxyRegistration = &AgentServiceConnectProxyConfig{
@@ -116,6 +122,7 @@ var (
 			{
 				DestinationType:      api.UpstreamDestTypeService,
 				DestinationNamespace: "test-ns-2",
+				DestinationPartition: "test-partition-2",
 				DestinationName:      "upstream-svc",
 				Datacenter:           "dc2",
 				LocalBindAddress:     "localhost",
@@ -157,6 +164,7 @@ var (
 			{
 				DestinationType:      api.UpstreamDestTypeService,
 				DestinationNamespace: "test-ns-2",
+				DestinationPartition: "test-partition-2",
 				DestinationName:      "upstream-svc",
 				Datacenter:           "dc2",
 				LocalBindAddress:     "localhost",

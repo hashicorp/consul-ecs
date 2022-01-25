@@ -58,13 +58,22 @@
         "status": "passing"
       },
       {
+        "checkId": "frontend-h2ping",
+        "name": "frontend-h2ping",
+        "h2ping": "localhost:2222",
+        "h2pingUseTls": true,
+        "interval": "30s",
+        "timeout": "9s"
+      },
+      {
         "checkId": "frontend-backend-alias",
         "name": "frontend-backend-alias",
         "aliasNode": "backend-node",
         "aliasService": "backend"
       }
     ],
-    "namespace": "test-ns"
+    "namespace": "test-ns",
+    "partition": "test-partition"
   },
   "proxy": {
     "config": {
@@ -74,6 +83,7 @@
       {
         "destinationType": "service",
         "destinationNamespace": "test-ns",
+        "destinationPartition": "test-partition",
         "destinationName": "backend",
         "datacenter": "dc2",
         "localBindAddress": "localhost",

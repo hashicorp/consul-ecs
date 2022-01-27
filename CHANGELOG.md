@@ -1,4 +1,4 @@
-## UNRELEASED
+## 0.3.0 (January 27, 2022)
 
 BREAKING CHANGES
 * mesh-init, health-sync: Switch to file-based config. All CLI flags and options are removed

@@ -2,13 +2,16 @@
 
 package config
 
-import "github.com/hashicorp/consul/api"
+import (
+	"github.com/hashicorp/consul/api"
+)
 
 // Config is the top-level config object.
 type Config struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
+	Gateway              *GatewayRegistration            `json:"gateway,omitempty"`
 	Service              ServiceRegistration             `json:"service"`
 }
 
@@ -258,4 +261,33 @@ func (e *ExposePath) ToConsulType() api.ExposePath {
 		LocalPathPort: e.LocalPathPort,
 		Protocol:      e.Protocol,
 	}
+}
+
+type GatewayRegistration struct {
+	Kind       api.ServiceKind `json:"kind"`
+	LanAddress *ServiceAddress `json:"lanAddress,omitempty"`
+	WanAddress *ServiceAddress `json:"wanAddress,omitempty"`
+}
+
+func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
+	result := &api.AgentServiceRegistration{
+		Kind: g.Kind,
+	}
+	taggedAddresses := make(map[string]api.ServiceAddress)
+	if g.LanAddress != nil {
+		result.Address = g.LanAddress.Address
+		result.Port = g.LanAddress.Port
+
+		taggedAddresses["lan"] = api.ServiceAddress{
+			Address: g.LanAddress.Address,
+			Port:    g.LanAddress.Port,
+		}
+	}
+	if g.WanAddress != nil {
+		taggedAddresses["wan"] = api.ServiceAddress{
+			Address: g.WanAddress.Address,
+			Port:    g.WanAddress.Port,
+		}
+	}
+	return result
 }

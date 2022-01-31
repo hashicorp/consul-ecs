@@ -3,9 +3,11 @@ package meshinit
 import (
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,32 +63,53 @@ func (c *Command) realRun() error {
 		return err
 	}
 
-	serviceRegistration, err := c.constructServiceRegistration(taskMeta)
-	if err != nil {
-		return err
+	var serviceRegistration, proxyRegistration *api.AgentServiceRegistration
+	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
+		proxyRegistration = c.constructGatewayProxyRegistration()
+	} else {
+		serviceRegistration, err = c.constructServiceRegistration(taskMeta)
+		if err != nil {
+			return err
+		}
+		proxyRegistration = c.constructProxyRegistration(serviceRegistration)
 	}
-	err = backoff.RetryNotify(func() error {
-		c.log.Info("registering service")
-		return consulClient.Agent().ServiceRegister(serviceRegistration)
-	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
-	if err != nil {
-		return err
+
+	if serviceRegistration != nil {
+		// No need to register the service for gateways.
+		err = backoff.RetryNotify(func() error {
+			c.log.Info("registering service")
+			return consulClient.Agent().ServiceRegister(serviceRegistration)
+		}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
+		if err != nil {
+			return err
+		}
+
+		c.log.Info("service registered successfully", "name", serviceRegistration.Name, "id", serviceRegistration.ID)
 	}
 
 	// Register the proxy.
-	proxyRegistration := c.constructProxyRegistration(serviceRegistration)
 	err = backoff.RetryNotify(func() error {
-		c.log.Info("registering proxy")
+		c.log.Info("registering proxy", "kind", proxyRegistration.Kind)
 		return consulClient.Agent().ServiceRegister(proxyRegistration)
 	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
 
-	c.log.Info("service and proxy registered successfully", "name", serviceRegistration.Name, "id", serviceRegistration.ID)
+	c.log.Info("proxy registered successfully", "name", proxyRegistration.Name, "id", proxyRegistration.ID)
+
+	cmdArgs := []string{
+		"consul", "connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502",
+	}
+	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
+		kind := strings.ReplaceAll(string(c.config.Gateway.Kind), "-gateway", "")
+		cmdArgs = append(cmdArgs, "-gateway", kind)
+	}
+
+	c.log.Info("Running", "cmd", cmdArgs)
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
-	cmd := exec.Command("consul", "connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502")
+	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, string(out))
@@ -231,4 +254,47 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServi
 	proxyRegistration.Weights = serviceRegistration.Weights
 	proxyRegistration.EnableTagOverride = serviceRegistration.EnableTagOverride
 	return proxyRegistration
+}
+
+func (c *Command) constructGatewayProxyRegistration() *api.AgentServiceRegistration {
+	gwRegistration := c.config.Gateway.ToConsulType()
+
+	service := c.config.Service.ToConsulType()
+	gwRegistration.ID = fmt.Sprintf("%s-%s", service.Name, gwRegistration.Kind)
+	gwRegistration.Name = gwRegistration.ID
+	gwRegistration.Namespace = service.Namespace
+	gwRegistration.Partition = service.Partition
+	gwRegistration.Weights = service.Weights
+	gwRegistration.Tags = service.Tags
+	gwRegistration.Meta = service.Meta
+
+	proxyCfg := c.config.Proxy.ToConsulType()
+	gwRegistration.Proxy = &api.AgentServiceConnectProxyConfig{
+		// Config is needed to pass gateway specific options
+		// https://www.consul.io/docs/connect/proxies/envoy#gateway-options
+		Config: proxyCfg.Config,
+	}
+
+	// Health check localhost (default) or the LAN address if specified.
+	// TODO: Use the task address by default
+	healthCheckAddr := api.ServiceAddress{
+		Address: "127.0.0.1",
+		Port:    8443, // the default gateway port
+	}
+	if gwRegistration.Address != "" {
+		healthCheckAddr.Address = gwRegistration.Address
+	}
+	if gwRegistration.Port != 0 {
+		healthCheckAddr.Port = gwRegistration.Port
+	}
+
+	gwRegistration.Checks = []*api.AgentServiceCheck{
+		{
+			Name:                           fmt.Sprintf("%s listener", gwRegistration.Kind),
+			TCP:                            net.JoinHostPort(healthCheckAddr.Address, fmt.Sprint(healthCheckAddr.Port)),
+			Interval:                       "10s",
+			DeregisterCriticalServiceAfter: "10m",
+		},
+	}
+	return gwRegistration
 }

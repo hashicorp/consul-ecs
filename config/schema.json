@@ -255,6 +255,42 @@
         }
       }
     },
+    "gateway": {
+      "description": "Configuration for the gateway proxy registration. Use `service.name`, `service.tags`, `service.meta`, `service.namespace`, `service.partition`, and `proxy.config` to further customize gateway registration",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "The gateway kind.",
+          "type": "string",
+          "enum": ["mesh-gateway", "terminating-gateway", "ingress-gateway"]
+        },
+        "lanAddress": {
+          "description": "LAN address and port for the gateway. If not specified, defaults to the task/node address.",
+          "type": "object",
+          "properties": {
+            "address": {
+              "type": "string"
+            },
+            "port": {
+              "type": "integer"
+            }
+          }
+        },
+        "wanAddress": {
+          "description": "WAN address and port for the gateway. If not specified, defaults to the task/node address.",
+          "type": "object",
+          "properties": {
+            "address": {
+              "type": "string"
+            },
+            "port": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "required": ["kind"]
+    },
     "additionalProperties": false
   },
   "required": ["service", "bootstrapDir"],

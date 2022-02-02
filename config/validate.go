@@ -14,7 +14,7 @@ const (
 )
 
 func validate(config string) error {
-	schemaLoader := gojsonschema.NewStringLoader(schema)
+	schemaLoader := gojsonschema.NewStringLoader(Schema)
 	configLoader := gojsonschema.NewStringLoader(config)
 
 	result, err := gojsonschema.Validate(schemaLoader, configLoader)

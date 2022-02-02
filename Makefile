@@ -60,4 +60,14 @@ dev-docker: build-dev-dockerfile
 		--build-arg 'GIT_DESCRIBE=$(GIT_DESCRIBE)' \
 		-f $(CURDIR)/build-support/docker/Dev.dockerfile $(CURDIR)
 
-.PHONY: build-image ci.dev-docker dev-docker build-dev-dockerfile
+# Generate reference config documentation.
+# Usage:
+#   make reference-configuration
+#   make reference-configuration consul=<path-to-consul-repo>
+# The consul repo path is relative to the defaults to ../../../consul.
+consul?=../../../consul
+reference-configuration:
+	cd $(CURDIR)/hack/generate-config-reference; go run . > "$(consul)/website/content/docs/ecs/configuration-reference.mdx"
+
+
+.PHONY: build-image ci.dev-docker dev-docker build-dev-dockerfile reference-configuration

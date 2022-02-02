@@ -53,7 +53,7 @@ func TestMetaSchemaValidation(t *testing.T) {
 	// gojsonschema embeds the meta-schema document, so no HTTP requests needed.
 	loader := gojsonschema.NewSchemaLoader()
 	loader.Validate = true
-	err := loader.AddSchemas(gojsonschema.NewStringLoader(schema))
+	err := loader.AddSchemas(gojsonschema.NewStringLoader(Schema))
 	require.NoError(t, err)
 }
 

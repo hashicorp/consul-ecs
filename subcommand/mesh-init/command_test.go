@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -48,8 +48,13 @@ func TestConfigValidation(t *testing.T) {
 // because it sets environment variables (e.g. ECS metadata URI and Consul's HTTP addr)
 // that could not be shared if another test were to run in parallel.
 func TestRun(t *testing.T) {
-	family := "family-service-name"
-	serviceName := "service-name"
+	var (
+		family      = "family-service-name"
+		serviceName = "service-name"
+		taskARN     = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+
+		taskMetadataResponse = fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s"}`, taskARN, family)
+	)
 
 	cases := map[string]struct {
 		servicePort       int
@@ -138,16 +143,11 @@ func TestRun(t *testing.T) {
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			var (
-				taskARN          = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
-				expectedTaskMeta = map[string]string{
-					"task-id":  "abcdef",
-					"task-arn": taskARN,
-					"source":   "consul-ecs",
-				}
-				expectedServiceName = family
-			)
-
+			expectedTaskMeta := map[string]string{
+				"task-id":  "abcdef",
+				"task-arn": taskARN,
+				"source":   "consul-ecs",
+			}
 			for k, v := range c.expAdditionalMeta {
 				expectedTaskMeta[k] = v
 			}
@@ -157,57 +157,29 @@ func TestRun(t *testing.T) {
 				expectedTags = []string{}
 			}
 
+			expectedServiceName := family
 			if c.expServiceName != "" {
 				expectedServiceName = c.expServiceName
 			}
 
-			// Set up Consul server.
-			server, err := testutil.NewTestServerConfigT(t, nil)
-			require.NoError(t, err)
-			t.Cleanup(func() {
-				_ = server.Stop()
-				_ = os.Unsetenv("CONSUL_HTTP_ADDR")
-			})
-			server.WaitForLeader(t)
+			// Starts test Consul server and sets CONSUL_HTTP_ADDR for the 'consul connect envoy ...' command.
+			server := setupConsulTestServer(t)
+
 			consulClient, err := api.NewClient(&api.Config{Address: server.HTTPAddr})
 			require.NoError(t, err)
-			// We need to set this so that consul connect envoy -bootstrap will talk to the right agent.
-			err = os.Setenv("CONSUL_HTTP_ADDR", server.HTTPAddr)
-			require.NoError(t, err)
 
-			// Set up ECS container metadata server.
-			taskMetadataResponse := fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s"}`, taskARN, family)
-			ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
-					_, err := w.Write([]byte(taskMetadataResponse))
-					require.NoError(t, err)
-				}
-			}))
-			err = os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
-			require.NoError(t, err)
-			t.Cleanup(func() {
-				_ = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
-				ecsMetadataServer.Close()
-			})
+			// Set up ECS container metadata server and sets ECS_CONTAINER_METADATA_URI_V4 for mesh-init.
+			setupEcsTaskMetadataServer(t, taskMetadataResponse)
+
+			// Prepare a temp bootstrap directory for output files.
+			envoyBootstrapDir := setupTempBootstrapDir(t)
+			envoyBootstrapFile := filepath.Join(envoyBootstrapDir, envoyBoostrapConfigFilename)
+			copyConsulECSBinary := filepath.Join(envoyBootstrapDir, "consul-ecs")
 
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}
 
-			envoyBootstrapDir, err := ioutil.TempDir("", "")
-			require.NoError(t, err)
-			envoyBootstrapFile := path.Join(envoyBootstrapDir, envoyBoostrapConfigFilename)
-			copyConsulECSBinary := path.Join(envoyBootstrapDir, "consul-ecs")
-
-			t.Cleanup(func() {
-				os.Remove(envoyBootstrapFile)
-				os.Remove(copyConsulECSBinary)
-				err := os.Remove(envoyBootstrapDir)
-				if err != nil {
-					t.Logf("warning, failed to cleanup temp dir %s - %s", envoyBootstrapDir, err)
-				}
-			})
-
-			consulEcsConfig := config.Config{
+			consulEcsConfig := &config.Config{
 				BootstrapDir:         envoyBootstrapDir,
 				HealthSyncContainers: nil,
 				Proxy: &config.AgentServiceConnectProxyConfig{
@@ -222,16 +194,8 @@ func TestRun(t *testing.T) {
 				},
 			}
 
-			configBytes, err := json.MarshalIndent(consulEcsConfig, "", "  ")
-			require.NoError(t, err)
-
-			err = os.Setenv(config.ConfigEnvironmentVariable, string(configBytes))
-			require.NoError(t, err)
-			t.Cleanup(func() {
-				_ = os.Unsetenv(config.ConfigEnvironmentVariable)
-			})
-
-			t.Logf("%s=%s", config.ConfigEnvironmentVariable, os.Getenv(config.ConfigEnvironmentVariable))
+			// Sets the CONSUL_ECS_CONFIG_JSON environment variable.
+			setConsulEcsConfigEnvVar(t, consulEcsConfig)
 
 			code := cmd.Run(nil)
 			require.Equal(t, code, 0, ui.ErrorWriter.String())
@@ -312,6 +276,173 @@ func TestRun(t *testing.T) {
 						cmpopts.IgnoreFields(api.AgentCheck{}, "Node", "Output", "ExposedPort", "Definition")))
 				}
 			}
+		})
+	}
+}
+
+func TestGateway(t *testing.T) {
+	var (
+		family               = "family-name"
+		serviceName          = "service-name"
+		taskARN              = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+		taskMetadataResponse = fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s"}`, taskARN, family)
+		expectedTaskMeta     = map[string]string{
+			"task-id":  "abcdef",
+			"task-arn": taskARN,
+			"source":   "consul-ecs",
+		}
+	)
+	// Simulate mesh gateway registration:
+	// Specify "gateway" and "service" configuration, and verify the details of the registered service.
+
+	cases := map[string]struct {
+		config *config.Config
+
+		expServiceID       string
+		expServiceName     string
+		expLanAddress      string
+		expTaggedAddresses map[string]api.ServiceAddress
+		expPort            int
+	}{
+		"mesh gateway default port": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+				},
+				Service: config.ServiceRegistration{},
+			},
+			expServiceID:   family + "-abcdef-mesh-gateway",
+			expServiceName: family + "-mesh-gateway",
+			expPort:        8443, // default gateway port if unspecified
+		},
+		"mesh gateway with port": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					LanAddress: &config.ServiceAddress{
+						Port: 12345,
+					},
+				},
+				Service: config.ServiceRegistration{},
+			},
+			expServiceID:   family + "-abcdef-mesh-gateway",
+			expServiceName: family + "-mesh-gateway",
+			expPort:        12345,
+		},
+		"mesh gateway with service name": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					LanAddress: &config.ServiceAddress{
+						Port: 12345,
+					},
+				},
+				Service: config.ServiceRegistration{
+					Name: serviceName,
+				},
+			},
+			expServiceID:   serviceName + "-abcdef-mesh-gateway",
+			expServiceName: serviceName + "-mesh-gateway",
+			expPort:        12345,
+		},
+		"mesh gateway with lan address": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					LanAddress: &config.ServiceAddress{
+						Address: "10.1.2.3",
+						Port:    12345,
+					},
+				},
+				Service: config.ServiceRegistration{
+					Name: serviceName,
+				},
+			},
+			expServiceID:   serviceName + "-abcdef-mesh-gateway",
+			expServiceName: serviceName + "-mesh-gateway",
+			expLanAddress:  "10.1.2.3",
+			expPort:        12345,
+			expTaggedAddresses: map[string]api.ServiceAddress{
+				"lan": {
+					Address: "10.1.2.3",
+					Port:    12345,
+				},
+				"lan_ipv4": {
+					Address: "10.1.2.3",
+					Port:    12345,
+				},
+				"wan_ipv4": {
+					Address: "10.1.2.3",
+					Port:    12345,
+				},
+			},
+		},
+		"mesh gateway with wan address": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					WanAddress: &config.ServiceAddress{
+						Address: "255.1.2.3",
+						Port:    12345,
+					},
+				},
+				Service: config.ServiceRegistration{},
+			},
+			expServiceID:   family + "-abcdef-mesh-gateway",
+			expServiceName: family + "-mesh-gateway",
+			expPort:        8443, // default gateway port
+			expLanAddress:  "",
+			expTaggedAddresses: map[string]api.ServiceAddress{
+				"wan": {
+					Address: "255.1.2.3",
+					Port:    12345,
+				},
+			},
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Logf("%v", c.config)
+
+			server := setupConsulTestServer(t)
+			setupEcsTaskMetadataServer(t, taskMetadataResponse)
+
+			c.config.BootstrapDir = setupTempBootstrapDir(t)
+			setConsulEcsConfigEnvVar(t, c.config)
+
+			consulClient, err := api.NewClient(&api.Config{Address: server.HTTPAddr})
+			require.NoError(t, err)
+
+			ui := cli.NewMockUi()
+			cmd := Command{UI: ui}
+
+			code := cmd.Run(nil)
+			require.Equal(t, code, 0, ui.ErrorWriter.String())
+
+			expectedServiceRegistration := &api.AgentService{
+				Kind:            c.config.Gateway.Kind,
+				ID:              c.expServiceID,
+				Service:         c.expServiceName,
+				Proxy:           &api.AgentServiceConnectProxyConfig{},
+				Address:         c.expLanAddress,
+				Port:            c.expPort,
+				Meta:            expectedTaskMeta,
+				Tags:            []string{},
+				Datacenter:      "dc1",
+				TaggedAddresses: c.expTaggedAddresses,
+				Weights: api.AgentWeights{
+					Passing: 1,
+					Warning: 1,
+				},
+			}
+
+			agentServiceIgnoreFields := cmpopts.IgnoreFields(api.AgentService{},
+				"ContentHash", "ModifyIndex", "CreateIndex")
+
+			service, _, err := consulClient.Agent().Service(expectedServiceRegistration.ID, nil)
+			require.NoError(t, err)
+			require.Empty(t, cmp.Diff(expectedServiceRegistration, service, agentServiceIgnoreFields))
+
 		})
 	}
 }
@@ -435,4 +566,78 @@ func toAgentCheck(check config.AgentServiceCheck) *api.AgentCheck {
 			Timeout:          api.ReadableDuration(expTimeout),
 		},
 	}
+}
+
+// setupConsulTestServer - Starts a Consul server instance and sets the CONSUL_HTTP_ADDR
+// environment variable, with a test cleanup to ensure it is unset. Because of the environment
+// variable, this is unsafe for running tests in parallel.
+func setupConsulTestServer(t *testing.T) *testutil.TestServer {
+	// Set up Consul server.
+	server, err := testutil.NewTestServerConfigT(t, nil)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = server.Stop()
+		_ = os.Unsetenv("CONSUL_HTTP_ADDR")
+	})
+	server.WaitForLeader(t)
+
+	// We need to set this so that 'consul connect envoy -bootstrap' will talk to the right agent.
+	err = os.Setenv("CONSUL_HTTP_ADDR", server.HTTPAddr)
+	require.NoError(t, err)
+
+	return server
+}
+
+// setupEcsTaskMetadataServer - Starts a local HTTP server to mimic the ECS Task Metadata server.
+// This sets the ECS_CONTAINER_METADATA_URI_V4 environment variable, with a test cleanup to ensure
+// it is unset. Because of the environment variable, this is unsafe for running test in parallel.
+func setupEcsTaskMetadataServer(t *testing.T, taskMetadataResponse string) {
+	ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
+			_, err := w.Write([]byte(taskMetadataResponse))
+			require.NoError(t, err)
+		}
+	}))
+	t.Cleanup(func() {
+		_ = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
+		ecsMetadataServer.Close()
+	})
+
+	err := os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
+	require.NoError(t, err)
+}
+
+// setupTempBootstrapDir creates a temporary "bootstrap" directory, where mesh-init will write
+// out the Envoy bootstrap configuration and copy the consul-ecs binary (for other containers
+// to use). A test cleanup is added to remove the temp directory and its contents.
+func setupTempBootstrapDir(t *testing.T) string {
+	envoyBootstrapDir, err := ioutil.TempDir("", "")
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		err := os.RemoveAll(envoyBootstrapDir)
+		if err != nil {
+			t.Logf("warning, failed to cleanup temp dir %s - %s", envoyBootstrapDir, err)
+		}
+	})
+
+	return envoyBootstrapDir
+}
+
+// setConsulEcsConfigEnvVar sets the CONSUL_ECS_CONFIG_JSON environment variable
+// to the JSON string of the provided config.Config object. A test clean is added
+// to unset the environment variable.
+func setConsulEcsConfigEnvVar(t *testing.T, conf *config.Config) {
+	configBytes, err := json.MarshalIndent(conf, "", "  ")
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = os.Unsetenv(config.ConfigEnvironmentVariable)
+	})
+
+	err = os.Setenv(config.ConfigEnvironmentVariable, string(configBytes))
+	require.NoError(t, err)
+
+	t.Logf("%s=%s", config.ConfigEnvironmentVariable, os.Getenv(config.ConfigEnvironmentVariable))
 }

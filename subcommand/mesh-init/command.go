@@ -3,6 +3,7 @@ package meshinit
 import (
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -65,7 +66,10 @@ func (c *Command) realRun() error {
 
 	var serviceRegistration, proxyRegistration *api.AgentServiceRegistration
 	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
-		proxyRegistration = c.constructGatewayProxyRegistration()
+		proxyRegistration, err = c.constructGatewayProxyRegistration(taskMeta)
+		if err != nil {
+			return err
+		}
 	} else {
 		serviceRegistration, err = c.constructServiceRegistration(taskMeta)
 		if err != nil {
@@ -256,36 +260,38 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServi
 	return proxyRegistration
 }
 
-func (c *Command) constructGatewayProxyRegistration() *api.AgentServiceRegistration {
-	gwRegistration := c.config.Gateway.ToConsulType()
+func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta) (*api.AgentServiceRegistration, error) {
+	service, err := c.constructServiceRegistration(taskMeta)
+	if err != nil {
+		return nil, err
+	}
 
-	service := c.config.Service.ToConsulType()
-	gwRegistration.ID = fmt.Sprintf("%s-%s", service.Name, gwRegistration.Kind)
-	gwRegistration.Name = gwRegistration.ID
+	gwRegistration := c.config.Gateway.ToConsulType()
+	gwRegistration.ID = fmt.Sprintf("%s-mesh-gateway", service.ID)
+	gwRegistration.Name = fmt.Sprintf("%s-mesh-gateway", service.Name)
 	gwRegistration.Namespace = service.Namespace
 	gwRegistration.Partition = service.Partition
 	gwRegistration.Weights = service.Weights
 	gwRegistration.Tags = service.Tags
 	gwRegistration.Meta = service.Meta
 
-	proxyCfg := c.config.Proxy.ToConsulType()
-	gwRegistration.Proxy = &api.AgentServiceConnectProxyConfig{
-		// Config is needed to pass gateway specific options
-		// https://www.consul.io/docs/connect/proxies/envoy#gateway-options
-		Config: proxyCfg.Config,
+	if c.config.Proxy != nil {
+		proxyCfg := c.config.Proxy.ToConsulType()
+		gwRegistration.Proxy = &api.AgentServiceConnectProxyConfig{
+			// Config is needed to pass gateway specific options
+			// https://www.consul.io/docs/connect/proxies/envoy#gateway-options
+			Config: proxyCfg.Config,
+		}
 	}
 
 	// Health check localhost (default) or the LAN address if specified.
 	// TODO: Use the task address by default
 	healthCheckAddr := api.ServiceAddress{
 		Address: "127.0.0.1",
-		Port:    8443, // the default gateway port
+		Port:    gwRegistration.Port, // defaulted to 8443
 	}
 	if gwRegistration.Address != "" {
 		healthCheckAddr.Address = gwRegistration.Address
-	}
-	if gwRegistration.Port != 0 {
-		healthCheckAddr.Port = gwRegistration.Port
 	}
 
 	gwRegistration.Checks = []*api.AgentServiceCheck{
@@ -296,5 +302,7 @@ func (c *Command) constructGatewayProxyRegistration() *api.AgentServiceRegistrat
 			DeregisterCriticalServiceAfter: "10m",
 		},
 	}
-	return gwRegistration
+
+	log.Printf("%+v", gwRegistration)
+	return gwRegistration, nil
 }

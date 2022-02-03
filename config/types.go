@@ -1,5 +1,3 @@
-//go:generate go run gen.go
-
 package config
 
 import (
@@ -272,22 +270,35 @@ type GatewayRegistration struct {
 func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
 	result := &api.AgentServiceRegistration{
 		Kind: g.Kind,
+		// 8443 is the default gateway registration port used by 'consul connect envoy -register'
+		Port: 8443,
 	}
 	taggedAddresses := make(map[string]api.ServiceAddress)
 	if g.LanAddress != nil {
-		result.Address = g.LanAddress.Address
-		result.Port = g.LanAddress.Port
+		lanAddr := g.LanAddress.ToConsulType()
+		if lanAddr.Port == 0 {
+			lanAddr.Port = 8443
+		}
 
-		taggedAddresses["lan"] = api.ServiceAddress{
-			Address: g.LanAddress.Address,
-			Port:    g.LanAddress.Port,
+		result.Address = lanAddr.Address
+		result.Port = lanAddr.Port
+
+		if lanAddr.Address != "" {
+			taggedAddresses["lan"] = lanAddr
 		}
 	}
 	if g.WanAddress != nil {
-		taggedAddresses["wan"] = api.ServiceAddress{
-			Address: g.WanAddress.Address,
-			Port:    g.WanAddress.Port,
+		wanAddr := g.WanAddress.ToConsulType()
+		if wanAddr.Port == 0 {
+			wanAddr.Port = 8443
 		}
+		// We only set this if the address is passed? That's what 'consul connect envoy -register' does.
+		if wanAddr.Address != "" {
+			taggedAddresses["wan"] = wanAddr
+		}
+	}
+	if len(taggedAddresses) > 0 {
+		result.TaggedAddresses = taggedAddresses
 	}
 	return result
 }

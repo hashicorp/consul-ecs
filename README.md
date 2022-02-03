@@ -1,4 +1,10 @@
-## Consul on ECS
+<h1>
+  <img src="./_docs/logo.svg" align="left" height="46px" alt="Consul logo"/>
+  <span>Consul on ECS</span>
+</h1>
+
+[![Docker Pulls](https://img.shields.io/docker/pulls/hashicorp/consul-ecs)](https://hub.docker.com/r/hashicorp/consul-ecs)
+[![Go Report Card](https://goreportcard.com/badge/github.com/hashicorp/consul-ecs)](https://goreportcard.com/report/github.com/hashicorp/consul-ecs)
 
 This repository holds the Go code used by the `hashicorp/consul-ecs` Docker image.
 This image is used to help with the installation and operation of Consul on ECS.

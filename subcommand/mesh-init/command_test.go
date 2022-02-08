@@ -40,7 +40,7 @@ func TestConfigValidation(t *testing.T) {
 	cmd = Command{UI: ui}
 	code = cmd.Run(nil)
 	require.Equal(t, code, 1)
-	require.Contains(t, ui.ErrorWriter.String(), "invalid config: 2 errors occurred:")
+	require.Contains(t, ui.ErrorWriter.String(), "invalid config: 1 error occurred:")
 
 }
 
@@ -282,8 +282,8 @@ func TestRun(t *testing.T) {
 
 func TestGateway(t *testing.T) {
 	var (
-		family               = "family-name"
-		serviceName          = "service-name"
+		family               = "family-name-mesh-gateway"
+		serviceName          = "service-name-mesh-gateway"
 		taskARN              = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
 		taskMetadataResponse = fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s"}`, taskARN, family)
 		expectedTaskMeta     = map[string]string{
@@ -309,57 +309,51 @@ func TestGateway(t *testing.T) {
 				Gateway: &config.GatewayRegistration{
 					Kind: api.ServiceKindMeshGateway,
 				},
-				Service: config.ServiceRegistration{},
 			},
-			expServiceID:   family + "-abcdef-mesh-gateway",
-			expServiceName: family + "-mesh-gateway",
+			expServiceID:   family + "-abcdef",
+			expServiceName: family,
 			expPort:        8443, // default gateway port if unspecified
 		},
 		"mesh gateway with port": {
 			config: &config.Config{
 				Gateway: &config.GatewayRegistration{
 					Kind: api.ServiceKindMeshGateway,
-					LanAddress: &config.ServiceAddress{
+					LanAddress: &config.GatewayAddress{
 						Port: 12345,
 					},
 				},
-				Service: config.ServiceRegistration{},
 			},
-			expServiceID:   family + "-abcdef-mesh-gateway",
-			expServiceName: family + "-mesh-gateway",
+			expServiceID:   family + "-abcdef",
+			expServiceName: family,
 			expPort:        12345,
 		},
 		"mesh gateway with service name": {
 			config: &config.Config{
 				Gateway: &config.GatewayRegistration{
 					Kind: api.ServiceKindMeshGateway,
-					LanAddress: &config.ServiceAddress{
+					LanAddress: &config.GatewayAddress{
 						Port: 12345,
 					},
-				},
-				Service: config.ServiceRegistration{
 					Name: serviceName,
 				},
 			},
-			expServiceID:   serviceName + "-abcdef-mesh-gateway",
-			expServiceName: serviceName + "-mesh-gateway",
+			expServiceID:   serviceName + "-abcdef",
+			expServiceName: serviceName,
 			expPort:        12345,
 		},
 		"mesh gateway with lan address": {
 			config: &config.Config{
 				Gateway: &config.GatewayRegistration{
 					Kind: api.ServiceKindMeshGateway,
-					LanAddress: &config.ServiceAddress{
+					LanAddress: &config.GatewayAddress{
 						Address: "10.1.2.3",
 						Port:    12345,
 					},
-				},
-				Service: config.ServiceRegistration{
 					Name: serviceName,
 				},
 			},
-			expServiceID:   serviceName + "-abcdef-mesh-gateway",
-			expServiceName: serviceName + "-mesh-gateway",
+			expServiceID:   serviceName + "-abcdef",
+			expServiceName: serviceName,
 			expLanAddress:  "10.1.2.3",
 			expPort:        12345,
 			expTaggedAddresses: map[string]api.ServiceAddress{
@@ -381,15 +375,15 @@ func TestGateway(t *testing.T) {
 			config: &config.Config{
 				Gateway: &config.GatewayRegistration{
 					Kind: api.ServiceKindMeshGateway,
-					WanAddress: &config.ServiceAddress{
+					WanAddress: &config.GatewayAddress{
 						Address: "255.1.2.3",
 						Port:    12345,
 					},
 				},
 				Service: config.ServiceRegistration{},
 			},
-			expServiceID:   family + "-abcdef-mesh-gateway",
-			expServiceName: family + "-mesh-gateway",
+			expServiceID:   family + "-abcdef",
+			expServiceName: family,
 			expPort:        8443, // default gateway port
 			expLanAddress:  "",
 			expTaggedAddresses: map[string]api.ServiceAddress{

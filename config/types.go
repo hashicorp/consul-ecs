@@ -4,6 +4,9 @@ import (
 	"github.com/hashicorp/consul/api"
 )
 
+// 8443 is the default gateway registration port used by 'consul connect envoy -register'
+const DefaultGatewayAddress = 8443
+
 // Config is the top-level config object.
 type Config struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
@@ -114,18 +117,6 @@ func (c *AgentServiceCheck) ToConsulType() *api.AgentServiceCheck {
 		AliasService:           c.AliasService,
 		SuccessBeforePassing:   c.SuccessBeforePassing,
 		FailuresBeforeCritical: c.FailuresBeforeCritical,
-	}
-}
-
-type ServiceAddress struct {
-	Address string `json:"address"`
-	Port    int    `json:"port"`
-}
-
-func (a *ServiceAddress) ToConsulType() api.ServiceAddress {
-	return api.ServiceAddress{
-		Address: a.Address,
-		Port:    a.Port,
 	}
 }
 
@@ -262,23 +253,35 @@ func (e *ExposePath) ToConsulType() api.ExposePath {
 }
 
 type GatewayRegistration struct {
-	Kind       api.ServiceKind `json:"kind"`
-	LanAddress *ServiceAddress `json:"lanAddress,omitempty"`
-	WanAddress *ServiceAddress `json:"wanAddress,omitempty"`
+	Kind       api.ServiceKind     `json:"kind"`
+	LanAddress *GatewayAddress     `json:"lanAddress,omitempty"`
+	WanAddress *GatewayAddress     `json:"wanAddress,omitempty"`
+	Name       string              `json:"name,omitempty"`
+	Tags       []string            `json:"tags,omitempty"`
+	Meta       map[string]string   `json:"meta,omitempty"`
+	Namespace  string              `json:"namespace,omitempty"`
+	Partition  string              `json:"partition,omitempty"`
+	Proxy      *GatewayProxyConfig `json:"proxy"`
 }
 
 func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
 	result := &api.AgentServiceRegistration{
-		Kind: g.Kind,
-		// 8443 is the default gateway registration port used by 'consul connect envoy -register'
-		Port: 8443,
+		Kind:      g.Kind,
+		Port:      DefaultGatewayAddress,
+		Name:      g.Name,
+		Tags:      g.Tags,
+		Meta:      g.Meta,
+		Namespace: g.Namespace,
+		Partition: g.Partition,
 	}
+
+	if g.Proxy != nil {
+		result.Proxy = g.Proxy.ToConsulType()
+	}
+
 	taggedAddresses := make(map[string]api.ServiceAddress)
 	if g.LanAddress != nil {
 		lanAddr := g.LanAddress.ToConsulType()
-		if lanAddr.Port == 0 {
-			lanAddr.Port = 8443
-		}
 
 		result.Address = lanAddr.Address
 		result.Port = lanAddr.Port
@@ -289,9 +292,6 @@ func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
 	}
 	if g.WanAddress != nil {
 		wanAddr := g.WanAddress.ToConsulType()
-		if wanAddr.Port == 0 {
-			wanAddr.Port = 8443
-		}
 		// We only set this if the address is passed? That's what 'consul connect envoy -register' does.
 		if wanAddr.Address != "" {
 			taggedAddresses["wan"] = wanAddr
@@ -299,6 +299,32 @@ func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
 	}
 	if len(taggedAddresses) > 0 {
 		result.TaggedAddresses = taggedAddresses
+	}
+	return result
+}
+
+type GatewayProxyConfig struct {
+	Config map[string]interface{} `json:"config,omitempty"`
+}
+
+func (p *GatewayProxyConfig) ToConsulType() *api.AgentServiceConnectProxyConfig {
+	return &api.AgentServiceConnectProxyConfig{Config: p.Config}
+}
+
+type GatewayAddress struct {
+	// Source is for the WAN address only (enforced by schema).
+	Source  string `json:"source,omitempty"`
+	Address string `json:"address,omitempty"`
+	Port    int    `json:"port,omitempty"`
+}
+
+func (a *GatewayAddress) ToConsulType() api.ServiceAddress {
+	result := api.ServiceAddress{
+		Address: a.Address,
+		Port:    a.Port,
+	}
+	if result.Port == 0 {
+		result.Port = DefaultGatewayAddress
 	}
 	return result
 }

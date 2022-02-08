@@ -261,31 +261,25 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServi
 }
 
 func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta) (*api.AgentServiceRegistration, error) {
-	service, err := c.constructServiceRegistration(taskMeta)
-	if err != nil {
-		return nil, err
+	serviceName := c.config.Gateway.Name
+	if serviceName == "" {
+		serviceName = taskMeta.Family
 	}
+
+	taskID := taskMeta.TaskID()
+	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
 
 	gwRegistration := c.config.Gateway.ToConsulType()
-	gwRegistration.ID = fmt.Sprintf("%s-mesh-gateway", service.ID)
-	gwRegistration.Name = fmt.Sprintf("%s-mesh-gateway", service.Name)
-	gwRegistration.Namespace = service.Namespace
-	gwRegistration.Partition = service.Partition
-	gwRegistration.Weights = service.Weights
-	gwRegistration.Tags = service.Tags
-	gwRegistration.Meta = service.Meta
-
-	if c.config.Proxy != nil {
-		proxyCfg := c.config.Proxy.ToConsulType()
-		gwRegistration.Proxy = &api.AgentServiceConnectProxyConfig{
-			// Config is needed to pass gateway specific options
-			// https://www.consul.io/docs/connect/proxies/envoy#gateway-options
-			Config: proxyCfg.Config,
-		}
-	}
+	gwRegistration.ID = serviceID
+	gwRegistration.Name = serviceName
+	gwRegistration.Meta = mergeMeta(map[string]string{
+		"task-id":  taskID,
+		"task-arn": taskMeta.TaskARN,
+		"source":   "consul-ecs",
+	}, c.config.Gateway.Meta)
 
 	// Health check localhost (default) or the LAN address if specified.
-	// TODO: Use the task address by default
+	// TODO: Use the task address by default?
 	healthCheckAddr := api.ServiceAddress{
 		Address: "127.0.0.1",
 		Port:    gwRegistration.Port, // defaulted to 8443

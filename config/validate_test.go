@@ -64,9 +64,8 @@ func TestParseErrors(t *testing.T) {
 
 	expectedErrors := []string{
 		"bootstrapDir: String length must be greater than or equal to 1",
-		"(root): service is required",
 	}
-	require.Contains(t, err.Error(), fmt.Sprintf("%d errors occurred:", len(expectedErrors)))
+	require.Contains(t, err.Error(), fmt.Sprintf("%d error occurred:", len(expectedErrors)))
 	for _, expError := range expectedErrors {
 		require.Contains(t, err.Error(), expError)
 	}

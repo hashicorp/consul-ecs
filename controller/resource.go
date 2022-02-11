@@ -202,9 +202,9 @@ type ServiceInfo struct {
 	Log hclog.Logger
 }
 
-// tokenSecretJSON is the struct that represents JSON of the token secrets
+// TokenSecretJSON is the struct that represents JSON of the token secrets
 // stored in Secrets Manager.
-type tokenSecretJSON struct {
+type TokenSecretJSON struct {
 	AccessorID string `json:"accessor_id"`
 	Token      string `json:"token"`
 }
@@ -233,7 +233,7 @@ func (s *ServiceInfo) Upsert() error {
 
 	currToken, _, err := s.ConsulClient.ACL().TokenRead(currSecret.AccessorID, nil)
 
-	if err != nil && !isACLNotFoundError(err) {
+	if err != nil && !IsACLNotFoundError(err) {
 		return fmt.Errorf("reading existing token: %w", err)
 	}
 
@@ -267,8 +267,8 @@ func (s *ServiceInfo) Delete() error {
 
 // upsertSecret updates the AWS secret for the given service has a Token and
 // AccessorID if it is unset. If the secret is already set, this does nothing.
-func (s *ServiceInfo) upsertSecret() (tokenSecretJSON, error) {
-	var currSecret tokenSecretJSON
+func (s *ServiceInfo) upsertSecret() (TokenSecretJSON, error) {
+	var currSecret TokenSecretJSON
 	secretName := s.secretName()
 
 	// Get current secret from AWS.
@@ -295,7 +295,7 @@ func (s *ServiceInfo) upsertSecret() (tokenSecretJSON, error) {
 		return currSecret, err
 	}
 
-	newSecret := tokenSecretJSON{Token: secretID, AccessorID: accessorID}
+	newSecret := TokenSecretJSON{Token: secretID, AccessorID: accessorID}
 	serviceSecretValue, err := json.Marshal(newSecret)
 	if err != nil {
 		return newSecret, err
@@ -316,7 +316,7 @@ func (s *ServiceInfo) upsertSecret() (tokenSecretJSON, error) {
 
 // createServiceToken inserts an ACL token into Consul. The AccessorID and
 // SecretID are set based on the AWS secret.
-func (s *ServiceInfo) createServiceToken(secret tokenSecretJSON) error {
+func (s *ServiceInfo) createServiceToken(secret TokenSecretJSON) error {
 	s.Log.Info("creating service token", "id", s.ServiceName)
 	// Create ACL token for envoy to register the service.
 	_, _, err := s.ConsulClient.ACL().TokenCreate(&api.ACLToken{
@@ -375,6 +375,7 @@ func tagValue(tags []*ecs.Tag, key string) string {
 	return ""
 }
 
-func isACLNotFoundError(err error) bool {
+// IsACLNotFoundError returns true if the ACL is not found.
+func IsACLNotFoundError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "Unexpected response code: 403 (ACL not found)")
 }

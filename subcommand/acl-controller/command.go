@@ -38,16 +38,18 @@ type Command struct {
 	log     hclog.Logger
 	flagSet *flag.FlagSet
 	once    sync.Once
+	ctx     context.Context
 }
 
 func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
 	c.flagSet.StringVar(&c.flagConsulClientSecretARN, flagConsulClientSecretARN, "", "ARN of AWS Secrets Manager secret for Consul client")
 	c.flagSet.StringVar(&c.flagSecretNamePrefix, flagSecretNamePrefix, "", "The prefix for secret names stored in AWS Secrets Manager")
-	c.flagSet.StringVar(&c.flagPartition, flagPartition, "default", "The Consul partition name that the ACL controller will use for ACL resources. If not provided will default to the `default` partition [Consul Enterprise]")
+	c.flagSet.StringVar(&c.flagPartition, flagPartition, controller.DefaultNamespace, "The Consul partition name that the ACL controller will use for ACL resources. If not provided will default to the `default` partition [Consul Enterprise]")
 	c.flagSet.BoolVar(&c.flagPartitionsEnabled, flagPartitionsEnabled, false, "Enables Consul partitions and namespaces [Consul Enterprise]")
 
 	c.log = hclog.New(nil)
+	c.ctx = context.Background()
 }
 
 func (c *Command) Run(args []string) int {
@@ -102,12 +104,17 @@ func (c *Command) run() error {
 		return err
 	}
 
+	if err = c.createPartition(consulClient); err != nil {
+		return err
+	}
+
 	serviceStateLister := &controller.ServiceStateLister{
 		ECSClient:            ecsClient,
 		SecretsManagerClient: smClient,
 		ConsulClient:         consulClient,
 		Cluster:              cluster,
 		SecretPrefix:         c.flagSecretNamePrefix,
+		Partition:            cfg.Partition,
 		Log:                  c.log,
 	}
 	ctrl := controller.Controller{
@@ -116,7 +123,7 @@ func (c *Command) run() error {
 		Log:             c.log,
 	}
 
-	ctrl.Run(context.Background())
+	ctrl.Run(c.ctx)
 
 	return nil
 }
@@ -127,6 +134,35 @@ func (c *Command) Synopsis() string {
 
 func (c *Command) Help() string {
 	return ""
+}
+
+// createPartition ensures the partition that the controller is managing
+// exists when partition use is enabled. If the partition does not exist
+// it is created. If the partition already exists or partition management
+// is not enabled then this function does nothing and returns.
+// A non-nil error is returned if the operation fails.
+func (c *Command) createPartition(consulClient *api.Client) error {
+	if !c.flagPartitionsEnabled {
+		return nil
+	}
+	// check if the partition already exists.
+	partitions, _, err := consulClient.Partitions().List(c.ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to list partitions: %s", err)
+	}
+	for _, p := range partitions {
+		if p.Name == c.flagPartition {
+			c.log.Info("found existing partition %s", p.Name)
+			return nil
+		}
+	}
+	// the partition doesn't exist, so create it.
+	_, _, err = consulClient.Partitions().Create(c.ctx, &api.Partition{Name: c.flagPartition}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create partition %s: %s", c.flagPartition, err)
+	}
+	c.log.Info("created partition %s", c.flagPartition)
+	return nil
 }
 
 var ossClientPolicy = `node_prefix "" { policy = "write" } service_prefix "" { policy = "read" }`

@@ -3,7 +3,6 @@ package aclcontroller
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -20,25 +19,19 @@ import (
 const testPartitionName = "test-partition"
 
 var expOssClientPolicy = `node_prefix "" { policy = "write" } service_prefix "" { policy = "read" }`
-var expPartitionedClientPolicy = fmt.Sprintf(`partition "%s" {
-  node_prefix "" {
-    policy = "write"
-  }
-  namespace_prefix "" {
-    service_prefix "" {
-      policy = "read"
-    }
-  }
-}`, testPartitionName)
+
+type testCase struct {
+	existingSecret       *secretsmanager.GetSecretValueOutput
+	createExistingToken  bool
+	createExistingPolicy bool
+	partitionsEnabled    bool
+	expPolicyRules       string
+}
+
+type testCases map[string]testCase
 
 func TestUpsertConsulClientToken(t *testing.T) {
-	cases := map[string]struct {
-		existingSecret       *secretsmanager.GetSecretValueOutput
-		createExistingToken  bool
-		createExistingPolicy bool
-		partitionsEnabled    bool
-		expPolicyRules       string
-	}{
+	cases := testCases{
 		"when there is no token or policy": {
 			existingSecret: &secretsmanager.GetSecretValueOutput{
 				ARN:          aws.String("test-consul-client-token-arn"),
@@ -75,17 +68,14 @@ func TestUpsertConsulClientToken(t *testing.T) {
 			},
 			expPolicyRules: expOssClientPolicy,
 		},
-		"when partitions are enabled with no token or policy": {
-			existingSecret: &secretsmanager.GetSecretValueOutput{
-				ARN:          aws.String("test-consul-client-token-arn"),
-				Name:         aws.String("test-consul-client-token"),
-				SecretString: aws.String(`{}`),
-			},
-			partitionsEnabled: true,
-			expPolicyRules:    expPartitionedClientPolicy,
-		},
 	}
+	testUpsertConsulClientToken(t, cases)
+}
 
+// testUpsertConsulClientToken is a helper func that runs the test cases for
+// validating upsertion of client tokens. It is shared by both the OSS and
+// enterprise tests.
+func testUpsertConsulClientToken(t *testing.T, cases testCases) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			smClient := &mocks.SMClient{Secret: c.existingSecret}
@@ -125,6 +115,7 @@ func TestUpsertConsulClientToken(t *testing.T) {
 				flagPartitionsEnabled:     c.partitionsEnabled,
 				flagPartition:             testPartitionName,
 				log:                       hclog.NewNullLogger(),
+				ctx:                       context.Background(),
 			}
 
 			policyName := "test-consul-client-policy"
@@ -132,7 +123,7 @@ func TestUpsertConsulClientToken(t *testing.T) {
 				policy, _, err := consulClient.ACL().PolicyCreate(&api.ACLPolicy{
 					Name:        policyName,
 					Description: "Consul Client Token Policy for ECS",
-					Rules:       `node_prefix "" { policy = "write" } service_prefix "" { policy = "read" }`,
+					Rules:       c.expPolicyRules,
 				}, nil)
 				require.NoError(t, err)
 

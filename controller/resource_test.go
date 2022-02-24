@@ -1,13 +1,16 @@
 package controller
 
-// These tests can run against both OSS and Enterprise Consul agents.
+// These tests can run against both OSS and Enterprise Consul.
 // By default only the OSS tests will run and Enterprise features will not be enabled.
 // To run the tests with Enterprise features make sure your `consul` command is pointing
 // to an Enterprise binary and pass `-enterprise` as an arg to the tests:
+//
 //	go test -- -enterprise
+//
 // Note: the tests will run against Consul Enterprise with or without the -enterprise flag.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -64,8 +67,7 @@ func TestServiceStateLister_List(t *testing.T) {
 		Tags:              []*ecs.Tag{extPartitionTag},
 	}
 	aclToken1 := &api.ACLToken{
-		Description:       fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
-		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "service1"}},
+		Description: fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
 	}
 	aclTokenListEntry1 := &api.ACLTokenListEntry{
 		Description:       fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
@@ -100,14 +102,17 @@ func TestServiceStateLister_List(t *testing.T) {
 		aclToken1.Namespace = namespaces[0]
 		aclTokenListEntry1.Partition = partitionValue
 		aclTokenListEntry1.Namespace = namespaces[0]
+		aclTokenListEntry1.Description = fmt.Sprintf("Token for %s-%s-service1 service\n%s: %s", partitionValue, namespaces[0], clusterTag, cluster)
 		aclToken2.Partition = partitionValue
 		aclToken2.Namespace = namespaces[1]
 		aclTokenListEntry2.Partition = partitionValue
 		aclTokenListEntry2.Namespace = namespaces[1]
+		aclTokenListEntry2.Description = fmt.Sprintf("Token for %s-%s-service2 service\n%s: %s", partitionValue, namespaces[1], clusterTag, cluster)
 		aclToken3.Partition = partitionValue
 		aclToken3.Namespace = namespaces[0]
 		aclTokenListEntry3.Partition = partitionValue
 		aclTokenListEntry3.Namespace = namespaces[0]
+		aclTokenListEntry3.Description = fmt.Sprintf("Token for %s-%s-service3 service\n%s: %s", partitionValue, namespaces[0], clusterTag, cluster)
 	}
 	cases := map[string]struct {
 		paginateResults bool
@@ -173,26 +178,11 @@ func TestServiceStateLister_List(t *testing.T) {
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			adminToken := "123e4567-e89b-12d3-a456-426614174000"
-			testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
-				c.ACL.Enabled = true
-				c.ACL.Tokens.Master = adminToken
-				c.ACL.DefaultPolicy = "deny"
-			})
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = testServer.Stop() })
-			testServer.WaitForLeader(t)
-
-			clientConfig := api.DefaultConfig()
-			clientConfig.Address = testServer.HTTPAddr
-			clientConfig.Token = adminToken
-
-			consulClient, err := api.NewClient(clientConfig)
-			require.NoError(t, err)
+			consulClient := initConsul(t)
 
 			if enterprise {
 				for _, ns := range namespaces {
-					_, _, err = consulClient.Namespaces().Create(&api.Namespace{Name: ns}, nil)
+					_, _, err := consulClient.Namespaces().Create(&api.Namespace{Name: ns}, nil)
 					require.NoError(t, err)
 				}
 			}
@@ -201,7 +191,7 @@ func TestServiceStateLister_List(t *testing.T) {
 			for _, aclToken := range c.aclTokens {
 				id := fmt.Sprintf("%s/%s/%s", aclToken.Partition, aclToken.Namespace, aclToken.Description)
 				if _, exists := createdTokens[id]; !exists {
-					_, _, err = consulClient.ACL().TokenCreate(aclToken, nil)
+					_, _, err := consulClient.ACL().TokenCreate(aclToken, nil)
 					require.NoError(t, err)
 					createdTokens[id] = struct{}{}
 				}
@@ -259,8 +249,7 @@ func TestServiceStateLister_List(t *testing.T) {
 func TestReconcile(t *testing.T) {
 	cluster := "test-cluster"
 	aclToken1 := &api.ACLToken{
-		Description:       fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
-		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "service1"}},
+		Description: fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
 	}
 
 	cases := map[string]struct {
@@ -296,23 +285,7 @@ func TestReconcile(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			smClient := &mocks.SMClient{Secret: &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}}
-
-			adminToken := "123e4567-e89b-12d3-a456-426614174000"
-			testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
-				c.ACL.Enabled = true
-				c.ACL.Tokens.Master = adminToken
-				c.ACL.DefaultPolicy = "deny"
-			})
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = testServer.Stop() })
-			testServer.WaitForLeader(t)
-
-			clientConfig := api.DefaultConfig()
-			clientConfig.Address = testServer.HTTPAddr
-			clientConfig.Token = adminToken
-
-			consulClient, err := api.NewClient(clientConfig)
-			require.NoError(t, err)
+			consulClient := initConsul(t)
 
 			var beforeTokens []*api.ACLTokenListEntry
 			for _, aclToken := range c.aclTokens {
@@ -338,7 +311,7 @@ func TestReconcile(t *testing.T) {
 				Log: log,
 			}
 
-			err = serviceInfo.Reconcile()
+			err := serviceInfo.Reconcile()
 			require.NoError(t, err)
 
 			serviceStateLister := ServiceStateLister{
@@ -346,15 +319,14 @@ func TestReconcile(t *testing.T) {
 				Log:          log,
 			}
 
-			aclTokens, err := serviceStateLister.fetchACLTokens()
+			aclState, err := serviceStateLister.fetchACLState()
 			require.NoError(t, err)
 
 			var tokens []*api.ACLToken
-			for _, token := range aclTokens[c.sutServiceName] {
-				tokens = append(tokens, &api.ACLToken{
-					Description:       token.Description,
-					ServiceIdentities: token.ServiceIdentities,
-				})
+			if state, ok := aclState[c.sutServiceName]; ok {
+				for _, token := range state.ACLTokens {
+					tokens = append(tokens, &api.ACLToken{Description: token.Description})
+				}
 			}
 			require.Equal(t, len(c.expected), len(tokens))
 			require.Equal(t, c.expected, tokens)
@@ -365,24 +337,7 @@ func TestReconcile(t *testing.T) {
 
 func TestRecreatingAToken(t *testing.T) {
 	smClient := &mocks.SMClient{Secret: &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}}
-	adminToken := "123e4567-e89b-12d3-a456-426614174000"
-	testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
-		c.ACL.Enabled = true
-		c.ACL.Tokens.Master = adminToken
-		c.ACL.DefaultPolicy = "deny"
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = testServer.Stop()
-	})
-	testServer.WaitForLeader(t)
-
-	clientConfig := api.DefaultConfig()
-	clientConfig.Address = testServer.HTTPAddr
-	clientConfig.Token = adminToken
-
-	consulClient, err := api.NewClient(clientConfig)
-	require.NoError(t, err)
+	consulClient := initConsul(t)
 
 	taskTokens := ServiceInfo{
 		SecretsManagerClient: smClient,
@@ -398,7 +353,7 @@ func TestRecreatingAToken(t *testing.T) {
 
 	getSecretValue := func() TokenSecretJSON {
 		var secret TokenSecretJSON
-		err = json.Unmarshal([]byte(*smClient.Secret.SecretString), &secret)
+		err := json.Unmarshal([]byte(*smClient.Secret.SecretString), &secret)
 		require.NoError(t, err)
 		return secret
 	}
@@ -410,7 +365,7 @@ func TestRecreatingAToken(t *testing.T) {
 		require.Equal(t, secret.Token, currToken.SecretID)
 	}
 
-	err = taskTokens.Upsert()
+	err := taskTokens.Upsert()
 	require.NoError(t, err)
 
 	originalSecret := getSecretValue()
@@ -457,34 +412,7 @@ func TestTask_Upsert(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			smClient := &mocks.SMClient{Secret: c.existingSecret}
-			adminToken := "123e4567-e89b-12d3-a456-426614174000"
-			testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
-				c.ACL.Enabled = true
-				c.ACL.Tokens.Master = adminToken
-				c.ACL.DefaultPolicy = "deny"
-			})
-			require.NoError(t, err)
-			defer func() { _ = testServer.Stop() }()
-			testServer.WaitForLeader(t)
-
-			clientConfig := api.DefaultConfig()
-			clientConfig.Address = testServer.HTTPAddr
-			clientConfig.Token = adminToken
-
-			consulClient, err := api.NewClient(clientConfig)
-			require.NoError(t, err)
-
-			// Create existing token in consul and update existing secret.
-			if c.createExistingToken {
-				// Create token in Consul.
-				token, _, err := consulClient.ACL().TokenCreate(&api.ACLToken{
-					ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "service"}},
-				}, nil)
-				require.NoError(t, err)
-				secretValue, err := json.Marshal(TokenSecretJSON{AccessorID: token.AccessorID, Token: token.SecretID})
-				require.NoError(t, err)
-				c.existingSecret.SecretString = aws.String(string(secretValue))
-			}
+			consulClient := initConsul(t)
 
 			taskTokens := ServiceInfo{
 				SecretsManagerClient: smClient,
@@ -498,7 +426,17 @@ func TestTask_Upsert(t *testing.T) {
 				Log: hclog.NewNullLogger(),
 			}
 
-			err = taskTokens.Upsert()
+			// Create existing token in consul and update existing secret.
+			if c.createExistingToken {
+				// Create token in Consul.
+				token, _, err := consulClient.ACL().TokenCreate(&api.ACLToken{Description: taskTokens.aclDescription("Token")}, nil)
+				require.NoError(t, err)
+				secretValue, err := json.Marshal(TokenSecretJSON{AccessorID: token.AccessorID, Token: token.SecretID})
+				require.NoError(t, err)
+				c.existingSecret.SecretString = aws.String(string(secretValue))
+			}
+
+			err := taskTokens.Upsert()
 			if c.expectedError != "" {
 				require.EqualError(t, err, c.expectedError)
 			} else {
@@ -509,7 +447,7 @@ func TestTask_Upsert(t *testing.T) {
 				require.NoError(t, err)
 				var serviceTokens []*api.ACLToken
 				for _, token := range tokens {
-					if token.ServiceIdentities != nil && token.ServiceIdentities[0].ServiceName == "service" {
+					if token.Description == taskTokens.aclDescription("Token") {
 						token, _, err := consulClient.ACL().TokenRead(token.AccessorID, nil)
 						require.NoError(t, err)
 						serviceTokens = append(serviceTokens, token)
@@ -554,29 +492,25 @@ func TestTask_Delete(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			existingSecret := &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}
 			smClient := &mocks.SMClient{Secret: existingSecret}
-			adminToken := "123e4567-e89b-12d3-a456-426614174000"
-			testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
-				c.ACL.Enabled = true
-				c.ACL.Tokens.Master = adminToken
-				c.ACL.DefaultPolicy = "deny"
-			})
-			require.NoError(t, err)
-			defer func() { _ = testServer.Stop() }()
-			testServer.WaitForLeader(t)
+			consulClient := initConsul(t)
 
-			clientConfig := api.DefaultConfig()
-			clientConfig.Address = testServer.HTTPAddr
-			clientConfig.Token = adminToken
-
-			consulClient, err := api.NewClient(clientConfig)
-			require.NoError(t, err)
+			taskTokens := ServiceInfo{
+				SecretsManagerClient: smClient,
+				ConsulClient:         consulClient,
+				Cluster:              "test-cluster",
+				SecretPrefix:         "test",
+				ServiceName:          "service",
+				ServiceState: ServiceState{
+					ConsulECSTasks: true,
+				},
+				Log: hclog.NewNullLogger(),
+			}
 
 			// Create existing token in consul and update existing secret.
+			var err error
 			var token *api.ACLToken
 			if c.createExistingToken {
-				token, _, err = consulClient.ACL().TokenCreate(&api.ACLToken{
-					ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "service"}},
-				}, nil)
+				token, _, err = consulClient.ACL().TokenCreate(&api.ACLToken{Description: taskTokens.aclDescription("Token")}, nil)
 				require.NoError(t, err)
 			}
 			if c.updateExistingSecret {
@@ -601,18 +535,6 @@ func TestTask_Delete(t *testing.T) {
 					Name: "service",
 				})
 				require.NoError(t, err)
-			}
-
-			taskTokens := ServiceInfo{
-				SecretsManagerClient: smClient,
-				ConsulClient:         consulClient,
-				Cluster:              "test-cluster",
-				SecretPrefix:         "test",
-				ServiceName:          "service",
-				ServiceState: ServiceState{
-					ConsulECSTasks: true,
-				},
-				Log: hclog.NewNullLogger(),
 			}
 
 			err = taskTokens.Delete()
@@ -780,14 +702,14 @@ func TestQualifiedNames(t *testing.T) {
 	}
 }
 
-func TestCreateNamespaces(t *testing.T) {
+func TestPrepareNamespaces(t *testing.T) {
 	cases := map[string]struct {
 		partition string
-		expNS     []string
+		expNS     map[string][]string
 		resources map[string]*ServiceInfo
 	}{
 		"with partitions disabled": {
-			expNS: []string{"default"},
+			expNS: map[string][]string{"default": {"default"}},
 			resources: map[string]*ServiceInfo{
 				"resource1": {
 					Partition: "default",
@@ -797,7 +719,7 @@ func TestCreateNamespaces(t *testing.T) {
 		},
 		"with resources in default namespace": {
 			partition: "default",
-			expNS:     []string{"default"},
+			expNS:     map[string][]string{"default": {"default"}},
 			resources: map[string]*ServiceInfo{
 				"resource1": {
 					Partition: "default",
@@ -807,50 +729,40 @@ func TestCreateNamespaces(t *testing.T) {
 		},
 		"with resources in different namespaces": {
 			partition: "default",
-			expNS:     []string{"default", "namespace-1", "namespace-2"},
+			expNS: map[string][]string{
+				"default": {"default", "namespace-1", "namespace-2"},
+			},
 			resources: map[string]*ServiceInfo{
 				"resource1": {
-					Partition: "default",
-					Namespace: "",
+					ServiceName: "service-1",
+					Partition:   "default",
+					Namespace:   "default",
 				},
 				"resource2": {
-					Partition: "default",
-					Namespace: "namespace-1",
+					ServiceName: "service-1",
+					Partition:   "default",
+					Namespace:   "namespace-1",
 				},
 				"resource3": {
-					Partition: "default",
-					Namespace: "namespace-1",
+					ServiceName: "service-2",
+					Partition:   "default",
+					Namespace:   "namespace-1",
 				},
 				"resource4": {
-					Partition: "default",
-					Namespace: "namespace-2",
+					ServiceName: "service-1",
+					Partition:   "default",
+					Namespace:   "namespace-2",
 				},
 			},
 		},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			adminToken := "123e4567-e89b-12d3-a456-426614174000"
-			testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
-				c.ACL.Enabled = true
-				c.ACL.Tokens.Master = adminToken
-				c.ACL.DefaultPolicy = "deny"
-			})
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = testServer.Stop() })
-			testServer.WaitForLeader(t)
-
-			clientConfig := api.DefaultConfig()
-			clientConfig.Address = testServer.HTTPAddr
-			clientConfig.Token = adminToken
-			clientConfig.Partition = c.partition
-
-			consulClient, err := api.NewClient(clientConfig)
-			require.NoError(t, err)
+			consulClient := initConsul(t)
 
 			if !enterpriseFlag() {
 				c.partition = ""
-				c.expNS = make([]string, 0)
+				c.expNS = make(map[string][]string)
 			}
 
 			s := ServiceStateLister{
@@ -861,28 +773,79 @@ func TestCreateNamespaces(t *testing.T) {
 
 			if c.partition == "" {
 				// list all existing namespaces and ensure that no new ones are created
-				c.expNS = listNamespaces(consulClient)
+				c.expNS = listNamespaces(t, consulClient)
 			}
 
-			// create the namespaces and ensure they exist
-			s.createNamespaces(c.resources)
-			obsNS := listNamespaces(consulClient)
-			require.ElementsMatch(t, c.expNS, obsNS)
+			// create the namespaces and cross-namespace policy
+			s.prepareNamespaces(c.resources)
+
+			if c.partition != "" {
+				// if partitions are enabled ensure that the cross-namespace read policy exists
+				rules, err := getPolicyRules(t, consulClient, c.partition, DefaultNamespace, xnsPolicyName)
+				require.NoError(t, err)
+				require.Equal(t, fmt.Sprintf(xnsPolicyTpl, c.partition), rules)
+
+				// for each resource, ensure that the service policy exists
+				for _, r := range c.resources {
+					rules, err = getPolicyRules(t, consulClient, r.Partition, r.Namespace,
+						fmt.Sprintf("%s-%s-%s-service", r.Partition, r.Namespace, r.ServiceName))
+					require.NoError(t, err)
+					require.Equal(t,
+						fmt.Sprintf(entServicePolicyTpl, r.Partition, r.Namespace, r.ServiceName), rules)
+				}
+			}
+
+			obsNS := listNamespaces(t, consulClient)
+			require.Equal(t, c.expNS, obsNS)
 		})
 	}
 }
 
-func listNamespaces(consulClient *api.Client) []string {
-	// list all existing namespaces and ensure that no new ones are created
-	names := make([]string, 0)
-	ns, _, err := consulClient.Namespaces().List(nil)
-	if err != nil {
-		return names
-	}
-	for _, n := range ns {
-		names = append(names, n.Name)
+// helper func that initializes a Consul test server and returns a Consul API client.
+func initConsul(t *testing.T) *api.Client {
+	adminToken := "123e4567-e89b-12d3-a456-426614174000"
+	testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
+		c.ACL.Enabled = true
+		c.ACL.Tokens.Master = adminToken
+		c.ACL.DefaultPolicy = "deny"
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = testServer.Stop() })
+	testServer.WaitForLeader(t)
+
+	clientConfig := api.DefaultConfig()
+	clientConfig.Address = testServer.HTTPAddr
+	clientConfig.Token = adminToken
+
+	consulClient, err := api.NewClient(clientConfig)
+	require.NoError(t, err)
+	return consulClient
+}
+
+// listNamespaces is a helper func that returns a list of namespaces mapped to partition.
+func listNamespaces(t *testing.T, consulClient *api.Client) map[string][]string {
+	// list all existing namespaces and map them to partition
+	names := make(map[string][]string)
+	partitions, _, err := consulClient.Partitions().List(context.Background(), nil)
+	require.NoError(t, err)
+	for _, p := range partitions {
+		ns, _, err := consulClient.Namespaces().List(&api.QueryOptions{Partition: p.Name})
+		require.NoError(t, err)
+		for _, n := range ns {
+			names[p.Name] = append(names[p.Name], n.Name)
+		}
 	}
 	return names
+}
+
+func getPolicyRules(t *testing.T, consulClient *api.Client, partition, namespace, name string) (string, error) {
+	policy, _, err := consulClient.ACL().PolicyReadByName(name,
+		&api.QueryOptions{Partition: partition, Namespace: namespace})
+	if err != nil || policy == nil {
+		return "", err
+	}
+
+	return policy.Rules, nil
 }
 
 func enterpriseFlag() bool {

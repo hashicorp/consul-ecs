@@ -45,8 +45,8 @@ func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
 	c.flagSet.StringVar(&c.flagConsulClientSecretARN, flagConsulClientSecretARN, "", "ARN of AWS Secrets Manager secret for Consul client")
 	c.flagSet.StringVar(&c.flagSecretNamePrefix, flagSecretNamePrefix, "", "The prefix for secret names stored in AWS Secrets Manager")
-	c.flagSet.StringVar(&c.flagPartition, flagPartition, controller.DefaultNamespace, "The Consul partition name that the ACL controller will use for ACL resources. If not provided will default to the `default` partition [Consul Enterprise]")
-	c.flagSet.BoolVar(&c.flagPartitionsEnabled, flagPartitionsEnabled, false, "Enables Consul partitions and namespaces [Consul Enterprise]")
+	c.flagSet.StringVar(&c.flagPartition, flagPartition, controller.DefaultPartition, "The Consul partition name that the ACL controller will use for ACL resources. If not provided will default to the `default` partition [Consul Enterprise]")
+	c.flagSet.BoolVar(&c.flagPartitionsEnabled, flagPartitionsEnabled, false, "Enables support for Consul partitions and namespaces [Consul Enterprise]")
 
 	c.log = hclog.New(nil)
 	c.ctx = context.Background()
@@ -152,7 +152,7 @@ func (c *Command) createPartition(consulClient *api.Client) error {
 	}
 	for _, p := range partitions {
 		if p.Name == c.flagPartition {
-			c.log.Info("found existing partition %s", p.Name)
+			c.log.Info("found existing partition", p.Name)
 			return nil
 		}
 	}
@@ -161,7 +161,7 @@ func (c *Command) createPartition(consulClient *api.Client) error {
 	if err != nil {
 		return fmt.Errorf("failed to create partition %s: %s", c.flagPartition, err)
 	}
-	c.log.Info("created partition %s", c.flagPartition)
+	c.log.Info("created partition", c.flagPartition)
 	return nil
 }
 

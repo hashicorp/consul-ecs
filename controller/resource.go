@@ -61,6 +61,7 @@ type ServiceStateLister struct {
 	SecretPrefix string
 
 	// Partition is the partition that is used by the ServiceStateLister [Consul Enterprise].
+	// If partition and namespace support are not enabled then this is set to the empty string.
 	Partition string
 
 	// Log is the logger for the ServiceStateLister.
@@ -86,20 +87,24 @@ func (s ServiceStateLister) List() ([]Resource, error) {
 		}
 	}
 
-	if err = s.createNamespaces(buildingResources); err != nil {
+	if err = s.prepareNamespaces(buildingResources); err != nil {
 		return resources, err
 	}
 
-	aclTokens, err := s.fetchACLTokens()
+	aclState, err := s.fetchACLState()
 	if err != nil {
 		return resources, err
 	}
 
-	for name, tokens := range aclTokens {
+	for name, state := range aclState {
 		if _, ok := buildingResources[name]; !ok {
-			buildingResources[name] = s.newServiceInfo(name, ServiceState{ACLTokens: tokens})
+			buildingResources[name] = s.newServiceInfo(
+				name,
+				ServiceState{ACLPolicies: state.ACLPolicies, ACLTokens: state.ACLTokens},
+			)
 		} else {
-			buildingResources[name].ServiceState.ACLTokens = tokens
+			buildingResources[name].ServiceState.ACLPolicies = state.ACLPolicies
+			buildingResources[name].ServiceState.ACLTokens = state.ACLTokens
 		}
 	}
 
@@ -170,52 +175,164 @@ func (s ServiceStateLister) fetchECSTasks() (map[string]struct{}, error) {
 	return resources, nil
 }
 
-// fetchACLTokens retrieves all of the ACL tokens from Consul and
+// fetchACLState retrieves all of the ACL policies and tokens from Consul and
 // returns a mapping from service name to the ACL tokens that service has.
-func (s ServiceStateLister) fetchACLTokens() (map[string][]*api.ACLTokenListEntry, error) {
-	aclTokens := make(map[string][]*api.ACLTokenListEntry)
+func (s ServiceStateLister) fetchACLState() (map[string]*ServiceState, error) {
+	aclState := make(map[string]*ServiceState)
 
 	var err error
 	namespaces := make([]*api.Namespace, 0)
 
+	opts := &api.QueryOptions{Partition: s.Partition}
+
 	if s.Partition != "" {
 		// if partitions are enabled then list the namespaces.
-		namespaces, _, err = s.ConsulClient.Namespaces().List(nil)
+		namespaces, _, err = s.ConsulClient.Namespaces().List(opts)
 		if err != nil {
-			return aclTokens, err
+			return aclState, err
 		}
 	} else {
-		// partitions aren't enabled so just use an empty namespace when listing tokens.
+		// partitions aren't enabled so just use an empty namespace when listing ACL info.
 		namespaces = append(namespaces, &api.Namespace{})
 	}
 
-	// list tokens from all namespaces
+	// list ACL policies and tokens from all namespaces and map them to qualified service name
 	for _, ns := range namespaces {
-		tokenList, _, err := s.ConsulClient.ACL().TokenList(&api.QueryOptions{
-			Partition: ns.Partition,
-			Namespace: ns.Name,
-		})
+		opts.Namespace = ns.Name
+
+		policyList, _, err := s.ConsulClient.ACL().PolicyList(opts)
 		if err != nil {
-			return aclTokens, err
+			return aclState, err
+		}
+
+		for _, policy := range policyList {
+			if isInCluster(s.Cluster, policy.Description) {
+				qname := serviceNameFromDescription(policy.Description)
+				if state, ok := aclState[qname]; ok {
+					state.ACLPolicies = append(state.ACLPolicies, policy)
+				} else {
+					aclState[qname] = &ServiceState{ACLPolicies: []*api.ACLPolicyListEntry{policy}}
+				}
+			}
+		}
+
+		tokenList, _, err := s.ConsulClient.ACL().TokenList(opts)
+		if err != nil {
+			return aclState, err
 		}
 
 		for _, token := range tokenList {
-			if isInCluster(s.Cluster, token) && len(token.ServiceIdentities) == 1 {
-				qname := s.serviceName(
-					token.Partition,
-					token.Namespace,
-					token.ServiceIdentities[0].ServiceName,
-				)
-				if _, ok := aclTokens[qname]; !ok {
-					aclTokens[qname] = []*api.ACLTokenListEntry{token}
+			if isInCluster(s.Cluster, token.Description) && len(token.Policies) == 1 {
+				qname := serviceNameFromDescription(token.Description)
+				if state, ok := aclState[qname]; ok {
+					state.ACLTokens = append(state.ACLTokens, token)
 				} else {
-					aclTokens[qname] = append(aclTokens[qname], token)
+					aclState[qname] = &ServiceState{ACLTokens: []*api.ACLTokenListEntry{token}}
 				}
 			}
 		}
 	}
 
-	return aclTokens, nil
+	return aclState, nil
+}
+
+// prepareNamespaces ensures that for every service in the cluster the namespace
+// exists and the cross-partition/cross-namespace read policy exists.
+func (s ServiceStateLister) prepareNamespaces(resources map[string]*ServiceInfo) error {
+	if s.Partition == "" {
+		return nil
+	}
+
+	// create the cross-namespace read policy
+	if err := s.upsertCrossNSPolicy(); err != nil {
+		return err
+	}
+
+	// retrieve the list of unique namespaces from the map of services
+	ns := uniqueNamespaces(resources)
+	if len(ns) < 2 {
+		// only the default namespace exists, so nothing to do
+		return nil
+	}
+
+	if err := s.createNamespaces(ns); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// upsertCrossNSPolicy creates the cross-namespace read policy in the local
+// partition and default namespace, if it does not already exist.
+func (s ServiceStateLister) upsertCrossNSPolicy() error {
+	policy, _, err := s.ConsulClient.ACL().PolicyReadByName(
+		xnsPolicyName,
+		&api.QueryOptions{Partition: s.Partition, Namespace: DefaultNamespace},
+	)
+	if err != nil && !IsACLNotFoundError(err) {
+		return fmt.Errorf("reading cross-namespace policy: %w", err)
+	}
+
+	if policy != nil {
+		// the policy already exists so return.
+		return nil
+	}
+
+	// create the policy in the local partition and default namespace.
+	_, _, err = s.ConsulClient.ACL().PolicyCreate(&api.ACLPolicy{
+		Name:        xnsPolicyName,
+		Description: xnsPolicyDesc,
+		Partition:   s.Partition,
+		Namespace:   DefaultNamespace,
+		Rules:       fmt.Sprintf(xnsPolicyTpl, s.Partition),
+	}, nil)
+	if err != nil {
+		return fmt.Errorf("creating cross-namespace policy: %w", err)
+	}
+
+	s.Log.Info("created cross-namespace policy", xnsPolicyName)
+	return nil
+}
+
+// createNamespaces creates each namespace in the list.
+// It also attaches the cross-namespace read policy to the namespace so that
+// each token created in the namespace inherits that policy.
+//
+// It does nothing for namespaces that already exist.
+func (s ServiceStateLister) createNamespaces(ns []string) error {
+	// retrieve the list of existing namespaces
+	existingNS, _, err := s.ConsulClient.Namespaces().List(&api.QueryOptions{Partition: s.Partition})
+	if err != nil {
+		return err
+	}
+
+	// create any namespaces that do not already exist
+	create := make([]string, 0, len(ns))
+	for _, n := range ns {
+		for _, e := range existingNS {
+			if e.Name != n {
+				create = append(create, n)
+				break
+			}
+		}
+	}
+	failed := make([]string, 0, len(create))
+	for _, n := range create {
+		s.Log.Info("creating namespace", n)
+		_, _, err = s.ConsulClient.Namespaces().Create(&api.Namespace{
+			Partition: s.Partition,
+			Name:      n,
+			ACLs:      &api.NamespaceACLConfig{PolicyDefaults: []api.ACLLink{{Name: xnsPolicyName}}},
+		}, nil)
+		if err != nil {
+			s.Log.Error("creating namespace", n, err)
+			failed = append(failed, n)
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("namespace creation failed for %s", strings.Join(failed, ","))
+	}
+	return nil
 }
 
 func (s ServiceStateLister) newServiceInfo(qname string, serviceState ServiceState) *ServiceInfo {
@@ -252,6 +369,7 @@ func (s ServiceStateLister) serviceNameForTask(t *ecs.Task) (string, error) {
 	return s.serviceName(partition, namespace, splits[0]), nil
 }
 
+// serviceName returns a fully qualified name for the task.
 func (s ServiceStateLister) serviceName(p, n, t string) string {
 	if s.Partition != "" {
 		// If partitions are enabled and the partition or namespace are
@@ -269,58 +387,13 @@ func (s ServiceStateLister) serviceName(p, n, t string) string {
 	return qualifiedName(p, n, t)
 }
 
-// createNamespaces ensures that the namespace for each service exists in the
-// Consul cluster if it does not already.
-func (s ServiceStateLister) createNamespaces(resources map[string]*ServiceInfo) error {
-	if s.Partition == "" {
-		return nil
-	}
-
-	// create list of unique namespaces from all resource namespaces
-	ns := make(map[string]struct{}, len(resources))
-	for _, info := range resources {
-		if info.Namespace != "" {
-			ns[info.Namespace] = struct{}{}
-		}
-	}
-
-	// retrieve the list of existing namespaces
-	existingNS, _, err := s.ConsulClient.Namespaces().List(nil)
-	if err != nil {
-		return err
-	}
-
-	// create any namespaces that do not already exist
-	failed := make([]string, 0, len(ns))
-	for n := range ns {
-		exists := false
-		for _, e := range existingNS {
-			if e.Name == n {
-				exists = true
-				break
-			}
-		}
-		if !exists {
-			s.Log.Info("creating namespace", n)
-			_, _, err = s.ConsulClient.Namespaces().Create(&api.Namespace{Name: n}, nil)
-			if err != nil {
-				s.Log.Error("failed to create namespace", n, err)
-				failed = append(failed, n)
-			}
-		}
-	}
-	if len(failed) > 0 {
-		return fmt.Errorf("namespace creation failed for %s", strings.Join(failed, ","))
-	}
-	return nil
-}
-
 // ServiceState contains all of the information needed to determine if an ACL
 // token should be created for a Consul service or if an ACL token should be
 // deleted.
 type ServiceState struct {
 	ConsulECSTasks bool
 	ACLTokens      []*api.ACLTokenListEntry
+	ACLPolicies    []*api.ACLPolicyListEntry
 }
 
 type ServiceInfo struct {
@@ -347,26 +420,44 @@ type TokenSecretJSON struct {
 // Reconcile inserts or deletes ACL tokens based on their ServiceState.
 func (s *ServiceInfo) Reconcile() error {
 	state := s.ServiceState
-	if len(state.ACLTokens) == 0 && state.ConsulECSTasks {
+	if (len(state.ACLTokens) == 0 || len(state.ACLPolicies) == 0) && state.ConsulECSTasks {
 		return s.Upsert()
 	}
 
-	if !state.ConsulECSTasks && len(state.ACLTokens) > 0 {
+	if !state.ConsulECSTasks && (len(state.ACLTokens) > 0 || len(state.ACLPolicies) > 0) {
 		return s.Delete()
 	}
 
 	return nil
 }
 
-// Upsert creates a token for the task if one doesn't already exist
+// Upsert creates a service policy and token for the task if one doesn't already exist
 // and updates the secret with the contents of the token.
 func (s *ServiceInfo) Upsert() error {
+	opts := &api.QueryOptions{Partition: s.Partition, Namespace: s.Namespace}
+
+	// policy
+
+	currPolicy, _, err := s.ConsulClient.ACL().PolicyReadByName(s.policyName(), opts)
+	if err != nil && !IsACLNotFoundError(err) {
+		return fmt.Errorf("reading service policy: %w", err)
+	}
+
+	// if the policy doesn't already exist, create it.
+	if currPolicy == nil {
+		if err = s.createServicePolicy(); err != nil {
+			return fmt.Errorf("creating service policy: %w", err)
+		}
+	}
+
+	// token
+
 	currSecret, err := s.upsertSecret()
 	if err != nil {
 		return fmt.Errorf("upserting secret: %w", err)
 	}
 
-	currToken, _, err := s.ConsulClient.ACL().TokenRead(currSecret.AccessorID, nil)
+	currToken, _, err := s.ConsulClient.ACL().TokenRead(currSecret.AccessorID, opts)
 
 	if err != nil && !IsACLNotFoundError(err) {
 		return fmt.Errorf("reading existing token: %w", err)
@@ -379,18 +470,27 @@ func (s *ServiceInfo) Upsert() error {
 	}
 
 	// Otherwise, create one.
-	err = s.createServiceToken(currSecret)
-	if err != nil {
-		return fmt.Errorf("updating service token: %w", err)
+	if err = s.createServiceToken(currSecret); err != nil {
+		return fmt.Errorf("creating service token: %w", err)
 	}
 
 	return nil
 }
 
-// Delete removes the token for the given ServiceInfo.
+// Delete removes the service policy and token for the given ServiceInfo.
 func (s *ServiceInfo) Delete() error {
+	opts := &api.WriteOptions{Partition: s.Partition, Namespace: s.Namespace}
+
+	for _, policy := range s.ServiceState.ACLPolicies {
+		_, err := s.ConsulClient.ACL().PolicyDelete(policy.ID, opts)
+		if err != nil {
+			return fmt.Errorf("deleting policy: %w", err)
+		}
+		s.Log.Info("policy deleted successfully", "policy", s.policyName())
+
+	}
 	for _, token := range s.ServiceState.ACLTokens {
-		_, err := s.ConsulClient.ACL().TokenDelete(token.AccessorID, nil)
+		_, err := s.ConsulClient.ACL().TokenDelete(token.AccessorID, opts)
 		if err != nil {
 			return fmt.Errorf("deleting token: %w", err)
 		}
@@ -449,18 +549,35 @@ func (s *ServiceInfo) upsertSecret() (TokenSecretJSON, error) {
 	return newSecret, err
 }
 
+// createServicePolicy
+func (s *ServiceInfo) createServicePolicy() error {
+	s.Log.Info("creating service policy", "name", s.policyName())
+	_, _, err := s.ConsulClient.ACL().PolicyCreate(&api.ACLPolicy{
+		Name:        s.policyName(),
+		Description: s.aclDescription("Policy"),
+		Partition:   s.Partition,
+		Namespace:   s.Namespace,
+		Rules:       s.policy(),
+	}, nil)
+	if err != nil {
+		return fmt.Errorf("creating service policy: %w", err)
+	}
+	s.Log.Info("created service policy", "name", s.policyName())
+	return nil
+}
+
 // createServiceToken inserts an ACL token into Consul. The AccessorID and
 // SecretID are set based on the AWS secret.
 func (s *ServiceInfo) createServiceToken(secret TokenSecretJSON) error {
 	s.Log.Info("creating service token", "id", s.Name())
 	// Create ACL token for envoy to register the service.
 	_, _, err := s.ConsulClient.ACL().TokenCreate(&api.ACLToken{
-		AccessorID:        secret.AccessorID,
-		SecretID:          secret.Token,
-		Description:       fmt.Sprintf("Token for %s service\n%s: %s", s.Name(), clusterTag, s.Cluster),
-		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: s.ServiceName}},
-		Partition:         partition(s.Partition),
-		Namespace:         namespace(s.Namespace),
+		AccessorID:  secret.AccessorID,
+		SecretID:    secret.Token,
+		Description: s.aclDescription("Token"),
+		Policies:    []*api.ACLTokenPolicyLink{&api.ACLLink{Name: s.policyName()}},
+		Partition:   s.Partition,
+		Namespace:   s.Namespace,
 	}, nil)
 	if err != nil {
 		return fmt.Errorf("creating ACL token: %s", err)
@@ -478,14 +595,30 @@ func (s *ServiceInfo) secretName() string {
 	}
 }
 
+func (s *ServiceInfo) aclDescription(d string) string {
+	return fmt.Sprintf("%s for %s service\n%s: %s", d, s.Name(), clusterTag, s.Cluster)
+}
+
+func (s *ServiceInfo) policyName() string {
+	return fmt.Sprintf("%s-service", s.ServiceName)
+}
+
+func (s *ServiceInfo) policy() string {
+	if s.Partition == "" {
+		return fmt.Sprintf(ossServicePolicyTpl, s.ServiceName)
+	} else {
+		return fmt.Sprintf(entServicePolicyTpl, s.Partition, s.Namespace, s.ServiceName)
+	}
+}
+
 // Name returns the fully qualified name of the service which
 // includes the partition and namespace, if they are present.
 func (s *ServiceInfo) Name() string {
 	return qualifiedName(s.Partition, s.Namespace, s.ServiceName)
 }
 
-func isInCluster(clusterName string, token *api.ACLTokenListEntry) bool {
-	return strings.Contains(token.Description, fmt.Sprintf("%s: %s", clusterTag, clusterName))
+func isInCluster(clusterName, description string) bool {
+	return strings.Contains(description, fmt.Sprintf("%s: %s", clusterTag, clusterName))
 }
 
 func isMeshTask(t *ecs.Task) bool {
@@ -507,6 +640,17 @@ func tagValue(tags []*ecs.Tag, key string) string {
 // IsACLNotFoundError returns true if the ACL is not found.
 func IsACLNotFoundError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "Unexpected response code: 403 (ACL not found)")
+}
+
+// serviceNameFromDescription returns the fully qualified service name from the
+// description field of a token or policy created by the ACL controller.
+func serviceNameFromDescription(d string) string {
+	// description is of the form: "<Policy|Token> for <name> service..."
+	parts := strings.Split(d, " ")
+	if len(parts) > 3 {
+		return parts[2]
+	}
+	return ""
 }
 
 // qualifiedName returns a fully qualified name in the form
@@ -547,4 +691,17 @@ func namespace(qname string) string {
 func serviceName(qname string) string {
 	parts := strings.SplitN(qname, "/", 3)
 	return parts[len(parts)-1]
+}
+
+// uniqueNamespaces returns the set of unique namespaces from the map of ServiceInfo.
+func uniqueNamespaces(resources map[string]*ServiceInfo) []string {
+	u := make([]string, 0, len(resources))
+	ns := make(map[string]struct{})
+	for _, info := range resources {
+		if _, exists := ns[info.Namespace]; !exists && info.Namespace != "" {
+			ns[info.Namespace] = struct{}{}
+			u = append(u, info.Namespace)
+		}
+	}
+	return u
 }

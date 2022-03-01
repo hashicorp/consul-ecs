@@ -44,6 +44,11 @@ func (c *Controller) reconcile() error {
 	if err != nil {
 		return fmt.Errorf("listing resources: %w", err)
 	}
+
+	if err = c.Resources.ReconcileNamespaces(resources); err != nil {
+		return fmt.Errorf("reconciling namespaces: %w", err)
+	}
+
 	for _, resource := range resources {
 		err = resource.Reconcile()
 		if err != nil {

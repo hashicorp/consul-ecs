@@ -2,12 +2,18 @@ package controller
 
 // These tests can run against both OSS and Enterprise Consul.
 // By default only the OSS tests will run and Enterprise features will not be enabled.
-// To run the tests with Enterprise features make sure your `consul` command is pointing
-// to an Enterprise binary and pass `-enterprise` as an arg to the tests:
+//
+// To run the tests against an OSS Consul agent, make sure that the `consul` command is
+// pointing to an OSS binary and run the tests as normal:
+//
+//	go test
+//
+// To run the tests against an Enterprise Consul agent, make sure that the `consul` command is
+// pointing to an Enterprise binary and pass `-enterprise` as an arg to the tests:
 //
 //	go test -- -enterprise
 //
-// Note: the tests will run against Consul Enterprise with or without the -enterprise flag.
+// Note: the tests will not run against Consul Enterprise without the -enterprise flag.
 
 import (
 	"context"
@@ -25,6 +31,7 @@ import (
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/testutil"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -70,24 +77,19 @@ func TestServiceStateLister_List(t *testing.T) {
 		Description: fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
 	}
 	aclTokenListEntry1 := &api.ACLTokenListEntry{
-		Description:       fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
-		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "service1"}},
+		Description: fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
 	}
 	aclToken2 := &api.ACLToken{
-		Description:       fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
-		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "service1"}},
+		Description: fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
 	}
 	aclTokenListEntry2 := &api.ACLTokenListEntry{
-		Description:       fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
-		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "service1"}},
+		Description: fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
 	}
 	aclToken3 := &api.ACLToken{
-		Description:       fmt.Sprintf("Token for service3 service\n%s: %s", clusterTag, cluster),
-		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "service3"}},
+		Description: fmt.Sprintf("Token for service3 service\n%s: %s", clusterTag, cluster),
 	}
 	aclTokenListEntry3 := &api.ACLTokenListEntry{
-		Description:       fmt.Sprintf("Token for service3 service\n%s: %s", clusterTag, cluster),
-		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "service3"}},
+		Description: fmt.Sprintf("Token for service3 service\n%s: %s", clusterTag, cluster),
 	}
 
 	if enterprise {
@@ -100,19 +102,22 @@ func TestServiceStateLister_List(t *testing.T) {
 		task3.Tags = append(task3.Tags, meshTag, extPartitionTag, namespace1Tag)
 		aclToken1.Partition = partitionValue
 		aclToken1.Namespace = namespaces[0]
+		aclToken1.Description = fmt.Sprintf("Token for %s/%s/service1 service\n%s: %s", partitionValue, namespaces[0], clusterTag, cluster)
 		aclTokenListEntry1.Partition = partitionValue
 		aclTokenListEntry1.Namespace = namespaces[0]
-		aclTokenListEntry1.Description = fmt.Sprintf("Token for %s-%s-service1 service\n%s: %s", partitionValue, namespaces[0], clusterTag, cluster)
+		aclTokenListEntry1.Description = fmt.Sprintf("Token for %s/%s/service1 service\n%s: %s", partitionValue, namespaces[0], clusterTag, cluster)
 		aclToken2.Partition = partitionValue
 		aclToken2.Namespace = namespaces[1]
+		aclToken2.Description = fmt.Sprintf("Token for %s/%s/service1 service\n%s: %s", partitionValue, namespaces[1], clusterTag, cluster)
 		aclTokenListEntry2.Partition = partitionValue
 		aclTokenListEntry2.Namespace = namespaces[1]
-		aclTokenListEntry2.Description = fmt.Sprintf("Token for %s-%s-service2 service\n%s: %s", partitionValue, namespaces[1], clusterTag, cluster)
+		aclTokenListEntry2.Description = fmt.Sprintf("Token for %s/%s/service1 service\n%s: %s", partitionValue, namespaces[1], clusterTag, cluster)
 		aclToken3.Partition = partitionValue
 		aclToken3.Namespace = namespaces[0]
+		aclToken3.Description = fmt.Sprintf("Token for %s/%s/service3 service\n%s: %s", partitionValue, namespaces[0], clusterTag, cluster)
 		aclTokenListEntry3.Partition = partitionValue
 		aclTokenListEntry3.Namespace = namespaces[0]
-		aclTokenListEntry3.Description = fmt.Sprintf("Token for %s-%s-service3 service\n%s: %s", partitionValue, namespaces[0], clusterTag, cluster)
+		aclTokenListEntry3.Description = fmt.Sprintf("Token for %s/%s/service3 service\n%s: %s", partitionValue, namespaces[0], clusterTag, cluster)
 	}
 	cases := map[string]struct {
 		paginateResults bool
@@ -191,7 +196,8 @@ func TestServiceStateLister_List(t *testing.T) {
 			for _, aclToken := range c.aclTokens {
 				id := fmt.Sprintf("%s/%s/%s", aclToken.Partition, aclToken.Namespace, aclToken.Description)
 				if _, exists := createdTokens[id]; !exists {
-					_, _, err := consulClient.ACL().TokenCreate(aclToken, nil)
+					_, _, err := consulClient.ACL().TokenCreate(aclToken,
+						&api.WriteOptions{Partition: aclToken.Partition, Namespace: aclToken.Namespace})
 					require.NoError(t, err)
 					createdTokens[id] = struct{}{}
 				}
@@ -210,7 +216,8 @@ func TestServiceStateLister_List(t *testing.T) {
 				ECSClient: &mocks.ECSClient{
 					Tasks:           tasks,
 					PaginateResults: c.paginateResults,
-				}}
+				},
+			}
 
 			if enterprise {
 				s.Partition = partitionValue
@@ -228,17 +235,15 @@ func TestServiceStateLister_List(t *testing.T) {
 				var tokens []*api.ACLTokenListEntry
 				for _, token := range serviceInfo.ServiceState.ACLTokens {
 					entry := &api.ACLTokenListEntry{
-						Description:       token.Description,
-						ServiceIdentities: token.ServiceIdentities,
-					}
-					if enterprise {
-						entry.Partition = serviceInfo.Partition
-						entry.Namespace = serviceInfo.Namespace
+						Description: token.Description,
+						Policies:    token.Policies,
+						Partition:   token.Partition,
+						Namespace:   token.Namespace,
 					}
 					tokens = append(tokens, entry)
 				}
 				serviceInfo.ServiceState.ACLTokens = tokens
-				serviceStates[serviceInfo.Name()] = serviceInfo.ServiceState
+				serviceStates[serviceInfo.QName.String()] = serviceInfo.ServiceState
 			}
 
 			require.Equal(t, c.expected, serviceStates)
@@ -251,30 +256,41 @@ func TestReconcile(t *testing.T) {
 	aclToken1 := &api.ACLToken{
 		Description: fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
 	}
-
+	aclPolicy1 := &api.ACLPolicy{
+		Name:        "service1-service",
+		Description: fmt.Sprintf("Policy for service1 service\n%s: %s", clusterTag, cluster),
+	}
 	cases := map[string]struct {
-		tasks          bool
-		aclTokens      []*api.ACLToken
-		sutServiceName string
-		expected       []*api.ACLToken
+		tasks            bool
+		aclTokens        []*api.ACLToken
+		aclPolicies      []*api.ACLPolicy
+		sutServiceName   string
+		expectedTokens   []*api.ACLToken
+		expectedPolicies []*api.ACLPolicy
 	}{
-		"token should be deleted": {
-			tasks:          false,
-			aclTokens:      []*api.ACLToken{aclToken1},
-			sutServiceName: "service1",
-			expected:       nil,
+		"ACLs should be deleted": {
+			tasks:            false,
+			aclTokens:        []*api.ACLToken{aclToken1},
+			aclPolicies:      []*api.ACLPolicy{aclPolicy1},
+			sutServiceName:   "service1",
+			expectedTokens:   nil,
+			expectedPolicies: nil,
 		},
-		"token should be added": {
-			tasks:          true,
-			aclTokens:      []*api.ACLToken{},
-			sutServiceName: "service1",
-			expected:       []*api.ACLToken{aclToken1},
+		"ACLs should be added": {
+			tasks:            true,
+			aclTokens:        []*api.ACLToken{},
+			aclPolicies:      []*api.ACLPolicy{},
+			sutServiceName:   "service1",
+			expectedTokens:   []*api.ACLToken{aclToken1},
+			expectedPolicies: []*api.ACLPolicy{aclPolicy1},
 		},
-		"Does nothing when a task is running and a token exists for a given service": {
-			tasks:          true,
-			aclTokens:      []*api.ACLToken{aclToken1},
-			sutServiceName: "service1",
-			expected:       []*api.ACLToken{aclToken1},
+		"Does nothing when a task is running and ACLs exists for a given service": {
+			tasks:            true,
+			aclTokens:        []*api.ACLToken{aclToken1},
+			aclPolicies:      []*api.ACLPolicy{aclPolicy1},
+			sutServiceName:   "service1",
+			expectedTokens:   []*api.ACLToken{aclToken1},
+			expectedPolicies: []*api.ACLPolicy{aclPolicy1},
 		},
 		"Does nothing when there are no tasks or tokens": {
 			tasks:          false,
@@ -287,9 +303,33 @@ func TestReconcile(t *testing.T) {
 			smClient := &mocks.SMClient{Secret: &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}}
 			consulClient := initConsul(t)
 
+			writeOpts := &api.WriteOptions{}
+			if enterpriseFlag() {
+				c.sutServiceName = "default/default/service1"
+
+				aclToken1.Partition = "default"
+				aclToken1.Namespace = "default"
+				aclToken1.Description = fmt.Sprintf("Token for default/default/service1 service\n%s: %s", clusterTag, cluster)
+
+				aclPolicy1.Partition = "default"
+				aclPolicy1.Namespace = "default"
+				aclPolicy1.Description = fmt.Sprintf("Policy for default/default/service1 service\n%s: %s", clusterTag, cluster)
+
+				writeOpts.Partition = "default"
+				writeOpts.Namespace = "default"
+			}
+
+			var beforePolicies []*api.ACLPolicyListEntry
+			for _, aclPolicy := range c.aclPolicies {
+				policy, _, err := consulClient.ACL().PolicyCreate(aclPolicy, writeOpts)
+				require.NoError(t, err)
+				beforePolicies = append(beforePolicies, &api.ACLPolicyListEntry{
+					ID: policy.ID,
+				})
+			}
 			var beforeTokens []*api.ACLTokenListEntry
 			for _, aclToken := range c.aclTokens {
-				token, _, err := consulClient.ACL().TokenCreate(aclToken, nil)
+				token, _, err := consulClient.ACL().TokenCreate(aclToken, writeOpts)
 				require.NoError(t, err)
 				beforeTokens = append(beforeTokens, &api.ACLTokenListEntry{
 					AccessorID: token.AccessorID,
@@ -303,9 +343,10 @@ func TestReconcile(t *testing.T) {
 				ConsulClient:         consulClient,
 				Cluster:              cluster,
 				SecretPrefix:         "test",
-				ServiceName:          c.sutServiceName,
+				QName:                QNameFromString(c.sutServiceName),
 				ServiceState: ServiceState{
 					ConsulECSTasks: c.tasks,
+					ACLPolicies:    beforePolicies,
 					ACLTokens:      beforeTokens,
 				},
 				Log: log,
@@ -322,14 +363,29 @@ func TestReconcile(t *testing.T) {
 			aclState, err := serviceStateLister.fetchACLState()
 			require.NoError(t, err)
 
+			var policies []*api.ACLPolicy
 			var tokens []*api.ACLToken
 			if state, ok := aclState[c.sutServiceName]; ok {
+				for _, policy := range state.ACLPolicies {
+					policies = append(policies, &api.ACLPolicy{
+						Name:        policy.Name,
+						Description: policy.Description,
+						Partition:   policy.Partition,
+						Namespace:   policy.Namespace,
+					})
+				}
 				for _, token := range state.ACLTokens {
-					tokens = append(tokens, &api.ACLToken{Description: token.Description})
+					tokens = append(tokens, &api.ACLToken{
+						Partition:   token.Partition,
+						Namespace:   token.Namespace,
+						Description: token.Description,
+					})
 				}
 			}
-			require.Equal(t, len(c.expected), len(tokens))
-			require.Equal(t, c.expected, tokens)
+			require.Equal(t, len(c.expectedPolicies), len(policies))
+			require.Equal(t, len(c.expectedTokens), len(tokens))
+			require.Equal(t, c.expectedPolicies, policies)
+			require.Equal(t, c.expectedTokens, tokens)
 		})
 	}
 
@@ -344,7 +400,7 @@ func TestRecreatingAToken(t *testing.T) {
 		ConsulClient:         consulClient,
 		Cluster:              "test-cluster",
 		SecretPrefix:         "test",
-		ServiceName:          "service",
+		QName:                QNameFromString("service"),
 		ServiceState: ServiceState{
 			ConsulECSTasks: true,
 		},
@@ -419,7 +475,7 @@ func TestTask_Upsert(t *testing.T) {
 				ConsulClient:         consulClient,
 				Cluster:              "test-cluster",
 				SecretPrefix:         "test",
-				ServiceName:          "service",
+				QName:                QNameFromString("service"),
 				ServiceState: ServiceState{
 					ConsulECSTasks: true,
 				},
@@ -499,7 +555,7 @@ func TestTask_Delete(t *testing.T) {
 				ConsulClient:         consulClient,
 				Cluster:              "test-cluster",
 				SecretPrefix:         "test",
-				ServiceName:          "service",
+				QName:                QNameFromString("service"),
 				ServiceState: ServiceState{
 					ConsulECSTasks: true,
 				},
@@ -652,7 +708,7 @@ func TestParseServiceNameFromTaskDefinitionARN(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				require.Equal(t, c.serviceName, serviceName)
+				require.Equal(t, c.serviceName, serviceName.String())
 			}
 		})
 	}
@@ -688,21 +744,21 @@ func TestQualifiedNames(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			qname := qualifiedName(c.partition, c.namespace, c.serviceName)
-			require.Equal(t, c.qname, qname)
-			require.Equal(t, c.serviceName, serviceName(qname))
+			qname := NewQName(c.partition, c.namespace, c.serviceName)
+			require.Equal(t, c.qname, qname.String())
+			require.Equal(t, c.serviceName, qname.Name())
 			if len(c.partition) > 0 && len(c.namespace) > 0 {
-				require.Equal(t, c.partition, partition(qname))
-				require.Equal(t, c.namespace, namespace(qname))
+				require.Equal(t, c.partition, qname.Partition())
+				require.Equal(t, c.namespace, qname.Namespace())
 			} else {
-				require.Equal(t, "", partition(qname))
-				require.Equal(t, "", namespace(qname))
+				require.Equal(t, "", qname.Partition())
+				require.Equal(t, "", qname.Namespace())
 			}
 		})
 	}
 }
 
-func TestPrepareNamespaces(t *testing.T) {
+func TestReconcileNamespaces(t *testing.T) {
 	cases := map[string]struct {
 		partition string
 		expNS     map[string][]string
@@ -711,20 +767,14 @@ func TestPrepareNamespaces(t *testing.T) {
 		"with partitions disabled": {
 			expNS: map[string][]string{"default": {"default"}},
 			resources: map[string]*ServiceInfo{
-				"resource1": {
-					Partition: "default",
-					Namespace: "test-namespace",
-				},
+				"resource1": {QName: NewQName("default", "test-namespace", "service")},
 			},
 		},
 		"with resources in default namespace": {
 			partition: "default",
 			expNS:     map[string][]string{"default": {"default"}},
 			resources: map[string]*ServiceInfo{
-				"resource1": {
-					Partition: "default",
-					Namespace: "default",
-				},
+				"resource1": {QName: NewQName("default", "default", "service")},
 			},
 		},
 		"with resources in different namespaces": {
@@ -733,26 +783,10 @@ func TestPrepareNamespaces(t *testing.T) {
 				"default": {"default", "namespace-1", "namespace-2"},
 			},
 			resources: map[string]*ServiceInfo{
-				"resource1": {
-					ServiceName: "service-1",
-					Partition:   "default",
-					Namespace:   "default",
-				},
-				"resource2": {
-					ServiceName: "service-1",
-					Partition:   "default",
-					Namespace:   "namespace-1",
-				},
-				"resource3": {
-					ServiceName: "service-2",
-					Partition:   "default",
-					Namespace:   "namespace-1",
-				},
-				"resource4": {
-					ServiceName: "service-1",
-					Partition:   "default",
-					Namespace:   "namespace-2",
-				},
+				"resource1": {QName: NewQName("default", "default", "service-1")},
+				"resource2": {QName: NewQName("default", "namespace-1", "service-1")},
+				"resource3": {QName: NewQName("default", "namespace-1", "service-2")},
+				"resource4": {QName: NewQName("default", "namespace-2", "service-1")},
 			},
 		},
 	}
@@ -776,27 +810,345 @@ func TestPrepareNamespaces(t *testing.T) {
 				c.expNS = listNamespaces(t, consulClient)
 			}
 
-			// create the namespaces and cross-namespace policy
-			s.prepareNamespaces(c.resources)
+			resourcesIF := make([]Resource, 0, len(c.resources))
+			for _, r := range c.resources {
+				resourcesIF = append(resourcesIF, r)
+			}
+
+			// create the namespaces and cross-namespace policies
+			// this does nothing if enterprise features are not enabled
+			s.ReconcileNamespaces(resourcesIF)
 
 			if c.partition != "" {
 				// if partitions are enabled ensure that the cross-namespace read policy exists
 				rules, err := getPolicyRules(t, consulClient, c.partition, DefaultNamespace, xnsPolicyName)
 				require.NoError(t, err)
 				require.Equal(t, fmt.Sprintf(xnsPolicyTpl, c.partition), rules)
-
-				// for each resource, ensure that the service policy exists
-				for _, r := range c.resources {
-					rules, err = getPolicyRules(t, consulClient, r.Partition, r.Namespace,
-						fmt.Sprintf("%s-%s-%s-service", r.Partition, r.Namespace, r.ServiceName))
-					require.NoError(t, err)
-					require.Equal(t,
-						fmt.Sprintf(entServicePolicyTpl, r.Partition, r.Namespace, r.ServiceName), rules)
-				}
 			}
 
 			obsNS := listNamespaces(t, consulClient)
 			require.Equal(t, c.expNS, obsNS)
+		})
+	}
+}
+
+func TestTaskLifecycle(t *testing.T) {
+	cluster := "cluster"
+	meshKey := "consul.hashicorp.com/mesh"
+	meshValue := "true"
+	partitionKey := "consul.hashicorp.com/partition"
+	partitionValue := "default"
+	extPartitionValue := "external-partition"
+	namespaceKey := "consul.hashicorp.com/namespace"
+	namespaces := []string{"default", "namespace-1"}
+	meshTag := &ecs.Tag{Key: &meshKey, Value: &meshValue}
+	partitionTag := &ecs.Tag{Key: &partitionKey, Value: &partitionValue}
+	extPartitionTag := &ecs.Tag{Key: &partitionKey, Value: &extPartitionValue}
+	namespace1Tag := &ecs.Tag{Key: &namespaceKey, Value: &namespaces[0]}
+	namespace2Tag := &ecs.Tag{Key: &namespaceKey, Value: &namespaces[1]}
+
+	cases := map[string]struct {
+		partition       string
+		enterpriseOnly  bool
+		paginateResults bool
+		tasks           []*ecs.Task
+		expServices     []*ServiceInfo
+	}{
+		"no tasks": {
+			partition:   "default",
+			tasks:       []*ecs.Task{},
+			expServices: []*ServiceInfo{},
+		},
+		"multiple services": {
+			partition: "default",
+			tasks: []*ecs.Task{
+				{
+					TaskArn:           aws.String("task1"),
+					TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service1:1"),
+					Tags:              []*ecs.Tag{meshTag, partitionTag, namespace1Tag},
+				},
+				{
+					TaskArn:           aws.String("task2"),
+					TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service2:1"),
+					Tags:              []*ecs.Tag{meshTag, partitionTag, namespace1Tag},
+				},
+				{
+					TaskArn:           aws.String("task3"),
+					TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service3:1"),
+					Tags:              []*ecs.Tag{meshTag, partitionTag, namespace2Tag},
+				},
+			},
+			expServices: []*ServiceInfo{
+				{
+					QName: NewQName("default", namespaces[0], "service1"),
+					ServiceState: ServiceState{
+						ConsulECSTasks: true,
+						ACLPolicies: []*api.ACLPolicyListEntry{
+							{
+								Partition:   "default",
+								Namespace:   namespaces[0],
+								Name:        "service1-service",
+								Description: "Policy for default/default/service1 service\nconsul.hashicorp.com/cluster: cluster",
+							},
+						},
+						ACLTokens: []*api.ACLTokenListEntry{
+							{
+								Partition:   "default",
+								Namespace:   namespaces[0],
+								Description: "Token for default/default/service1 service\nconsul.hashicorp.com/cluster: cluster",
+							},
+						},
+					},
+				},
+				{
+					QName: NewQName("default", namespaces[0], "service2"),
+					ServiceState: ServiceState{
+						ConsulECSTasks: true,
+						ACLPolicies: []*api.ACLPolicyListEntry{
+							{
+								Partition:   "default",
+								Namespace:   namespaces[0],
+								Name:        "service2-service",
+								Description: "Policy for default/default/service2 service\nconsul.hashicorp.com/cluster: cluster",
+							},
+						},
+						ACLTokens: []*api.ACLTokenListEntry{
+							{
+								Partition:   "default",
+								Namespace:   namespaces[0],
+								Description: "Token for default/default/service2 service\nconsul.hashicorp.com/cluster: cluster",
+							},
+						},
+					},
+				},
+				{
+					QName: NewQName("default", namespaces[1], "service3"),
+					ServiceState: ServiceState{
+						ConsulECSTasks: true,
+						ACLPolicies: []*api.ACLPolicyListEntry{
+							{
+								Partition:   "default",
+								Namespace:   namespaces[1],
+								Name:        "service3-service",
+								Description: "Policy for default/namespace-1/service3 service\nconsul.hashicorp.com/cluster: cluster",
+							},
+						},
+						ACLTokens: []*api.ACLTokenListEntry{{
+							Partition:   "default",
+							Namespace:   namespaces[1],
+							Description: "Token for default/namespace-1/service3 service\nconsul.hashicorp.com/cluster: cluster",
+						},
+						},
+					},
+				},
+			},
+		},
+		"multiple services with the same name in different namespaces": {
+			partition:      "default",
+			enterpriseOnly: true, // services with the same name must be separated by partition/namespace
+			tasks: []*ecs.Task{
+				{
+					TaskArn:           aws.String("task1"),
+					TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service1:1"),
+					Tags:              []*ecs.Tag{meshTag, partitionTag, namespace1Tag},
+				},
+				{
+					TaskArn:           aws.String("task2"),
+					TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service1:1"),
+					Tags:              []*ecs.Tag{meshTag, partitionTag, namespace2Tag},
+				},
+				{
+					TaskArn:           aws.String("external"),
+					TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service1:1"),
+					Tags:              []*ecs.Tag{meshTag, extPartitionTag, namespace2Tag},
+				},
+				{
+					TaskArn:           aws.String("non-mesh"),
+					TaskDefinitionArn: aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service1:1"),
+					Tags:              []*ecs.Tag{},
+				},
+			},
+			expServices: []*ServiceInfo{
+				{
+					QName: NewQName("default", namespaces[0], "service1"),
+					ServiceState: ServiceState{
+						ConsulECSTasks: true,
+						ACLPolicies: []*api.ACLPolicyListEntry{
+							{
+								Partition:   "default",
+								Namespace:   namespaces[0],
+								Name:        "service1-service",
+								Description: "Policy for default/default/service1 service\nconsul.hashicorp.com/cluster: cluster",
+							},
+						},
+						ACLTokens: []*api.ACLTokenListEntry{
+							{
+								Partition:   "default",
+								Namespace:   namespaces[0],
+								Description: "Token for default/default/service1 service\nconsul.hashicorp.com/cluster: cluster",
+							},
+						},
+					},
+				},
+				{
+					QName: NewQName("default", namespaces[1], "service1"),
+					ServiceState: ServiceState{
+						ConsulECSTasks: true,
+						ACLPolicies: []*api.ACLPolicyListEntry{
+							{
+								Partition:   "default",
+								Namespace:   namespaces[1],
+								Name:        "service1-service",
+								Description: "Policy for default/namespace-1/service1 service\nconsul.hashicorp.com/cluster: cluster",
+							},
+						},
+						ACLTokens: []*api.ACLTokenListEntry{{
+							Partition:   "default",
+							Namespace:   namespaces[1],
+							Description: "Token for default/namespace-1/service1 service\nconsul.hashicorp.com/cluster: cluster",
+						},
+						},
+					},
+				},
+			},
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+
+			enterprise := enterpriseFlag()
+			if !enterprise {
+				if c.enterpriseOnly {
+					t.Skip("enterprise only test")
+				}
+				c.partition = ""
+			}
+
+			consulClient := initConsul(t)
+
+			lister := ServiceStateLister{
+				ECSClient:    &mocks.ECSClient{Tasks: c.tasks, PaginateResults: c.paginateResults},
+				ConsulClient: consulClient,
+				Cluster:      cluster,
+				SecretPrefix: "prefix",
+				Partition:    c.partition,
+				Log:          hclog.NewNullLogger(),
+			}
+
+			for _, service := range c.expServices {
+				// set expected values for inherited service fields
+				service.SecretsManagerClient = lister.SecretsManagerClient
+				service.ConsulClient = lister.ConsulClient
+				service.Cluster = lister.Cluster
+				service.SecretPrefix = lister.SecretPrefix
+				service.Log = lister.Log
+
+				// if this is not an enterprise test then zero out partition and namespaces
+				if !enterprise {
+					lister.Partition = ""
+					service.QName = NewQName("", "", service.QName.Name())
+					for _, policy := range service.ServiceState.ACLPolicies {
+						policy.Partition = ""
+						policy.Namespace = ""
+						policy.Description = fmt.Sprintf("Policy for %s service\nconsul.hashicorp.com/cluster: cluster", service.QName.Name())
+					}
+					for _, token := range service.ServiceState.ACLTokens {
+						token.Partition = ""
+						token.Namespace = ""
+						token.Description = fmt.Sprintf("Token for %s service\nconsul.hashicorp.com/cluster: cluster", service.QName.Name())
+					}
+				}
+			}
+
+			// get cluster ACL state before the test
+			beforePolicies, beforeTokens, err := listACLs(consulClient, c.partition)
+			require.NoError(t, err)
+
+			// list all resources
+			resources, err := lister.List()
+			require.NoError(t, err)
+
+			// call ReconcileNamespaces to prepare all the namespaces
+			require.NoError(t, lister.ReconcileNamespaces(resources))
+
+			for _, r := range resources {
+				s := r.(*ServiceInfo)
+
+				// use a unique secret for each service
+				accessorID, err := uuid.GenerateUUID()
+				require.NoError(t, err)
+				secretID, err := uuid.GenerateUUID()
+				require.NoError(t, err)
+				s.SecretsManagerClient = &mocks.SMClient{Secret: &secretsmanager.GetSecretValueOutput{
+					Name:         aws.String(s.QName.String()),
+					SecretString: aws.String(fmt.Sprintf(`{"accessor_id":"%s","token":"%s"}`, accessorID, secretID)),
+				}}
+
+				// call Reconcile() to create policies and tokens for each service
+				require.NoError(t, s.Reconcile())
+			}
+
+			// call List() to get updated cluster state
+			resources, err = lister.List()
+			require.NoError(t, err)
+
+			// inspect the state of each service reported by the controller
+			obsServices := make([]*ServiceInfo, 0, len(resources))
+			for _, r := range resources {
+				s := r.(*ServiceInfo)
+
+				// set only the expected ACL fields in the service state
+				var policies []*api.ACLPolicyListEntry
+				for _, policy := range s.ServiceState.ACLPolicies {
+					policies = append(policies, &api.ACLPolicyListEntry{
+						Partition:   policy.Partition,
+						Namespace:   policy.Namespace,
+						Name:        policy.Name,
+						Description: policy.Description,
+					})
+				}
+				s.ServiceState.ACLPolicies = policies
+
+				var tokens []*api.ACLTokenListEntry
+				for _, token := range s.ServiceState.ACLTokens {
+					tokens = append(tokens, &api.ACLTokenListEntry{
+						Partition:   token.Partition,
+						Namespace:   token.Namespace,
+						Description: token.Description,
+					})
+				}
+				s.ServiceState.ACLTokens = tokens
+
+				obsServices = append(obsServices, s)
+			}
+
+			// check for expected services with attached policies and tokens
+			require.Equal(t, len(c.expServices), len(obsServices))
+			require.ElementsMatch(t, c.expServices, obsServices)
+
+			// remove all the ECS tasks
+			lister.ECSClient = &mocks.ECSClient{}
+			resources, err = lister.List()
+			require.NoError(t, err)
+
+			// call Reconcile() to remove policies and tokens
+			for _, r := range resources {
+				s := r.(*ServiceInfo)
+				require.NoError(t, s.Reconcile())
+			}
+
+			// ensure cluster state matches previous
+			newPolicies, afterTokens, err := listACLs(consulClient, c.partition)
+			afterPolicies := make([]*api.ACLPolicyListEntry, 0, len(newPolicies))
+			for _, p := range newPolicies {
+				// we don't (currently) clean up namespaces nor their policies, so ignore them
+				if p.Name != "cross-namespace-read" && p.Name != "namespace-management" {
+					afterPolicies = append(afterPolicies, p)
+				}
+			}
+			require.NoError(t, err)
+			require.Equal(t, beforePolicies, afterPolicies)
+			require.Equal(t, beforeTokens, afterTokens)
 		})
 	}
 }
@@ -824,8 +1176,13 @@ func initConsul(t *testing.T) *api.Client {
 
 // listNamespaces is a helper func that returns a list of namespaces mapped to partition.
 func listNamespaces(t *testing.T, consulClient *api.Client) map[string][]string {
-	// list all existing namespaces and map them to partition
 	names := make(map[string][]string)
+
+	if !enterpriseFlag() {
+		return names
+	}
+
+	// list all existing namespaces and map them to partition
 	partitions, _, err := consulClient.Partitions().List(context.Background(), nil)
 	require.NoError(t, err)
 	for _, p := range partitions {
@@ -836,6 +1193,41 @@ func listNamespaces(t *testing.T, consulClient *api.Client) map[string][]string 
 		}
 	}
 	return names
+}
+
+// helper func that lists all policies and tokens within all namespaces in a partition
+func listACLs(consulClient *api.Client, partition string) ([]*api.ACLPolicyListEntry, []*api.ACLTokenListEntry, error) {
+	var err error
+	policies := make([]*api.ACLPolicyListEntry, 0)
+	tokens := make([]*api.ACLTokenListEntry, 0)
+	opts := &api.QueryOptions{Partition: partition}
+	var namespaces []*api.Namespace
+
+	if enterpriseFlag() {
+		// only list namespaces in enterprise tests
+		namespaces, _, err = consulClient.Namespaces().List(opts)
+		if err != nil {
+			return policies, tokens, err
+		}
+	} else {
+		namespaces = append(namespaces, &api.Namespace{})
+	}
+
+	for _, ns := range namespaces {
+		opts.Namespace = ns.Name
+		aclPolicies, _, err := consulClient.ACL().PolicyList(opts)
+		if err != nil {
+			return policies, tokens, err
+		}
+		policies = append(policies, aclPolicies...)
+
+		aclTokens, _, err := consulClient.ACL().TokenList(opts)
+		if err != nil {
+			return policies, tokens, err
+		}
+		tokens = append(tokens, aclTokens...)
+	}
+	return policies, tokens, nil
 }
 
 func getPolicyRules(t *testing.T, consulClient *api.Client, partition, namespace, name string) (string, error) {

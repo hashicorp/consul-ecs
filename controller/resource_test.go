@@ -817,7 +817,7 @@ func TestReconcileNamespaces(t *testing.T) {
 
 			// create the namespaces and cross-namespace policies
 			// this does nothing if enterprise features are not enabled
-			s.ReconcileNamespaces(resourcesIF)
+			require.NoError(t, s.ReconcileNamespaces(resourcesIF))
 
 			if c.partition != "" {
 				// if partitions are enabled ensure that the cross-namespace read policy exists

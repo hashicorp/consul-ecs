@@ -58,6 +58,7 @@ jobs:
         type: string
     executor: go
     environment:
+      CONSUL_VERSION: << parameters.CONSUL_VERSION >>
       TEST_RESULTS: /tmp/test-results/consul_<< parameters.CONSUL_VERSION >>
     parallelism: 1
     steps:

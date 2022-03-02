@@ -149,19 +149,22 @@ workflows:
           ARCH: "386"
           name: build-distros-386
           requires:
-            - test
+            - test-consul
+            - test-consul+ent
       - build-distro:
           OS: "darwin freebsd linux solaris windows"
           ARCH: "amd64"
           name: build-distros-amd64
           requires:
-            - test
+            - test-consul
+            - test-consul+ent
       - build-distro:
           OS: "linux"
           ARCH: "arm arm64"
           name: build-distros-arm-arm64
           requires:
-            - test
+            - test-consul
+            - test-consul+ent
       - dev-upload-docker:
           context: consul-ci
           requires:

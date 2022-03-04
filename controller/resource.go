@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/secretsmanager/secretsmanageriface"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-uuid"
 )
 
@@ -35,6 +36,16 @@ const (
 	DefaultNamespace = "default"
 )
 
+// ServiceName is a type that represents a fully qualified service.
+type ServiceName struct {
+	// Name of the service.
+	Name string
+	// Partition that the service belongs to (Consul Enterprise).
+	Partition string
+	// Namespace that the service belongs to (Consul Enterprise).
+	Namespace string
+}
+
 // ResourceLister is an interface for listing Resources.
 type ResourceLister interface {
 	// List all Resources.
@@ -46,9 +57,9 @@ type ResourceLister interface {
 
 // Resource is a generic type that needs to be reconciled by the Controller.
 type Resource interface {
-	// GetNamespace indicates the namespace that this resource belongs to [Consul Enterprise].
+	// Namespace indicates the namespace that this resource belongs to [Consul Enterprise].
 	// It returns the empty string if namespaces are not enabled.
-	GetNamespace() string
+	Namespace() string
 
 	// Reconcile offers Upsert and Delete functions to reconcile itself with an external state.
 	Reconcile() error
@@ -80,16 +91,16 @@ type ServiceStateLister struct {
 // tasks and existence of a Consul service.
 func (s ServiceStateLister) List() ([]Resource, error) {
 	var resources []Resource
-	buildingResources := make(map[string]*ServiceInfo)
+	buildingResources := make(map[ServiceName]*ServiceInfo)
 
 	tasks, err := s.fetchECSTasks()
 	if err != nil {
 		return nil, err
 	}
 
-	for name, qname := range tasks {
+	for name := range tasks {
 		if _, ok := buildingResources[name]; !ok {
-			buildingResources[name] = s.newServiceInfo(qname, ServiceState{ConsulECSTasks: true})
+			buildingResources[name] = s.newServiceInfo(name, ServiceState{ConsulECSTasks: true})
 		} else {
 			buildingResources[name].ServiceState.ConsulECSTasks = true
 		}
@@ -103,7 +114,7 @@ func (s ServiceStateLister) List() ([]Resource, error) {
 	for name, state := range aclState {
 		if _, ok := buildingResources[name]; !ok {
 			buildingResources[name] = s.newServiceInfo(
-				QNameFromString(name),
+				name,
 				ServiceState{ACLPolicies: state.ACLPolicies, ACLTokens: state.ACLTokens},
 			)
 		} else {
@@ -122,8 +133,8 @@ func (s ServiceStateLister) List() ([]Resource, error) {
 // fetchECSTasks retrieves all of the ECS tasks that are managed by consul-ecs
 // for the given cluster and returns a mapping that shows if a task is running
 // for each qualified service name.
-func (s ServiceStateLister) fetchECSTasks() (map[string]QName, error) {
-	resources := make(map[string]QName)
+func (s ServiceStateLister) fetchECSTasks() (map[ServiceName]struct{}, error) {
+	resources := make(map[ServiceName]struct{})
 	// nextToken is to handle paginated responses from AWS.
 	var nextToken *string
 
@@ -165,12 +176,12 @@ func (s ServiceStateLister) fetchECSTasks() (map[string]QName, error) {
 				continue
 			}
 
-			if serviceName.Partition() != s.Partition {
-				s.Log.Info("skipping task in external partition", serviceName.Partition(), "task-arn", *task.TaskArn)
+			if serviceName.Partition != s.Partition {
+				s.Log.Info("skipping task in external partition", "partition", serviceName.Partition, "task-arn", *task.TaskArn)
 				continue
 			}
 
-			resources[serviceName.String()] = serviceName
+			resources[serviceName] = struct{}{}
 		}
 		if nextToken == nil {
 			break
@@ -181,8 +192,8 @@ func (s ServiceStateLister) fetchECSTasks() (map[string]QName, error) {
 
 // fetchACLState retrieves all of the ACL policies and tokens from Consul and
 // returns a mapping from service name to the ACL tokens that service has.
-func (s ServiceStateLister) fetchACLState() (map[string]*ServiceState, error) {
-	aclState := make(map[string]*ServiceState)
+func (s ServiceStateLister) fetchACLState() (map[ServiceName]*ServiceState, error) {
+	aclState := make(map[ServiceName]*ServiceState)
 
 	var err error
 	namespaces := make([]*api.Namespace, 0)
@@ -197,6 +208,7 @@ func (s ServiceStateLister) fetchACLState() (map[string]*ServiceState, error) {
 		}
 	} else {
 		// partitions aren't enabled so just use an empty namespace when listing ACL info.
+		// when an empty namespace is used, Consul defaults to the `default` namespace.
 		namespaces = append(namespaces, &api.Namespace{})
 	}
 
@@ -211,11 +223,16 @@ func (s ServiceStateLister) fetchACLState() (map[string]*ServiceState, error) {
 
 		for _, policy := range policyList {
 			if isInCluster(s.Cluster, policy.Description) {
-				qname := serviceNameFromDescription(policy.Description)
-				if state, ok := aclState[qname]; ok {
+				name := serviceNameFromDescription(policy.Description)
+				serviceName := ServiceName{
+					Name:      name,
+					Partition: s.Partition,
+					Namespace: ns.Name,
+				}
+				if state, ok := aclState[serviceName]; ok {
 					state.ACLPolicies = append(state.ACLPolicies, policy)
 				} else {
-					aclState[qname] = &ServiceState{ACLPolicies: []*api.ACLPolicyListEntry{policy}}
+					aclState[serviceName] = &ServiceState{ACLPolicies: []*api.ACLPolicyListEntry{policy}}
 				}
 			}
 		}
@@ -226,13 +243,16 @@ func (s ServiceStateLister) fetchACLState() (map[string]*ServiceState, error) {
 		}
 
 		for _, token := range tokenList {
-			//if isInCluster(s.Cluster, token.Description) && len(token.Policies) == 1 {
 			if isInCluster(s.Cluster, token.Description) {
-				qname := serviceNameFromDescription(token.Description)
-				if state, ok := aclState[qname]; ok {
+				serviceName := ServiceName{
+					Name:      serviceNameFromDescription(token.Description),
+					Partition: s.Partition,
+					Namespace: ns.Name,
+				}
+				if state, ok := aclState[serviceName]; ok {
 					state.ACLTokens = append(state.ACLTokens, token)
 				} else {
-					aclState[qname] = &ServiceState{ACLTokens: []*api.ACLTokenListEntry{token}}
+					aclState[serviceName] = &ServiceState{ACLTokens: []*api.ACLTokenListEntry{token}}
 				}
 			}
 		}
@@ -241,7 +261,7 @@ func (s ServiceStateLister) fetchACLState() (map[string]*ServiceState, error) {
 	return aclState, nil
 }
 
-// prepareNamespaces ensures that for every service in the cluster the namespace
+// ReconcileNamespaces ensures that for every service in the cluster the namespace
 // exists and the cross-partition/cross-namespace read policy exists.
 func (s ServiceStateLister) ReconcileNamespaces(resources []Resource) error {
 	if !PartitionsEnabled(s.Partition) {
@@ -253,14 +273,8 @@ func (s ServiceStateLister) ReconcileNamespaces(resources []Resource) error {
 		return err
 	}
 
-	// retrieve the list of unique namespaces from the map of services
-	ns := uniqueNamespaces(resources)
-	if len(ns) < 2 {
-		// only the default namespace exists, so nothing to do
-		return nil
-	}
-
-	if err := s.createNamespaces(ns); err != nil {
+	// create namespaces that do not exist
+	if err := s.createNamespaces(resources); err != nil {
 		return err
 	}
 
@@ -295,84 +309,92 @@ func (s ServiceStateLister) upsertCrossNSPolicy() error {
 		return fmt.Errorf("creating cross-namespace policy: %w", err)
 	}
 
-	s.Log.Info("created cross-namespace policy", xnsPolicyName)
+	s.Log.Info("created cross-namespace policy", "name", xnsPolicyName)
 	return nil
 }
 
-// createNamespaces creates each namespace in the list.
+// createNamespaces creates namespaces for the Resources in the list.
 // It also attaches the cross-namespace read policy to the namespace so that
 // each token created in the namespace inherits that policy.
 //
 // It does nothing for namespaces that already exist.
-func (s ServiceStateLister) createNamespaces(ns []string) error {
+func (s ServiceStateLister) createNamespaces(resources []Resource) error {
+
+	// create the set of all namespaces in the list of resources.
+	ns := make(map[string]struct{})
+	for _, r := range resources {
+		ns[r.Namespace()] = struct{}{}
+	}
+
 	// retrieve the list of existing namespaces
 	existingNS, _, err := s.ConsulClient.Namespaces().List(&api.QueryOptions{Partition: s.Partition})
 	if err != nil {
 		return err
 	}
 
-	// create any namespaces that do not already exist
-	create := make([]string, 0, len(ns))
-	for _, n := range ns {
-		for _, e := range existingNS {
-			if e.Name != n {
-				create = append(create, n)
-				break
-			}
-		}
+	// prune the set of namespaces down to the set that needs to be created
+	for _, n := range existingNS {
+		delete(ns, n.Name)
 	}
-	failed := make([]string, 0, len(create))
-	for _, n := range create {
-		s.Log.Info("creating namespace", n)
+
+	// create the namespaces that do not exist
+	var result error
+	for n := range ns {
+		s.Log.Info("creating namespace", "name", n)
 		_, _, err = s.ConsulClient.Namespaces().Create(&api.Namespace{
 			Partition: s.Partition,
 			Name:      n,
 			ACLs:      &api.NamespaceACLConfig{PolicyDefaults: []api.ACLLink{{Name: xnsPolicyName}}},
 		}, nil)
 		if err != nil {
-			s.Log.Error("creating namespace", n, err)
-			failed = append(failed, n)
+			s.Log.Error("failed to create namespace", "name", n)
+			result = multierror.Append(result, err)
 		}
 	}
-	if len(failed) > 0 {
-		return fmt.Errorf("namespace creation failed for %s", strings.Join(failed, ","))
-	}
-	return nil
+	return result
 }
 
-func (s ServiceStateLister) newServiceInfo(serviceName QName, serviceState ServiceState) *ServiceInfo {
+func (s ServiceStateLister) newServiceInfo(serviceName ServiceName, serviceState ServiceState) *ServiceInfo {
 	return &ServiceInfo{
 		SecretsManagerClient: s.SecretsManagerClient,
 		ConsulClient:         s.ConsulClient,
 		Cluster:              s.Cluster,
 		Log:                  s.Log,
 		SecretPrefix:         s.SecretPrefix,
-		QName:                serviceName,
+		ServiceName:          serviceName,
 		ServiceState:         serviceState,
 	}
 }
 
 // Task definition ARN looks like this: arn:aws:ecs:us-east-1:1234567890:task-definition/service:1
-func (s ServiceStateLister) serviceNameForTask(t *ecs.Task) (QName, error) {
+func (s ServiceStateLister) serviceNameForTask(t *ecs.Task) (ServiceName, error) {
 	var partition, namespace string
 	if PartitionsEnabled(s.Partition) {
 		partition = tagValue(t.Tags, partitionTag)
 		namespace = tagValue(t.Tags, namespaceTag)
+		if partition == "" && namespace == "" {
+			// if the partition and namespace tags are both missing then use the Consul enterprise defaults
+			partition = DefaultPartition
+			namespace = DefaultNamespace
+		} else if (partition == "" && namespace != "") || (partition != "" && namespace == "") {
+			// both partition and namespace tags must be provided
+			return ServiceName{}, fmt.Errorf("task definition requires both partition and namespace tags")
+		}
 	}
 	if serviceName := tagValue(t.Tags, serviceNameTag); serviceName != "" {
-		return NewQName(partition, namespace, serviceName), nil
+		return ServiceName{Name: serviceName, Partition: partition, Namespace: namespace}, nil
 	}
 	taskDefArn := *t.TaskDefinitionArn
 	splits := strings.Split(taskDefArn, "/")
 	if len(splits) != 2 {
-		return QName{}, fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
+		return ServiceName{}, fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
 	}
 	taskFamilyAndRevision := splits[1]
 	splits = strings.Split(taskFamilyAndRevision, ":")
 	if len(splits) != 2 {
-		return QName{}, fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
+		return ServiceName{}, fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
 	}
-	return NewQName(partition, namespace, splits[0]), nil
+	return ServiceName{Name: splits[0], Partition: partition, Namespace: namespace}, nil
 }
 
 // ServiceState contains all of the information needed to determine if an ACL
@@ -390,7 +412,7 @@ type ServiceInfo struct {
 
 	Cluster      string
 	SecretPrefix string
-	QName        QName
+	ServiceName  ServiceName
 	ServiceState ServiceState
 
 	Log hclog.Logger
@@ -420,10 +442,9 @@ func (s *ServiceInfo) Reconcile() error {
 // Upsert creates a service policy and token for the task if one doesn't already exist
 // and updates the secret with the contents of the token.
 func (s *ServiceInfo) Upsert() error {
-	opts := &api.QueryOptions{Partition: s.QName.Partition(), Namespace: s.QName.Namespace()}
+	opts := &api.QueryOptions{Partition: s.ServiceName.Partition, Namespace: s.ServiceName.Namespace}
 
-	// policy
-
+	// upsert policy
 	currPolicy, _, err := s.ConsulClient.ACL().PolicyReadByName(s.policyName(), opts)
 	if err != nil && !IsACLNotFoundError(err) {
 		return fmt.Errorf("reading service policy: %w", err)
@@ -436,8 +457,7 @@ func (s *ServiceInfo) Upsert() error {
 		}
 	}
 
-	// token
-
+	// upsert token
 	currSecret, err := s.upsertSecret()
 	if err != nil {
 		return fmt.Errorf("upserting secret: %w", err)
@@ -451,7 +471,7 @@ func (s *ServiceInfo) Upsert() error {
 
 	// If there is already a token for this service in Consul, exit early.
 	if currToken != nil {
-		s.Log.Info("token already exists; skipping token creation", "id", s.QName)
+		s.Log.Info("token already exists; skipping token creation", "id", s.ServiceName)
 		return nil
 	}
 
@@ -465,14 +485,14 @@ func (s *ServiceInfo) Upsert() error {
 
 // Delete removes the service policy and token for the given ServiceInfo.
 func (s *ServiceInfo) Delete() error {
-	opts := &api.WriteOptions{Partition: s.QName.Partition(), Namespace: s.QName.Namespace()}
+	opts := &api.WriteOptions{Partition: s.ServiceName.Partition, Namespace: s.ServiceName.Namespace}
 
 	for _, token := range s.ServiceState.ACLTokens {
 		_, err := s.ConsulClient.ACL().TokenDelete(token.AccessorID, opts)
 		if err != nil {
 			return fmt.Errorf("deleting token: %w", err)
 		}
-		s.Log.Info("token deleted successfully", "service", s.QName)
+		s.Log.Info("token deleted successfully", "service", s.ServiceName)
 	}
 
 	for _, policy := range s.ServiceState.ACLPolicies {
@@ -486,10 +506,10 @@ func (s *ServiceInfo) Delete() error {
 	return nil
 }
 
-// GetNamespace returns the namespace that the service belongs to.
+// Namespace returns the namespace that the service belongs to.
 // It returns the empty string if namespaces are not enabled.
-func (s *ServiceInfo) GetNamespace() string {
-	return s.QName.Namespace()
+func (s *ServiceInfo) Namespace() string {
+	return s.ServiceName.Namespace
 }
 
 // upsertSecret updates the AWS secret for the given service has a Token and
@@ -547,8 +567,8 @@ func (s *ServiceInfo) createServicePolicy() error {
 	_, _, err := s.ConsulClient.ACL().PolicyCreate(&api.ACLPolicy{
 		Name:        s.policyName(),
 		Description: s.aclDescription("Policy"),
-		Partition:   s.QName.Partition(),
-		Namespace:   s.QName.Namespace(),
+		Partition:   s.ServiceName.Partition,
+		Namespace:   s.ServiceName.Namespace,
 		Rules:       s.policy(),
 	}, nil)
 	if err != nil {
@@ -561,45 +581,45 @@ func (s *ServiceInfo) createServicePolicy() error {
 // createServiceToken inserts an ACL token into Consul. The AccessorID and
 // SecretID are set based on the AWS secret.
 func (s *ServiceInfo) createServiceToken(secret TokenSecretJSON) error {
-	s.Log.Info("creating service token", "id", s.QName)
+	s.Log.Info("creating service token", "id", s.ServiceName)
 	// Create ACL token for envoy to register the service.
 	_, _, err := s.ConsulClient.ACL().TokenCreate(&api.ACLToken{
 		AccessorID:  secret.AccessorID,
 		SecretID:    secret.Token,
 		Description: s.aclDescription("Token"),
 		Policies:    []*api.ACLTokenPolicyLink{&api.ACLLink{Name: s.policyName()}},
-		Partition:   s.QName.Partition(),
-		Namespace:   s.QName.Namespace(),
+		Partition:   s.ServiceName.Partition,
+		Namespace:   s.ServiceName.Namespace,
 	}, nil)
 	if err != nil {
 		return fmt.Errorf("creating ACL token: %s", err)
 	}
-	s.Log.Info("service token created successfully", "service", s.QName)
+	s.Log.Info("service token created successfully", "service", s.ServiceName)
 
 	return nil
 }
 
 func (s *ServiceInfo) secretName() string {
-	if s.QName.Namespace() == "" || s.QName.Namespace() == DefaultNamespace {
-		return fmt.Sprintf("%s-%s", s.SecretPrefix, s.QName.Name())
+	if s.ServiceName.Namespace == "" || s.ServiceName.Namespace == DefaultNamespace {
+		return fmt.Sprintf("%s-%s", s.SecretPrefix, s.ServiceName.Name)
 	} else {
-		return fmt.Sprintf("%s-%s-%s", s.SecretPrefix, s.QName.Name(), s.QName.Namespace())
+		return fmt.Sprintf("%s-%s-%s", s.SecretPrefix, s.ServiceName.Name, s.ServiceName.Namespace)
 	}
 }
 
 func (s *ServiceInfo) aclDescription(d string) string {
-	return fmt.Sprintf("%s for %s service\n%s: %s", d, s.QName, clusterTag, s.Cluster)
+	return fmt.Sprintf("%s for %s service\n%s: %s", d, s.ServiceName.Name, clusterTag, s.Cluster)
 }
 
 func (s *ServiceInfo) policyName() string {
-	return fmt.Sprintf("%s-service", s.QName.Name())
+	return fmt.Sprintf("%s-service", s.ServiceName.Name)
 }
 
 func (s *ServiceInfo) policy() string {
-	if PartitionsEnabled(s.QName.Partition()) {
-		return fmt.Sprintf(entServicePolicyTpl, s.QName.Partition(), s.QName.Namespace(), s.QName.Name())
+	if PartitionsEnabled(s.ServiceName.Partition) {
+		return fmt.Sprintf(entServicePolicyTpl, s.ServiceName.Partition, s.ServiceName.Namespace, s.ServiceName.Name)
 	} else {
-		return fmt.Sprintf(ossServicePolicyTpl, s.QName.Name())
+		return fmt.Sprintf(ossServicePolicyTpl, s.ServiceName.Name)
 	}
 }
 
@@ -630,11 +650,13 @@ func IsACLNotFoundError(err error) bool {
 
 // serviceNameFromDescription returns the fully qualified service name from the
 // description field of a token or policy created by the ACL controller.
+// If a valid name can't be determined from the input the empty string is returned.
 func serviceNameFromDescription(d string) string {
 	// description is of the form: "<Policy|Token> for <name> service..."
-	parts := strings.Split(d, " ")
-	if len(parts) > 3 {
-		return parts[2]
+	var key, val string
+	n, err := fmt.Sscanf(d, "%s for %s", &key, &val)
+	if err == nil && n == 2 {
+		return val
 	}
 	return ""
 }
@@ -642,18 +664,4 @@ func serviceNameFromDescription(d string) string {
 // PartitionsEnabled indicates if support for partitions and namespaces is enabled.
 func PartitionsEnabled(p string) bool {
 	return p != ""
-}
-
-// uniqueNamespaces returns the set of unique namespaces from the list of Resources.
-func uniqueNamespaces(resources []Resource) []string {
-	u := make([]string, 0, len(resources))
-	ns := make(map[string]struct{})
-	for _, r := range resources {
-		n := r.GetNamespace()
-		if _, exists := ns[n]; !exists && n != "" {
-			ns[n] = struct{}{}
-			u = append(u, n)
-		}
-	}
-	return u
 }

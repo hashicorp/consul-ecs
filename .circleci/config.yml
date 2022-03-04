@@ -80,9 +80,9 @@ jobs:
           gotestsum --junitfile $TEST_RESULTS/gotestsum-report.xml -- -p 4 $PACKAGE_NAMES -- << parameters.ENTERPRISE_FLAG >>
 
       - store_test_results:
-          path: $TEST_RESULTS
+          path: /tmp/test-results/consul_<< parameters.CONSUL_VERSION >>
       - store_artifacts:
-          path: $TEST_RESULTS
+          path: /tmp/test-results/consul_<< parameters.CONSUL_VERSION >>
 
   build-distro: # defines a parameterized job
     description: A job that will build the os/arch distro set by XC_OS and XC_ARCH
@@ -133,13 +133,13 @@ workflows:
       - go-fmt-and-vet
       - linters
       - test:
-          CONSUL_VERSION: "1.11.2"
+          CONSUL_VERSION: "1.11.4"
           name: test-consul
           requires:
             - go-fmt-and-vet
             - linters
       - test:
-          CONSUL_VERSION: "1.11.2+ent"
+          CONSUL_VERSION: "1.11.4+ent"
           ENTERPRISE_FLAG: "-enterprise"
           name: test-consul+ent
           requires:

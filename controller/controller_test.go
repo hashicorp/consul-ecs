@@ -71,6 +71,6 @@ func (t *testResource) Reconcile() error {
 	return nil
 }
 
-func (t *testResource) GetNamespace() string {
+func (t *testResource) Namespace() string {
 	return ""
 }

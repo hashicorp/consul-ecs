@@ -617,9 +617,13 @@ func (s *ServiceInfo) policyName() string {
 
 func (s *ServiceInfo) policy() string {
 	if PartitionsEnabled(s.ServiceName.Partition) {
-		return fmt.Sprintf(entServicePolicyTpl, s.ServiceName.Partition, s.ServiceName.Namespace, s.ServiceName.Name)
+		return fmt.Sprintf(entServicePolicyTpl,
+			s.ServiceName.Partition,
+			s.ServiceName.Namespace,
+			s.ServiceName.Name,
+			s.ServiceName.Name)
 	} else {
-		return fmt.Sprintf(ossServicePolicyTpl, s.ServiceName.Name)
+		return fmt.Sprintf(ossServicePolicyTpl, s.ServiceName.Name, s.ServiceName.Name)
 	}
 }
 

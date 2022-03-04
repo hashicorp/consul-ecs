@@ -5,7 +5,7 @@ package controller
 const ossServicePolicyTpl = `service "%s" {
   policy = "write"
 }
-service "<serviceName>-sidecar-proxy" {
+service "%s-sidecar-proxy" {
   policy = "write"
 }
 service_prefix "" {
@@ -20,7 +20,7 @@ const entServicePolicyTpl = `partition "%s" {
     service "%s" {
       policy = "write"
     }
-    service "<serviceName>-sidecar-proxy" {
+    service "%s-sidecar-proxy" {
       policy = "write"
     }
     service_prefix "" {

@@ -35,6 +35,7 @@ func TestRun(t *testing.T) {
 	go ctrl.Run(ctx)
 
 	retry.Run(t, func(r *retry.R) {
+		require.True(r, lister.nsReconciled)
 		for _, resource := range lister.resources {
 			require.True(r, resource.reconciled)
 		}
@@ -42,7 +43,8 @@ func TestRun(t *testing.T) {
 }
 
 type testResourceLister struct {
-	resources []*testResource
+	resources    []*testResource
+	nsReconciled bool
 }
 
 type testResource struct {
@@ -50,7 +52,7 @@ type testResource struct {
 	reconciled bool
 }
 
-func (t testResourceLister) List() ([]Resource, error) {
+func (t *testResourceLister) List() ([]Resource, error) {
 	var resources []Resource
 	for _, resource := range t.resources {
 		resources = append(resources, resource)
@@ -58,8 +60,17 @@ func (t testResourceLister) List() ([]Resource, error) {
 	return resources, nil
 }
 
+func (t *testResourceLister) ReconcileNamespaces([]Resource) error {
+	t.nsReconciled = true
+	return nil
+}
+
 func (t *testResource) Reconcile() error {
 	t.reconciled = true
 
 	return nil
+}
+
+func (t *testResource) Namespace() string {
+	return ""
 }

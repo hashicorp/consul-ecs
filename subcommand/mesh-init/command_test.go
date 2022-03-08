@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -146,7 +147,14 @@ func TestRun(t *testing.T) {
 					"source":   "consul-ecs",
 				}
 				expectedServiceName = family
+				expectedPartition   = ""
+				expectedNamespace   = ""
 			)
+
+			if enterpriseFlag() {
+				expectedPartition = "default"
+				expectedNamespace = "default"
+			}
 
 			for k, v := range c.expAdditionalMeta {
 				expectedTaskMeta[k] = v
@@ -159,6 +167,15 @@ func TestRun(t *testing.T) {
 
 			if c.expServiceName != "" {
 				expectedServiceName = c.expServiceName
+			}
+
+			for i := range c.upstreams {
+				c.upstreams[i].DestinationPartition = expectedPartition
+				c.upstreams[i].DestinationNamespace = expectedNamespace
+			}
+			for i := range c.expUpstreams {
+				c.expUpstreams[i].DestinationPartition = expectedPartition
+				c.expUpstreams[i].DestinationNamespace = expectedNamespace
 			}
 
 			// Set up Consul server.
@@ -250,6 +267,8 @@ func TestRun(t *testing.T) {
 					Passing: 1,
 					Warning: 1,
 				},
+				Partition: expectedPartition,
+				Namespace: expectedNamespace,
 			}
 
 			expectedProxyServiceRegistration := &api.AgentService{
@@ -270,6 +289,8 @@ func TestRun(t *testing.T) {
 					Passing: 1,
 					Warning: 1,
 				},
+				Partition: expectedPartition,
+				Namespace: expectedNamespace,
 			}
 
 			// Note: TaggedAddressees may be set, but it seems like a race.
@@ -416,10 +437,18 @@ func TestConstructServiceName(t *testing.T) {
 func toAgentCheck(check config.AgentServiceCheck) *api.AgentCheck {
 	expInterval, _ := time.ParseDuration(check.Interval)
 	expTimeout, _ := time.ParseDuration(check.Timeout)
+	expPartition := ""
+	expNamespace := ""
+	if enterpriseFlag() {
+		expPartition = "default"
+		expNamespace = "default"
+	}
 	return &api.AgentCheck{
-		CheckID: check.CheckID,
-		Name:    check.Name,
-		Notes:   check.Notes,
+		CheckID:   check.CheckID,
+		Name:      check.Name,
+		Notes:     check.Notes,
+		Partition: expPartition,
+		Namespace: expNamespace,
 		Definition: api.HealthCheckDefinition{
 			// HealthCheckDefinition does not have GRPC or TTL fields.
 			HTTP:             check.HTTP,
@@ -435,4 +464,14 @@ func toAgentCheck(check config.AgentServiceCheck) *api.AgentCheck {
 			Timeout:          api.ReadableDuration(expTimeout),
 		},
 	}
+}
+
+func enterpriseFlag() bool {
+	re := regexp.MustCompile("^-+enterprise$")
+	for _, a := range os.Args {
+		if re.Match([]byte(strings.ToLower(a))) {
+			return true
+		}
+	}
+	return false
 }

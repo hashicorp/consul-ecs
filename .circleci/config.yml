@@ -3,9 +3,6 @@ executors:
   go:
     docker:
       - image: docker.mirror.hashicorp.services/cimg/go:1.17
-    environment:
-      TEST_RESULTS: /tmp/test-results # path to where test results are saved
-      CONSUL_VERSION: 1.11.2 # Consul's OSS version to use in tests
 
 jobs:
   go-fmt-and-vet:
@@ -46,10 +43,23 @@ jobs:
       - run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.31.0
       - run: golangci-lint run
 
-  test:
+  test: # defines a parameterized testing job
+    description: A job that runs the tests against the specific Consul version
+    parameters:
+      CONSUL_VERSION:
+        description: Consul version to use in tests
+        default: ""
+        type: string
+      ENTERPRISE_FLAG:
+        description: | 
+          Flag to indicate if the tests are running against Consul Enterprise.
+          If using an Enterprise version of Consul this flag must be set to "-enterprise"
+        default: ""
+        type: string
     executor: go
     environment:
-      TEST_RESULTS: /tmp/test-results
+      CONSUL_VERSION: << parameters.CONSUL_VERSION >>
+      TEST_RESULTS: /tmp/test-results/consul_<< parameters.CONSUL_VERSION >>
     parallelism: 1
     steps:
       - checkout
@@ -67,12 +77,12 @@ jobs:
                unzip consul_"${CONSUL_VERSION}"_linux_amd64.zip -d /home/circleci/bin &&
                rm consul_"${CONSUL_VERSION}"_linux_amd64.zip
           PACKAGE_NAMES=$(go list ./...)
-          gotestsum --junitfile $TEST_RESULTS/gotestsum-report.xml -- -p 4 $PACKAGE_NAMES
+          gotestsum --junitfile $TEST_RESULTS/gotestsum-report.xml -- -p 4 $PACKAGE_NAMES -- << parameters.ENTERPRISE_FLAG >>
 
       - store_test_results:
-          path: /tmp/test-results
+          path: /tmp/test-results/consul_<< parameters.CONSUL_VERSION >>
       - store_artifacts:
-          path: /tmp/test-results
+          path: /tmp/test-results/consul_<< parameters.CONSUL_VERSION >>
 
   build-distro: # defines a parameterized job
     description: A job that will build the os/arch distro set by XC_OS and XC_ARCH
@@ -123,6 +133,15 @@ workflows:
       - go-fmt-and-vet
       - linters
       - test:
+          CONSUL_VERSION: "1.11.4"
+          name: test-consul
+          requires:
+            - go-fmt-and-vet
+            - linters
+      - test:
+          CONSUL_VERSION: "1.11.4+ent"
+          ENTERPRISE_FLAG: "-enterprise"
+          name: test-consul+ent
           requires:
             - go-fmt-and-vet
             - linters
@@ -131,19 +150,22 @@ workflows:
           ARCH: "386"
           name: build-distros-386
           requires:
-            - test
+            - test-consul
+            - test-consul+ent
       - build-distro:
           OS: "darwin freebsd linux solaris windows"
           ARCH: "amd64"
           name: build-distros-amd64
           requires:
-            - test
+            - test-consul
+            - test-consul+ent
       - build-distro:
           OS: "linux"
           ARCH: "arm arm64"
           name: build-distros-arm-arm64
           requires:
-            - test
+            - test-consul
+            - test-consul+ent
       - dev-upload-docker:
           context: consul-ci
           requires:

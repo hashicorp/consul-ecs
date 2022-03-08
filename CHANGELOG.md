@@ -1,5 +1,9 @@
 ## UNRELEASED
 
+FEATURES
+* Add support for admin partitions and namespaces (Consul Enterprise).
+  [[GH-61](https://github.com/hashicorp/consul-ecs/pull/61)]
+
 ## 0.3.0 (January 27, 2022)
 
 BREAKING CHANGES

@@ -152,7 +152,7 @@ func (c *Command) createPartition(consulClient *api.Client) error {
 	}
 	for _, p := range partitions {
 		if p.Name == c.flagPartition {
-			c.log.Info("found existing partition", p.Name)
+			c.log.Info("found existing partition", "partition", p.Name)
 			return nil
 		}
 	}
@@ -161,7 +161,7 @@ func (c *Command) createPartition(consulClient *api.Client) error {
 	if err != nil {
 		return fmt.Errorf("failed to create partition %s: %s", c.flagPartition, err)
 	}
-	c.log.Info("created partition", c.flagPartition)
+	c.log.Info("created partition", "partition", c.flagPartition)
 	return nil
 }
 

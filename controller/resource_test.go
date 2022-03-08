@@ -37,93 +37,57 @@ import (
 
 func TestServiceStateLister_List(t *testing.T) {
 	enterprise := enterpriseFlag()
-	definitionArn := aws.String("arn:aws:ecs:us-east-1:1234567890:task-definition/service1:1")
 	cluster := "cluster"
 	meshKey := "consul.hashicorp.com/mesh"
 	meshValue := "true"
 	partitionKey := "consul.hashicorp.com/partition"
-	partitionValue := "default"
-	extPartitionValue := "external-partition"
 	namespaceKey := "consul.hashicorp.com/namespace"
 	namespaces := []string{"default", "namespace-1"}
 	meshTag := &ecs.Tag{Key: &meshKey, Value: &meshValue}
-	partitionTag := &ecs.Tag{Key: &partitionKey, Value: &partitionValue}
-	extPartitionTag := &ecs.Tag{Key: &partitionKey, Value: &extPartitionValue}
-	namespace1Tag := &ecs.Tag{Key: &namespaceKey, Value: &namespaces[0]}
-	namespace2Tag := &ecs.Tag{Key: &namespaceKey, Value: &namespaces[1]}
-	task1 := ecs.Task{
-		TaskArn:           aws.String("task1"),
-		TaskDefinitionArn: definitionArn,
-		Tags:              []*ecs.Tag{meshTag},
-	}
-	task1Name := ServiceName{Name: "service1"}
-	task2 := ecs.Task{
-		TaskArn:           aws.String("task2"),
-		TaskDefinitionArn: definitionArn,
-		Tags:              []*ecs.Tag{meshTag},
-	}
-	task2Name := ServiceName{Name: "service1"}
-	nonMeshTask := ecs.Task{
-		TaskArn:           aws.String("nonMeshTask"),
-		TaskDefinitionArn: definitionArn,
-	}
-	task3Name := ServiceName{Name: "service3"}
-	task3 := ecs.Task{
-		TaskArn:           aws.String("task3"),
-		TaskDefinitionArn: definitionArn,
-		Tags:              []*ecs.Tag{extPartitionTag},
-	}
-	aclToken1 := &api.ACLToken{
-		Description: fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
-	}
-	aclTokenListEntry1 := &api.ACLTokenListEntry{
-		Description: fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
-	}
-	aclToken2 := &api.ACLToken{
-		Description: fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
-	}
-	aclTokenListEntry2 := &api.ACLTokenListEntry{
-		Description: fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
-	}
-	aclToken3 := &api.ACLToken{
-		Description: fmt.Sprintf("Token for service3 service\n%s: %s", clusterTag, cluster),
-	}
-	aclTokenListEntry3 := &api.ACLTokenListEntry{
-		Description: fmt.Sprintf("Token for service3 service\n%s: %s", clusterTag, cluster),
-	}
+	nonMeshTag := &ecs.Tag{}
 
-	if enterprise {
-		// add partitions and namespaces for enterprise testing.
-		task1Name.Partition = partitionValue
-		task1Name.Namespace = namespaces[0]
-		task1.Tags = append(task1.Tags, partitionTag, namespace1Tag)
-		task2Name.Partition = partitionValue
-		task2Name.Namespace = namespaces[1]
-		task2.Tags = append(task2.Tags, partitionTag, namespace2Tag)
-		task3Name.Partition = partitionValue
-		task3Name.Namespace = namespaces[0]
-		task3.Tags = append(task3.Tags, meshTag, extPartitionTag, namespace1Tag)
-		aclToken1.Partition = partitionValue
-		aclToken1.Namespace = namespaces[0]
-		aclTokenListEntry1.Partition = partitionValue
-		aclTokenListEntry1.Namespace = namespaces[0]
-		aclToken2.Partition = partitionValue
-		aclToken2.Namespace = namespaces[1]
-		aclTokenListEntry2.Partition = partitionValue
-		aclTokenListEntry2.Namespace = namespaces[1]
-		aclToken3.Partition = partitionValue
-		aclToken3.Namespace = namespaces[0]
-		aclTokenListEntry3.Partition = partitionValue
-		aclTokenListEntry3.Namespace = namespaces[0]
+	makeTask := func(taskName, serviceName, partition, namespace string, tags ...*ecs.Tag) (ecs.Task, ServiceName, *api.ACLToken, *api.ACLTokenListEntry) {
+		if enterprise {
+			tags = append(tags, &ecs.Tag{Key: &partitionKey, Value: &partition})
+			tags = append(tags, &ecs.Tag{Key: &namespaceKey, Value: &namespace})
+		}
+		task := ecs.Task{
+			TaskArn:           aws.String(taskName),
+			TaskDefinitionArn: aws.String(fmt.Sprintf("arn:aws:ecs:us-east-1:1234567890:task-definition/%s:1", serviceName)),
+			Tags:              tags,
+		}
+		name := ServiceName{Name: serviceName}
+		token := &api.ACLToken{
+			Description: fmt.Sprintf("Token for %s service\n%s: %s", serviceName, clusterTag, cluster),
+		}
+		tokenListEntry := &api.ACLTokenListEntry{
+			Description: fmt.Sprintf("Token for %s service\n%s: %s", serviceName, clusterTag, cluster),
+		}
+		if enterprise {
+			name.Partition = partition
+			name.Namespace = namespace
+			token.Partition = partition
+			token.Namespace = namespace
+			tokenListEntry.Partition = partition
+			tokenListEntry.Namespace = namespace
+		}
+		return task, name, token, tokenListEntry
 	}
+	task1, task1Name, aclToken1, aclTokenListEntry1 := makeTask("task1", "service1", "default", "default", meshTag)
+	task2, task2Name, aclToken2, aclTokenListEntry2 := makeTask("task2", "service1", "default", "namespace-1", meshTag)
+	nonMeshTask, _, _, _ := makeTask("nonMeshTask", "service1", "default", "default", nonMeshTag)
+	_, task3Name, aclToken3, aclTokenListEntry3 := makeTask("task3", "service3", "default", "default", nonMeshTag)
+	task4, _, _, _ := makeTask("task4", "service4", "external-partition", "default", meshTag)
 	cases := map[string]struct {
 		paginateResults bool
 		tasks           []ecs.Task
 		expected        map[ServiceName]ServiceState
 		aclTokens       []*api.ACLToken
+		partition       string
 	}{
 		"no overlap between tasks, services and tokens": {
-			tasks:     []ecs.Task{task1, task2, task3},
+			tasks:     []ecs.Task{task1, task2},
+			partition: "default",
 			aclTokens: []*api.ACLToken{aclToken3},
 			expected: map[ServiceName]ServiceState{
 				task1Name: {
@@ -136,6 +100,7 @@ func TestServiceStateLister_List(t *testing.T) {
 		},
 		"all overlap between tasks, services and tokens": {
 			tasks:     []ecs.Task{task1, task2},
+			partition: "default",
 			aclTokens: []*api.ACLToken{aclToken1, aclToken2},
 			expected: map[ServiceName]ServiceState{
 				task1Name: {
@@ -150,6 +115,7 @@ func TestServiceStateLister_List(t *testing.T) {
 		},
 		"with pagination": {
 			tasks:           []ecs.Task{task1, task2},
+			partition:       "default",
 			paginateResults: true,
 			expected: map[ServiceName]ServiceState{
 				task1Name: {
@@ -159,6 +125,7 @@ func TestServiceStateLister_List(t *testing.T) {
 		},
 		"with non-mesh tasks": {
 			tasks:     []ecs.Task{nonMeshTask},
+			partition: "default",
 			aclTokens: []*api.ACLToken{aclToken1},
 			expected: map[ServiceName]ServiceState{
 				task1Name: {
@@ -206,6 +173,14 @@ func TestServiceStateLister_List(t *testing.T) {
 				tasks = append(tasks, &c.tasks[i])
 			}
 
+			var partition string
+			if enterprise {
+				// for the enterprise case, set the partition and add in the task that
+				// belongs to an external partition.
+				partition = c.partition
+				tasks = append(tasks, &task4)
+			}
+
 			s := ServiceStateLister{
 				SecretPrefix: "test",
 				Log:          hclog.NewNullLogger(),
@@ -214,10 +189,7 @@ func TestServiceStateLister_List(t *testing.T) {
 					Tasks:           tasks,
 					PaginateResults: c.paginateResults,
 				},
-			}
-
-			if enterprise {
-				s.Partition = partitionValue
+				Partition: partition,
 			}
 
 			resources, err := s.List()
@@ -364,7 +336,6 @@ func TestReconcile(t *testing.T) {
 			var tokens []*api.ACLToken
 			if state, ok := aclState[c.sutServiceName]; ok {
 				for _, policy := range state.ACLPolicies {
-					fmt.Println(">>> policy", policy.Description)
 					policies = append(policies, &api.ACLPolicy{
 						Name:        policy.Name,
 						Description: policy.Description,
@@ -373,7 +344,6 @@ func TestReconcile(t *testing.T) {
 					})
 				}
 				for _, token := range state.ACLTokens {
-					fmt.Println(">>> token", token.Description)
 					tokens = append(tokens, &api.ACLToken{
 						Partition:   token.Partition,
 						Namespace:   token.Namespace,
@@ -698,7 +668,6 @@ func TestParseServiceNameFromTaskDefinitionARN(t *testing.T) {
 				},
 			},
 		}
-		fmt.Printf(">>> %+v\n", c)
 		cases["from the tags with partitions disabled"] = c
 
 		c = cases["add"]

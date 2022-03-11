@@ -88,23 +88,24 @@ func (c *Command) run() error {
 			CAPem: []byte(caCert),
 		}
 	}
-	if c.flagPartitionsEnabled {
-		cfg.Partition = c.flagPartition
-	}
 
 	consulClient, err := api.NewClient(cfg)
 	if err != nil {
 		return err
 	}
 
-	smClient := secretsmanager.New(clientSession, nil)
-
-	err = c.upsertConsulClientToken(consulClient, smClient)
-	if err != nil {
+	if err = c.createPartition(consulClient); err != nil {
 		return err
 	}
 
-	if err = c.createPartition(consulClient); err != nil {
+	smClient := secretsmanager.New(clientSession, nil)
+
+	if c.flagPartitionsEnabled {
+		cfg.Partition = c.flagPartition
+	}
+
+	err = c.upsertConsulClientToken(consulClient, smClient)
+	if err != nil {
 		return err
 	}
 

@@ -100,10 +100,6 @@ func (c *Command) run() error {
 
 	smClient := secretsmanager.New(clientSession, nil)
 
-	if c.flagPartitionsEnabled {
-		cfg.Partition = c.flagPartition
-	}
-
 	err = c.upsertConsulClientToken(consulClient, smClient)
 	if err != nil {
 		return err

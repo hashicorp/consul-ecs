@@ -521,7 +521,7 @@ func (s *ServiceInfo) upsertSecret() (TokenSecretJSON, error) {
 	// Get current secret from AWS.
 	currSecretValue, err := s.SecretsManagerClient.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretId: aws.String(secretName)})
 	if err != nil {
-		return currSecret, fmt.Errorf("retrieving secret: %w", err)
+		return currSecret, fmt.Errorf("retrieving secret %s: %w", secretName, err)
 	}
 	err = json.Unmarshal([]byte(*currSecretValue.SecretString), &currSecret)
 	if err != nil {

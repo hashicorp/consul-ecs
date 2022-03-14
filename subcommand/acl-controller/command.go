@@ -196,7 +196,7 @@ func (c *Command) upsertConsulClientToken(consulClient *api.Client, smClient sec
 
 	// If the secret is not empty, check if Consul already has a token with this AccessorID.
 	if currSecret.AccessorID != "" {
-		currToken, _, err = consulClient.ACL().TokenRead(currSecret.AccessorID, nil)
+		currToken, _, err = consulClient.ACL().TokenRead(currSecret.AccessorID, c.queryOptions())
 		if err != nil && !controller.IsACLNotFoundError(err) {
 			return fmt.Errorf("reading token: %w", err)
 		}
@@ -210,7 +210,7 @@ func (c *Command) upsertConsulClientToken(consulClient *api.Client, smClient sec
 	// First, we need to check if the policy for the Consul client already exists.
 	// If it does, we will skip policy creation.
 	policyName := fmt.Sprintf("%s-consul-client-policy", c.flagSecretNamePrefix)
-	policy, _, err := consulClient.ACL().PolicyReadByName(policyName, nil)
+	policy, _, err := consulClient.ACL().PolicyReadByName(policyName, c.queryOptions())
 
 	// When policy is not found, Consul returns ACL not found error.
 	if controller.IsACLNotFoundError(err) {
@@ -226,7 +226,7 @@ func (c *Command) upsertConsulClientToken(consulClient *api.Client, smClient sec
 			Name:        policyName,
 			Description: "Consul Client Token Policy for ECS",
 			Rules:       rules,
-		}, nil)
+		}, c.writeOptions())
 		if err != nil {
 			return fmt.Errorf("creating Consul client ACL policy: %w", err)
 		}
@@ -241,7 +241,7 @@ func (c *Command) upsertConsulClientToken(consulClient *api.Client, smClient sec
 	token, _, err := consulClient.ACL().TokenCreate(&api.ACLToken{
 		Description: "ECS Consul client Token",
 		Policies:    []*api.ACLTokenPolicyLink{{Name: policy.Name}},
-	}, nil)
+	}, c.writeOptions())
 	if err != nil {
 		return fmt.Errorf("creating Consul client ACL token: %w", err)
 	}
@@ -262,5 +262,19 @@ func (c *Command) upsertConsulClientToken(consulClient *api.Client, smClient sec
 		return fmt.Errorf("updating secret: %s", err)
 	}
 	c.log.Info("secret updated successfully", "arn", c.flagConsulClientSecretARN)
+	return nil
+}
+
+func (c *Command) queryOptions() *api.QueryOptions {
+	if c.flagPartitionsEnabled {
+		return &api.QueryOptions{Partition: c.flagPartition}
+	}
+	return nil
+}
+
+func (c *Command) writeOptions() *api.WriteOptions {
+	if c.flagPartitionsEnabled {
+		return &api.WriteOptions{Partition: c.flagPartition}
+	}
 	return nil
 }

@@ -600,10 +600,14 @@ func (s *ServiceInfo) createServiceToken(secret TokenSecretJSON) error {
 }
 
 func (s *ServiceInfo) secretName() string {
-	if s.ServiceName.Namespace == "" || s.ServiceName.Namespace == DefaultNamespace {
-		return fmt.Sprintf("%s-%s", s.SecretPrefix, s.ServiceName.Name)
+	if PartitionsEnabled(s.ServiceName.Partition) {
+		return fmt.Sprintf("%s-%s-%s-%s",
+			s.SecretPrefix,
+			s.ServiceName.Name,
+			s.ServiceName.Namespace,
+			s.ServiceName.Partition)
 	} else {
-		return fmt.Sprintf("%s-%s-%s", s.SecretPrefix, s.ServiceName.Name, s.ServiceName.Namespace)
+		return fmt.Sprintf("%s-%s", s.SecretPrefix, s.ServiceName.Name)
 	}
 }
 

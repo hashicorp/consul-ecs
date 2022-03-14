@@ -170,6 +170,8 @@ func (s ServiceStateLister) fetchECSTasks() (map[ServiceName]struct{}, error) {
 			}
 
 			serviceName, err := s.serviceNameForTask(task)
+			// TODO: remove log message
+			s.Log.Info("found mesh task", "service-name", serviceName)
 
 			if err != nil {
 				s.Log.Error("couldn't get service name from task", "task-arn", task.TaskArn, "tags", task.Tags, "err", err)

@@ -111,7 +111,7 @@ func (c *Command) run() error {
 		ConsulClient:         consulClient,
 		Cluster:              cluster,
 		SecretPrefix:         c.flagSecretNamePrefix,
-		Partition:            cfg.Partition,
+		Partition:            c.flagPartition,
 		Log:                  c.log,
 	}
 	ctrl := controller.Controller{
@@ -140,6 +140,7 @@ func (c *Command) Help() string {
 // A non-nil error is returned if the operation fails.
 func (c *Command) createPartition(consulClient *api.Client) error {
 	if !c.flagPartitionsEnabled {
+		c.flagPartition = ""
 		return nil
 	}
 	// check if the partition already exists.

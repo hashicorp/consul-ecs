@@ -57,20 +57,20 @@ func TestServiceStateLister_List(t *testing.T) {
 			Tags:              tags,
 		}
 		name := ServiceName{Name: serviceName}
-		token := &api.ACLToken{
-			Description: fmt.Sprintf("Token for %s service\n%s: %s", serviceName, clusterTag, cluster),
-		}
-		tokenListEntry := &api.ACLTokenListEntry{
-			Description: fmt.Sprintf("Token for %s service\n%s: %s", serviceName, clusterTag, cluster),
-		}
+		token := &api.ACLToken{}
+		tokenListEntry := &api.ACLTokenListEntry{}
 		if enterprise {
 			name.Partition = partition
 			name.Namespace = namespace
+			name.ACLNamespace = DefaultNamespace
 			token.Partition = partition
-			token.Namespace = namespace
+			token.Namespace = DefaultNamespace
 			tokenListEntry.Partition = partition
-			tokenListEntry.Namespace = namespace
+			tokenListEntry.Namespace = DefaultNamespace
 		}
+		info := ServiceInfo{Cluster: cluster, ServiceName: name}
+		token.Description = info.aclDescription("Token")
+		tokenListEntry.Description = info.aclDescription("Token")
 		return task, name, token, tokenListEntry
 	}
 	task1, task1Name, aclToken1, aclTokenListEntry1 := makeTask("task1", "service1", "default", "default", meshTag)
@@ -222,13 +222,8 @@ func TestServiceStateLister_List(t *testing.T) {
 
 func TestReconcile(t *testing.T) {
 	cluster := "test-cluster"
-	aclToken1 := &api.ACLToken{
-		Description: fmt.Sprintf("Token for service1 service\n%s: %s", clusterTag, cluster),
-	}
-	aclPolicy1 := &api.ACLPolicy{
-		Name:        "service1-service",
-		Description: fmt.Sprintf("Policy for service1 service\n%s: %s", clusterTag, cluster),
-	}
+	aclToken1 := &api.ACLToken{}
+	aclPolicy1 := &api.ACLPolicy{Name: "service1-service"}
 	cases := map[string]struct {
 		tasks            bool
 		aclTokens        []*api.ACLToken
@@ -276,6 +271,7 @@ func TestReconcile(t *testing.T) {
 			if enterpriseFlag() {
 				c.sutServiceName.Partition = "default"
 				c.sutServiceName.Namespace = "default"
+				c.sutServiceName.ACLNamespace = "default"
 
 				aclToken1.Partition = "default"
 				aclToken1.Namespace = "default"
@@ -286,6 +282,11 @@ func TestReconcile(t *testing.T) {
 				writeOpts.Partition = "default"
 				writeOpts.Namespace = "default"
 			}
+
+			info := ServiceInfo{Cluster: cluster, ServiceName: c.sutServiceName}
+			aclToken1.Description = info.aclDescription("Token")
+			aclPolicy1.Name = info.policyName()
+			aclPolicy1.Description = info.aclDescription("Policy")
 
 			var beforePolicies []*api.ACLPolicyListEntry
 			for _, aclPolicy := range c.aclPolicies {
@@ -615,7 +616,7 @@ func TestParseServiceNameFromTaskDefinitionARN(t *testing.T) {
 	if enterpriseFlag() {
 		c := cases["add"]
 		c.partition = "test-partition"
-		c.serviceName = ServiceName{Name: "real-service-name", Partition: "test-partition", Namespace: "test-namespace"}
+		c.serviceName = ServiceName{Name: "real-service-name", Partition: "test-partition", Namespace: "test-namespace", ACLNamespace: "default"}
 		c.task = ecs.Task{
 			TaskDefinitionArn: aws.String(validARN),
 			Tags: []*ecs.Tag{
@@ -637,7 +638,7 @@ func TestParseServiceNameFromTaskDefinitionARN(t *testing.T) {
 
 		c = cases["add"]
 		c.partition = "default"
-		c.serviceName = ServiceName{Name: "real-service-name", Partition: "default", Namespace: "default"}
+		c.serviceName = ServiceName{Name: "real-service-name", Partition: "default", Namespace: "default", ACLNamespace: "default"}
 		c.task = ecs.Task{
 			TaskDefinitionArn: aws.String(validARN),
 			Tags: []*ecs.Tag{
@@ -842,63 +843,57 @@ func TestTaskLifecycle(t *testing.T) {
 			},
 			expServices: []*ServiceInfo{
 				{
-					ServiceName: ServiceName{Name: "service1", Partition: "default", Namespace: namespaces[0]},
+					ServiceName: ServiceName{Name: "service1", Partition: "default", Namespace: namespaces[0], ACLNamespace: "default"},
 					ServiceState: ServiceState{
 						ConsulECSTasks: true,
 						ACLPolicies: []*api.ACLPolicyListEntry{
 							{
-								Partition:   "default",
-								Namespace:   namespaces[0],
-								Name:        "service1-service",
-								Description: "Policy for service1 service\nconsul.hashicorp.com/cluster: cluster",
+								Partition: "default",
+								Namespace: "default",
+								Name:      "service1-service",
 							},
 						},
 						ACLTokens: []*api.ACLTokenListEntry{
 							{
-								Partition:   "default",
-								Namespace:   namespaces[0],
-								Description: "Token for service1 service\nconsul.hashicorp.com/cluster: cluster",
+								Partition: "default",
+								Namespace: "default",
 							},
 						},
 					},
 				},
 				{
-					ServiceName: ServiceName{Name: "service2", Partition: "default", Namespace: namespaces[0]},
+					ServiceName: ServiceName{Name: "service2", Partition: "default", Namespace: namespaces[0], ACLNamespace: "default"},
 					ServiceState: ServiceState{
 						ConsulECSTasks: true,
 						ACLPolicies: []*api.ACLPolicyListEntry{
 							{
-								Partition:   "default",
-								Namespace:   namespaces[0],
-								Name:        "service2-service",
-								Description: "Policy for service2 service\nconsul.hashicorp.com/cluster: cluster",
+								Partition: "default",
+								Namespace: "default",
+								Name:      "service2-service",
 							},
 						},
 						ACLTokens: []*api.ACLTokenListEntry{
 							{
-								Partition:   "default",
-								Namespace:   namespaces[0],
-								Description: "Token for service2 service\nconsul.hashicorp.com/cluster: cluster",
+								Partition: "default",
+								Namespace: "default",
 							},
 						},
 					},
 				},
 				{
-					ServiceName: ServiceName{Name: "service3", Partition: "default", Namespace: namespaces[1]},
+					ServiceName: ServiceName{Name: "service3", Partition: "default", Namespace: namespaces[1], ACLNamespace: "default"},
 					ServiceState: ServiceState{
 						ConsulECSTasks: true,
 						ACLPolicies: []*api.ACLPolicyListEntry{
 							{
-								Partition:   "default",
-								Namespace:   namespaces[1],
-								Name:        "service3-service",
-								Description: "Policy for service3 service\nconsul.hashicorp.com/cluster: cluster",
+								Partition: "default",
+								Namespace: "default",
+								Name:      "service3-service",
 							},
 						},
 						ACLTokens: []*api.ACLTokenListEntry{{
-							Partition:   "default",
-							Namespace:   namespaces[1],
-							Description: "Token for service3 service\nconsul.hashicorp.com/cluster: cluster",
+							Partition: "default",
+							Namespace: "default",
 						},
 						},
 					},
@@ -932,42 +927,38 @@ func TestTaskLifecycle(t *testing.T) {
 			},
 			expServices: []*ServiceInfo{
 				{
-					ServiceName: ServiceName{Name: "service1", Partition: "default", Namespace: namespaces[0]},
+					ServiceName: ServiceName{Name: "service1", Partition: "default", Namespace: namespaces[0], ACLNamespace: "default"},
 					ServiceState: ServiceState{
 						ConsulECSTasks: true,
 						ACLPolicies: []*api.ACLPolicyListEntry{
 							{
-								Partition:   "default",
-								Namespace:   namespaces[0],
-								Name:        "service1-service",
-								Description: "Policy for service1 service\nconsul.hashicorp.com/cluster: cluster",
+								Partition: "default",
+								Namespace: "default",
+								Name:      "service1-service",
 							},
 						},
 						ACLTokens: []*api.ACLTokenListEntry{
 							{
-								Partition:   "default",
-								Namespace:   namespaces[0],
-								Description: "Token for service1 service\nconsul.hashicorp.com/cluster: cluster",
+								Partition: "default",
+								Namespace: "default",
 							},
 						},
 					},
 				},
 				{
-					ServiceName: ServiceName{Name: "service1", Partition: "default", Namespace: namespaces[1]},
+					ServiceName: ServiceName{Name: "service1", Partition: "default", Namespace: namespaces[1], ACLNamespace: "default"},
 					ServiceState: ServiceState{
 						ConsulECSTasks: true,
 						ACLPolicies: []*api.ACLPolicyListEntry{
 							{
-								Partition:   "default",
-								Namespace:   namespaces[1],
-								Name:        "service1-service",
-								Description: "Policy for service1 service\nconsul.hashicorp.com/cluster: cluster",
+								Partition: "default",
+								Namespace: "default",
+								Name:      "service1-service",
 							},
 						},
 						ACLTokens: []*api.ACLTokenListEntry{{
-							Partition:   "default",
-							Namespace:   namespaces[1],
-							Description: "Token for service1 service\nconsul.hashicorp.com/cluster: cluster",
+							Partition: "default",
+							Namespace: "default",
 						},
 						},
 					},
@@ -1010,6 +1001,7 @@ func TestTaskLifecycle(t *testing.T) {
 					lister.Partition = ""
 					service.ServiceName.Partition = ""
 					service.ServiceName.Namespace = ""
+					service.ServiceName.ACLNamespace = ""
 					for _, policy := range service.ServiceState.ACLPolicies {
 						policy.Partition = ""
 						policy.Namespace = ""
@@ -1018,6 +1010,14 @@ func TestTaskLifecycle(t *testing.T) {
 						token.Partition = ""
 						token.Namespace = ""
 					}
+				}
+
+				for _, policy := range service.ServiceState.ACLPolicies {
+					policy.Name = service.policyName()
+					policy.Description = service.aclDescription("Policy")
+				}
+				for _, token := range service.ServiceState.ACLTokens {
+					token.Description = service.aclDescription("Token")
 				}
 			}
 
@@ -1110,6 +1110,33 @@ func TestTaskLifecycle(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, beforePolicies, afterPolicies)
 			require.Equal(t, beforeTokens, afterTokens)
+		})
+	}
+}
+
+func TestACLDescriptions(t *testing.T) {
+	cases := map[string]struct {
+		cluster     string
+		serviceName ServiceName
+	}{
+		"with partitions": {
+			cluster:     "c1",
+			serviceName: ServiceName{Name: "s1", Partition: "p1", Namespace: "n1", ACLNamespace: "default"},
+		},
+		"without partitions": {
+			cluster:     "c1",
+			serviceName: ServiceName{Name: "s1"},
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := &ServiceInfo{
+				Cluster:     c.cluster,
+				ServiceName: c.serviceName,
+			}
+			desc := s.aclDescription("Token")
+			l := ServiceStateLister{Cluster: c.cluster, Partition: c.serviceName.Partition}
+			require.Equal(t, c.serviceName, l.serviceNameFromDescription(desc))
 		})
 	}
 }

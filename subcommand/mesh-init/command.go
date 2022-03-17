@@ -86,7 +86,13 @@ func (c *Command) realRun() error {
 	c.log.Info("service and proxy registered successfully", "name", serviceRegistration.Name, "id", serviceRegistration.ID)
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
-	cmd := exec.Command("consul", "connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502")
+	connectArgs := []string{"connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502"}
+	if c.config.Partition != "" {
+		// Partition/namespace support is enabled so augment the connect command.
+		connectArgs = append(connectArgs, "-partition", c.config.Partition, "-namespace", c.config.Namespace)
+	}
+
+	cmd := exec.Command("consul", connectArgs...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, string(out))

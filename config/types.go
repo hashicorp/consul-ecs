@@ -10,6 +10,8 @@ type Config struct {
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
 	Service              ServiceRegistration             `json:"service"`
+	Namespace            string                          `json:"namespace,omitempty"`
+	Partition            string                          `json:"partition,omitempty"`
 }
 
 // ServiceRegistration configures the Consul service registration.

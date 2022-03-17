@@ -87,10 +87,15 @@ func (c *Command) realRun() error {
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
 	connectArgs := []string{"connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502"}
-	if c.config.Partition != "" {
+	if serviceRegistration.Partition != "" {
 		// Partition/namespace support is enabled so augment the connect command.
-		connectArgs = append(connectArgs, "-partition", c.config.Partition, "-namespace", c.config.Namespace)
+		connectArgs = append(connectArgs,
+			"-partition", serviceRegistration.Partition,
+			"-namespace", serviceRegistration.Namespace)
 	}
+
+	// TODO remove
+	c.log.Info("consul connect", "args", connectArgs)
 
 	cmd := exec.Command("consul", connectArgs...)
 	out, err := cmd.CombinedOutput()
@@ -233,6 +238,7 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServi
 			AliasService: serviceRegistration.ID,
 		},
 	}
+	proxyRegistration.Partition = serviceRegistration.Partition
 	proxyRegistration.Namespace = serviceRegistration.Namespace
 	proxyRegistration.Weights = serviceRegistration.Weights
 	proxyRegistration.EnableTagOverride = serviceRegistration.EnableTagOverride

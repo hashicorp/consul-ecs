@@ -10,8 +10,6 @@ type Config struct {
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
 	Service              ServiceRegistration             `json:"service"`
-	Namespace            string                          `json:"namespace,omitempty"`
-	Partition            string                          `json:"partition,omitempty"`
 }
 
 // ServiceRegistration configures the Consul service registration.
@@ -152,6 +150,7 @@ func (w *AgentWeights) ToConsulType() *api.AgentWeights {
 // - The bind address is always localhost in ECS, so the Address and SocketPath are excluded.
 // - The Connect field is excluded. Since the sidecar proxy is being used, it's not a Connect-native
 //   service, and we don't need the nested proxy config included in the Connect field.
+// - The Partition field is excluded. mesh-init will use the partition from the service registration.
 // - The Namespace field is excluded. mesh-init will use the namespace from the service registration.
 // - There's not a use-case for specifying TaggedAddresses with Consul ECS, and Enable
 // For the proxy configuration (api.AgentServiceConnectProxyConfig in Consul),

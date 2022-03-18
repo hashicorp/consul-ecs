@@ -306,6 +306,11 @@ func TestReconcile(t *testing.T) {
 			}
 
 			log := hclog.NewNullLogger()
+			serviceStateLister := ServiceStateLister{
+				ConsulClient: consulClient,
+				Partition:    c.sutServiceName.Partition,
+				Log:          log,
+			}
 
 			serviceInfo := ServiceInfo{
 				SecretsManagerClient: smClient,
@@ -321,14 +326,13 @@ func TestReconcile(t *testing.T) {
 				Log: log,
 			}
 
+			if enterpriseFlag() {
+				// for enterprise testing we need to create the cross-namespace policy
+				require.NoError(t, serviceStateLister.ReconcileNamespaces([]Resource{&serviceInfo}))
+			}
+
 			err := serviceInfo.Reconcile()
 			require.NoError(t, err)
-
-			serviceStateLister := ServiceStateLister{
-				ConsulClient: consulClient,
-				Partition:    c.sutServiceName.Partition,
-				Log:          log,
-			}
 
 			aclState, err := serviceStateLister.fetchACLState()
 			require.NoError(t, err)

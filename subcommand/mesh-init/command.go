@@ -95,13 +95,16 @@ func (c *Command) realRun() error {
 	}
 
 	// TODO remove
-	c.log.Info("consul connect", "args", connectArgs)
+	connectArgs = append(connectArgs, "--", "--component-log-level", "upstream:debug,http:debug,router:debug,config:debug")
 
 	cmd := exec.Command("consul", connectArgs...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, string(out))
 	}
+
+	// TODO remove
+	c.log.Info("envoy", "bootstrap-config", string(out))
 
 	envoyBootstrapFile := path.Join(c.config.BootstrapDir, envoyBoostrapConfigFilename)
 	err = ioutil.WriteFile(envoyBootstrapFile, out, 0444)

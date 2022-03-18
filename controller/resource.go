@@ -612,12 +612,18 @@ func (s *ServiceInfo) createServicePolicy() error {
 // SecretID are set based on the AWS secret.
 func (s *ServiceInfo) createServiceToken(secret TokenSecretJSON) error {
 	s.Log.Info("creating service token", "id", s.ServiceName)
+	policies := []*api.ACLTokenPolicyLink{&api.ACLLink{Name: s.policyName()}}
+	if PartitionsEnabled(s.ServiceName.Partition) {
+		// Include the cross-namespace read policy when partitions are enabled.
+		policies = append(policies, &api.ACLLink{Name: xnsPolicyName})
+	}
+
 	// Create ACL token for envoy to register the service.
 	_, _, err := s.ConsulClient.ACL().TokenCreate(&api.ACLToken{
 		AccessorID:  secret.AccessorID,
 		SecretID:    secret.Token,
 		Description: s.aclDescription("Token"),
-		Policies:    []*api.ACLTokenPolicyLink{&api.ACLLink{Name: s.policyName()}},
+		Policies:    policies,
 		Partition:   s.ServiceName.Partition,
 		Namespace:   s.ServiceName.ACLNamespace,
 	}, nil)

@@ -32,10 +32,10 @@ const entServicePolicyTpl = `partition "%s" {
   }
 }`
 
-// Cross namespace policy constants
-const xnsPolicyName = "cross-namespace-read"
-const xnsPolicyDesc = "Allow service and node reads across namespaces within the partition"
-const xnsPolicyTpl = `partition "%s" {
+// Cross partition/namespace policy constants
+const xpPolicyName = "cross-ap-ns-read"
+const xpPolicyDesc = "Allow service and node reads across all partitions and namespaces"
+const xpPolicy = `partition_prefix "" {
   namespace_prefix "" {
     service_prefix "" {
       policy = "read"

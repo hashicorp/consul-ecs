@@ -94,9 +94,6 @@ func (c *Command) realRun() error {
 			"-namespace", serviceRegistration.Namespace)
 	}
 
-	// TODO remove
-	connectArgs = append(connectArgs, "--", "--component-log-level", "upstream:debug,http:debug,router:debug,config:debug")
-
 	cmd := exec.Command("consul", connectArgs...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

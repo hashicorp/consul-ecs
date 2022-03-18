@@ -44,6 +44,8 @@ type ServiceName struct {
 	Partition string
 	// Namespace that the service belongs to (Consul Enterprise).
 	Namespace string
+	// ACLPartition defines the partition that ACL tokens and policies are scoped to (Consul Enterprise).
+	ACLPartition string
 	// ACLNamespace defines the namespace that ACL tokens and policies are scoped to (Consul Enterprise).
 	ACLNamespace string
 }
@@ -261,8 +263,8 @@ func (s ServiceStateLister) ReconcileNamespaces(resources []Resource) error {
 		return nil
 	}
 
-	// create the cross-namespace read policy
-	if err := s.upsertCrossNSPolicy(); err != nil {
+	// create the cross partition read policy
+	if err := s.upsertCrossAPPolicy(); err != nil {
 		return err
 	}
 
@@ -274,15 +276,15 @@ func (s ServiceStateLister) ReconcileNamespaces(resources []Resource) error {
 	return nil
 }
 
-// upsertCrossNSPolicy creates the cross-namespace read policy in the local
-// partition and default namespace, if it does not already exist.
-func (s ServiceStateLister) upsertCrossNSPolicy() error {
+// upsertCrossAPPolicy creates the cross-partition read policy in the default
+// partition and namespace, if it does not already exist.
+func (s ServiceStateLister) upsertCrossAPPolicy() error {
 	policy, _, err := s.ConsulClient.ACL().PolicyReadByName(
-		xnsPolicyName,
-		&api.QueryOptions{Partition: s.Partition, Namespace: DefaultNamespace},
+		xpPolicyName,
+		&api.QueryOptions{Partition: DefaultPartition, Namespace: DefaultNamespace},
 	)
 	if err != nil && !IsACLNotFoundError(err) {
-		return fmt.Errorf("reading cross-namespace policy: %w", err)
+		return fmt.Errorf("reading cross-partition policy: %w", err)
 	}
 
 	if policy != nil {
@@ -292,17 +294,17 @@ func (s ServiceStateLister) upsertCrossNSPolicy() error {
 
 	// create the policy in the local partition and default namespace.
 	_, _, err = s.ConsulClient.ACL().PolicyCreate(&api.ACLPolicy{
-		Name:        xnsPolicyName,
-		Description: xnsPolicyDesc,
-		Partition:   s.Partition,
+		Name:        xpPolicyName,
+		Description: xpPolicyDesc,
+		Partition:   DefaultPartition,
 		Namespace:   DefaultNamespace,
-		Rules:       fmt.Sprintf(xnsPolicyTpl, s.Partition),
+		Rules:       xpPolicy,
 	}, nil)
 	if err != nil {
-		return fmt.Errorf("creating cross-namespace policy: %w", err)
+		return fmt.Errorf("creating cross-partition policy: %w", err)
 	}
 
-	s.Log.Info("created cross-namespace policy", "name", xnsPolicyName)
+	s.Log.Info("created cross-partition policy", "name", xpPolicyName)
 	return nil
 }
 
@@ -337,7 +339,7 @@ func (s ServiceStateLister) createNamespaces(resources []Resource) error {
 		_, _, err = s.ConsulClient.Namespaces().Create(&api.Namespace{
 			Partition: s.Partition,
 			Name:      n,
-			ACLs:      &api.NamespaceACLConfig{PolicyDefaults: []api.ACLLink{{Name: xnsPolicyName}}},
+			ACLs:      &api.NamespaceACLConfig{PolicyDefaults: []api.ACLLink{{Name: xpPolicyName}}},
 		}, nil)
 		if err != nil {
 			s.Log.Error("failed to create namespace", "name", n)
@@ -361,9 +363,11 @@ func (s ServiceStateLister) newServiceInfo(serviceName ServiceName, serviceState
 
 // Task definition ARN looks like this: arn:aws:ecs:us-east-1:1234567890:task-definition/service:1
 func (s ServiceStateLister) serviceNameForTask(t *ecs.Task) (ServiceName, error) {
-	var partition, namespace, aclNamespace string
+	var partition, namespace, aclPartition, aclNamespace string
 	if PartitionsEnabled(s.Partition) {
-		// ACLs are always created in the default namespace.
+		// ACLs are always created in the default partition and namespace to allow for networking
+		// across admin partitions
+		aclPartition = DefaultPartition
 		aclNamespace = DefaultNamespace
 		partition = tagValue(t.Tags, partitionTag)
 		namespace = tagValue(t.Tags, namespaceTag)
@@ -381,6 +385,7 @@ func (s ServiceStateLister) serviceNameForTask(t *ecs.Task) (ServiceName, error)
 			Name:         serviceName,
 			Partition:    partition,
 			Namespace:    namespace,
+			ACLPartition: aclPartition,
 			ACLNamespace: aclNamespace}, nil
 	}
 	taskDefArn := *t.TaskDefinitionArn
@@ -397,6 +402,7 @@ func (s ServiceStateLister) serviceNameForTask(t *ecs.Task) (ServiceName, error)
 		Name:         splits[0],
 		Partition:    partition,
 		Namespace:    namespace,
+		ACLPartition: aclPartition,
 		ACLNamespace: aclNamespace}, nil
 }
 
@@ -407,9 +413,10 @@ func (s ServiceStateLister) serviceNameFromDescription(d string) ServiceName {
 	// description is of the form: "<Policy|Token> for <name> service..."
 	var n int
 	var err error
-	var key, name, cluster, partition, namespace, aclNamespace string
+	var key, name, cluster, partition, namespace, aclPartition, aclNamespace string
 
 	if PartitionsEnabled(s.Partition) {
+		aclPartition = DefaultPartition
 		aclNamespace = DefaultNamespace
 		scanFmt := fmt.Sprintf("%%s for %%s service\n%s: %%s\n%s: %%s\n%s: %%s",
 			clusterTag,
@@ -424,7 +431,13 @@ func (s ServiceStateLister) serviceNameFromDescription(d string) ServiceName {
 		return ServiceName{}
 	}
 
-	return ServiceName{Name: name, Partition: partition, Namespace: namespace, ACLNamespace: aclNamespace}
+	return ServiceName{
+		Name:         name,
+		Partition:    partition,
+		Namespace:    namespace,
+		ACLPartition: aclPartition,
+		ACLNamespace: aclNamespace,
+	}
 }
 
 // ServiceState contains all of the information needed to determine if an ACL
@@ -472,7 +485,7 @@ func (s *ServiceInfo) Reconcile() error {
 // Upsert creates a service policy and token for the task if one doesn't already exist
 // and updates the secret with the contents of the token.
 func (s *ServiceInfo) Upsert() error {
-	opts := &api.QueryOptions{Partition: s.ServiceName.Partition, Namespace: s.ServiceName.ACLNamespace}
+	opts := &api.QueryOptions{Partition: s.ServiceName.ACLPartition, Namespace: s.ServiceName.ACLNamespace}
 
 	// upsert policy
 	currPolicy, _, err := s.ConsulClient.ACL().PolicyReadByName(s.policyName(), opts)
@@ -515,7 +528,7 @@ func (s *ServiceInfo) Upsert() error {
 
 // Delete removes the service policy and token for the given ServiceInfo.
 func (s *ServiceInfo) Delete() error {
-	opts := &api.WriteOptions{Partition: s.ServiceName.Partition, Namespace: s.ServiceName.ACLNamespace}
+	opts := &api.WriteOptions{Partition: s.ServiceName.ACLPartition, Namespace: s.ServiceName.ACLNamespace}
 
 	for _, token := range s.ServiceState.ACLTokens {
 		_, err := s.ConsulClient.ACL().TokenDelete(token.AccessorID, opts)
@@ -597,7 +610,7 @@ func (s *ServiceInfo) createServicePolicy() error {
 	_, _, err := s.ConsulClient.ACL().PolicyCreate(&api.ACLPolicy{
 		Name:        s.policyName(),
 		Description: s.aclDescription("Policy"),
-		Partition:   s.ServiceName.Partition,
+		Partition:   s.ServiceName.ACLPartition,
 		Namespace:   s.ServiceName.ACLNamespace,
 		Rules:       s.policy(),
 	}, nil)
@@ -615,7 +628,7 @@ func (s *ServiceInfo) createServiceToken(secret TokenSecretJSON) error {
 	policies := []*api.ACLTokenPolicyLink{&api.ACLLink{Name: s.policyName()}}
 	if PartitionsEnabled(s.ServiceName.Partition) {
 		// Include the cross-namespace read policy when partitions are enabled.
-		policies = append(policies, &api.ACLLink{Name: xnsPolicyName})
+		policies = append(policies, &api.ACLLink{Name: xpPolicyName})
 	}
 
 	// Create ACL token for envoy to register the service.
@@ -624,7 +637,7 @@ func (s *ServiceInfo) createServiceToken(secret TokenSecretJSON) error {
 		SecretID:    secret.Token,
 		Description: s.aclDescription("Token"),
 		Policies:    policies,
-		Partition:   s.ServiceName.Partition,
+		Partition:   s.ServiceName.ACLPartition,
 		Namespace:   s.ServiceName.ACLNamespace,
 	}, nil)
 	if err != nil {
@@ -660,7 +673,7 @@ func (s *ServiceInfo) aclDescription(d string) string {
 
 func (s *ServiceInfo) policyName() string {
 	if PartitionsEnabled(s.ServiceName.Partition) {
-		return fmt.Sprintf("%s-%s-service", s.ServiceName.Name, s.ServiceName.Namespace)
+		return fmt.Sprintf("service-%s-%s-%s", s.ServiceName.Name, s.ServiceName.Partition, s.ServiceName.Namespace)
 	} else {
 		return fmt.Sprintf("%s-service", s.ServiceName.Name)
 	}

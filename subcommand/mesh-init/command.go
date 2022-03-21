@@ -100,9 +100,6 @@ func (c *Command) realRun() error {
 		return fmt.Errorf("%s: %s", err, string(out))
 	}
 
-	// TODO remove
-	c.log.Info("envoy", "bootstrap-config", string(out))
-
 	envoyBootstrapFile := path.Join(c.config.BootstrapDir, envoyBoostrapConfigFilename)
 	err = ioutil.WriteFile(envoyBootstrapFile, out, 0444)
 	if err != nil {

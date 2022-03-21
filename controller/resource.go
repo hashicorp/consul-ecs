@@ -339,7 +339,6 @@ func (s ServiceStateLister) createNamespaces(resources []Resource) error {
 		_, _, err = s.ConsulClient.Namespaces().Create(&api.Namespace{
 			Partition: s.Partition,
 			Name:      n,
-			ACLs:      &api.NamespaceACLConfig{PolicyDefaults: []api.ACLLink{{Name: xpPolicyName}}},
 		}, nil)
 		if err != nil {
 			s.Log.Error("failed to create namespace", "name", n)

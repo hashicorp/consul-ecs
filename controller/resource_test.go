@@ -62,7 +62,6 @@ func TestServiceStateLister_List(t *testing.T) {
 		if enterprise {
 			name.Partition = partition
 			name.Namespace = namespace
-			name.ACLPartition = DefaultPartition
 			name.ACLNamespace = DefaultNamespace
 			token.Partition = partition
 			token.Namespace = DefaultNamespace
@@ -272,7 +271,6 @@ func TestReconcile(t *testing.T) {
 			if enterpriseFlag() {
 				c.sutServiceName.Partition = "default"
 				c.sutServiceName.Namespace = "default"
-				c.sutServiceName.ACLPartition = "default"
 				c.sutServiceName.ACLNamespace = "default"
 
 				aclToken1.Partition = "default"
@@ -622,7 +620,7 @@ func TestParseServiceNameFromTaskDefinitionARN(t *testing.T) {
 	if enterpriseFlag() {
 		c := cases["add"]
 		c.partition = "test-partition"
-		c.serviceName = ServiceName{Name: "real-service-name", Partition: "test-partition", Namespace: "test-namespace", ACLPartition: "default", ACLNamespace: "default"}
+		c.serviceName = ServiceName{Name: "real-service-name", Partition: "test-partition", Namespace: "test-namespace", ACLNamespace: "default"}
 		c.task = ecs.Task{
 			TaskDefinitionArn: aws.String(validARN),
 			Tags: []*ecs.Tag{
@@ -644,7 +642,7 @@ func TestParseServiceNameFromTaskDefinitionARN(t *testing.T) {
 
 		c = cases["add"]
 		c.partition = "default"
-		c.serviceName = ServiceName{Name: "real-service-name", Partition: "default", Namespace: "default", ACLPartition: "default", ACLNamespace: "default"}
+		c.serviceName = ServiceName{Name: "real-service-name", Partition: "default", Namespace: "default", ACLNamespace: "default"}
 		c.task = ecs.Task{
 			TaskDefinitionArn: aws.String(validARN),
 			Tags: []*ecs.Tag{
@@ -784,15 +782,15 @@ func TestReconcileNamespaces(t *testing.T) {
 				resourcesIF = append(resourcesIF, r)
 			}
 
-			// create the namespaces and cross-partition policies
+			// create the namespaces and cross-namespace policies
 			// this does nothing if enterprise features are not enabled
 			require.NoError(t, s.ReconcileNamespaces(resourcesIF))
 
 			if c.partition != "" {
-				// if partitions are enabled ensure that the cross-partition read policy exists
-				rules, err := getPolicyRules(t, consulClient, c.partition, DefaultNamespace, xpPolicyName)
+				// if partitions are enabled ensure that the cross-namespace read policy exists
+				rules, err := getPolicyRules(t, consulClient, c.partition, DefaultNamespace, xnsPolicyName)
 				require.NoError(t, err)
-				require.Equal(t, xpPolicy, rules)
+				require.Equal(t, fmt.Sprintf(xnsPolicyTpl, c.partition), rules)
 			}
 
 			obsNS := listNamespaces(t, consulClient)
@@ -849,7 +847,7 @@ func TestTaskLifecycle(t *testing.T) {
 			},
 			expServices: []*ServiceInfo{
 				{
-					ServiceName: ServiceName{Name: "service1", Partition: "default", Namespace: namespaces[0], ACLPartition: "default", ACLNamespace: "default"},
+					ServiceName: ServiceName{Name: "service1", Partition: "default", Namespace: namespaces[0], ACLNamespace: "default"},
 					ServiceState: ServiceState{
 						ConsulECSTasks: true,
 						ACLPolicies: []*api.ACLPolicyListEntry{
@@ -868,7 +866,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					ServiceName: ServiceName{Name: "service2", Partition: "default", Namespace: namespaces[0], ACLPartition: "default", ACLNamespace: "default"},
+					ServiceName: ServiceName{Name: "service2", Partition: "default", Namespace: namespaces[0], ACLNamespace: "default"},
 					ServiceState: ServiceState{
 						ConsulECSTasks: true,
 						ACLPolicies: []*api.ACLPolicyListEntry{
@@ -887,7 +885,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					ServiceName: ServiceName{Name: "service3", Partition: "default", Namespace: namespaces[1], ACLPartition: "default", ACLNamespace: "default"},
+					ServiceName: ServiceName{Name: "service3", Partition: "default", Namespace: namespaces[1], ACLNamespace: "default"},
 					ServiceState: ServiceState{
 						ConsulECSTasks: true,
 						ACLPolicies: []*api.ACLPolicyListEntry{
@@ -933,7 +931,7 @@ func TestTaskLifecycle(t *testing.T) {
 			},
 			expServices: []*ServiceInfo{
 				{
-					ServiceName: ServiceName{Name: "service1", Partition: "default", Namespace: namespaces[0], ACLPartition: "default", ACLNamespace: "default"},
+					ServiceName: ServiceName{Name: "service1", Partition: "default", Namespace: namespaces[0], ACLNamespace: "default"},
 					ServiceState: ServiceState{
 						ConsulECSTasks: true,
 						ACLPolicies: []*api.ACLPolicyListEntry{
@@ -952,7 +950,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					ServiceName: ServiceName{Name: "service1", Partition: "default", Namespace: namespaces[1], ACLPartition: "default", ACLNamespace: "default"},
+					ServiceName: ServiceName{Name: "service1", Partition: "default", Namespace: namespaces[1], ACLNamespace: "default"},
 					ServiceState: ServiceState{
 						ConsulECSTasks: true,
 						ACLPolicies: []*api.ACLPolicyListEntry{
@@ -1007,7 +1005,6 @@ func TestTaskLifecycle(t *testing.T) {
 					lister.Partition = ""
 					service.ServiceName.Partition = ""
 					service.ServiceName.Namespace = ""
-					service.ServiceName.ACLPartition = ""
 					service.ServiceName.ACLNamespace = ""
 					for _, policy := range service.ServiceState.ACLPolicies {
 						policy.Partition = ""
@@ -1110,7 +1107,7 @@ func TestTaskLifecycle(t *testing.T) {
 			afterPolicies := make([]*api.ACLPolicyListEntry, 0, len(newPolicies))
 			for _, p := range newPolicies {
 				// we don't (currently) clean up namespaces nor their policies, so ignore them
-				if p.Name != xpPolicyName && p.Name != "namespace-management" {
+				if p.Name != "cross-namespace-read" && p.Name != "namespace-management" {
 					afterPolicies = append(afterPolicies, p)
 				}
 			}
@@ -1128,7 +1125,7 @@ func TestACLDescriptions(t *testing.T) {
 	}{
 		"with partitions": {
 			cluster:     "c1",
-			serviceName: ServiceName{Name: "s1", Partition: "p1", Namespace: "n1", ACLPartition: "default", ACLNamespace: "default"},
+			serviceName: ServiceName{Name: "s1", Partition: "p1", Namespace: "n1", ACLNamespace: "default"},
 		},
 		"without partitions": {
 			cluster:     "c1",

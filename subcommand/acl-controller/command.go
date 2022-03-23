@@ -45,7 +45,7 @@ func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
 	c.flagSet.StringVar(&c.flagConsulClientSecretARN, flagConsulClientSecretARN, "", "ARN of AWS Secrets Manager secret for Consul client")
 	c.flagSet.StringVar(&c.flagSecretNamePrefix, flagSecretNamePrefix, "", "The prefix for secret names stored in AWS Secrets Manager")
-	c.flagSet.StringVar(&c.flagPartition, flagPartition, controller.DefaultPartition, "The Consul partition name that the ACL controller will use for ACL resources. If not provided will default to the `default` partition [Consul Enterprise]")
+	c.flagSet.StringVar(&c.flagPartition, flagPartition, "", "The Consul partition name that the ACL controller will use for ACL resources. If not provided will default to the `default` partition [Consul Enterprise]")
 	c.flagSet.BoolVar(&c.flagPartitionsEnabled, flagPartitionsEnabled, false, "Enables support for Consul partitions and namespaces [Consul Enterprise]")
 
 	c.log = hclog.New(nil)
@@ -94,8 +94,16 @@ func (c *Command) run() error {
 		return err
 	}
 
-	if err = c.createPartition(consulClient); err != nil {
-		return err
+	if c.flagPartitionsEnabled {
+		if c.flagPartition == "" {
+			// if an explicit partition was not provided use the default partition.
+			c.flagPartition = controller.DefaultPartition
+		}
+		if err = c.upsertPartition(consulClient); err != nil {
+			return err
+		}
+	} else if c.flagPartition != "" {
+		return fmt.Errorf("partition flag provided without partitions-enabled flag")
 	}
 
 	smClient := secretsmanager.New(clientSession, nil)
@@ -133,16 +141,12 @@ func (c *Command) Help() string {
 	return ""
 }
 
-// createPartition ensures the partition that the controller is managing
+// upsertPartition ensures the partition that the controller is managing
 // exists when partition use is enabled. If the partition does not exist
 // it is created. If the partition already exists or partition management
 // is not enabled then this function does nothing and returns.
 // A non-nil error is returned if the operation fails.
-func (c *Command) createPartition(consulClient *api.Client) error {
-	if !c.flagPartitionsEnabled {
-		c.flagPartition = ""
-		return nil
-	}
+func (c *Command) upsertPartition(consulClient *api.Client) error {
 	// check if the partition already exists.
 	partitions, _, err := consulClient.Partitions().List(c.ctx, nil)
 	if err != nil {

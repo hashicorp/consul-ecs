@@ -45,7 +45,7 @@ func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
 	c.flagSet.StringVar(&c.flagConsulClientSecretARN, flagConsulClientSecretARN, "", "ARN of AWS Secrets Manager secret for Consul client")
 	c.flagSet.StringVar(&c.flagSecretNamePrefix, flagSecretNamePrefix, "", "The prefix for secret names stored in AWS Secrets Manager")
-	c.flagSet.StringVar(&c.flagPartition, flagPartition, controller.DefaultPartition, "The Consul partition name that the ACL controller will use for ACL resources. If not provided will default to the `default` partition [Consul Enterprise]")
+	c.flagSet.StringVar(&c.flagPartition, flagPartition, "", "The Consul partition name that the ACL controller will use for ACL resources. If not provided will default to the `default` partition [Consul Enterprise]")
 	c.flagSet.BoolVar(&c.flagPartitionsEnabled, flagPartitionsEnabled, false, "Enables support for Consul partitions and namespaces [Consul Enterprise]")
 
 	c.log = hclog.New(nil)
@@ -88,13 +88,22 @@ func (c *Command) run() error {
 			CAPem: []byte(caCert),
 		}
 	}
-	if c.flagPartitionsEnabled {
-		cfg.Partition = c.flagPartition
-	}
 
 	consulClient, err := api.NewClient(cfg)
 	if err != nil {
 		return err
+	}
+
+	if c.flagPartitionsEnabled {
+		if c.flagPartition == "" {
+			// if an explicit partition was not provided use the default partition.
+			c.flagPartition = controller.DefaultPartition
+		}
+		if err = c.upsertPartition(consulClient); err != nil {
+			return err
+		}
+	} else if c.flagPartition != "" {
+		return fmt.Errorf("partition flag provided without partitions-enabled flag")
 	}
 
 	smClient := secretsmanager.New(clientSession, nil)
@@ -104,17 +113,13 @@ func (c *Command) run() error {
 		return err
 	}
 
-	if err = c.createPartition(consulClient); err != nil {
-		return err
-	}
-
 	serviceStateLister := &controller.ServiceStateLister{
 		ECSClient:            ecsClient,
 		SecretsManagerClient: smClient,
 		ConsulClient:         consulClient,
 		Cluster:              cluster,
 		SecretPrefix:         c.flagSecretNamePrefix,
-		Partition:            cfg.Partition,
+		Partition:            c.flagPartition,
 		Log:                  c.log,
 	}
 	ctrl := controller.Controller{
@@ -136,15 +141,12 @@ func (c *Command) Help() string {
 	return ""
 }
 
-// createPartition ensures the partition that the controller is managing
+// upsertPartition ensures the partition that the controller is managing
 // exists when partition use is enabled. If the partition does not exist
 // it is created. If the partition already exists or partition management
 // is not enabled then this function does nothing and returns.
 // A non-nil error is returned if the operation fails.
-func (c *Command) createPartition(consulClient *api.Client) error {
-	if !c.flagPartitionsEnabled {
-		return nil
-	}
+func (c *Command) upsertPartition(consulClient *api.Client) error {
 	// check if the partition already exists.
 	partitions, _, err := consulClient.Partitions().List(c.ctx, nil)
 	if err != nil {
@@ -199,7 +201,7 @@ func (c *Command) upsertConsulClientToken(consulClient *api.Client, smClient sec
 
 	// If the secret is not empty, check if Consul already has a token with this AccessorID.
 	if currSecret.AccessorID != "" {
-		currToken, _, err = consulClient.ACL().TokenRead(currSecret.AccessorID, nil)
+		currToken, _, err = consulClient.ACL().TokenRead(currSecret.AccessorID, c.queryOptions())
 		if err != nil && !controller.IsACLNotFoundError(err) {
 			return fmt.Errorf("reading token: %w", err)
 		}
@@ -213,7 +215,7 @@ func (c *Command) upsertConsulClientToken(consulClient *api.Client, smClient sec
 	// First, we need to check if the policy for the Consul client already exists.
 	// If it does, we will skip policy creation.
 	policyName := fmt.Sprintf("%s-consul-client-policy", c.flagSecretNamePrefix)
-	policy, _, err := consulClient.ACL().PolicyReadByName(policyName, nil)
+	policy, _, err := consulClient.ACL().PolicyReadByName(policyName, c.queryOptions())
 
 	// When policy is not found, Consul returns ACL not found error.
 	if controller.IsACLNotFoundError(err) {
@@ -229,7 +231,7 @@ func (c *Command) upsertConsulClientToken(consulClient *api.Client, smClient sec
 			Name:        policyName,
 			Description: "Consul Client Token Policy for ECS",
 			Rules:       rules,
-		}, nil)
+		}, c.writeOptions())
 		if err != nil {
 			return fmt.Errorf("creating Consul client ACL policy: %w", err)
 		}
@@ -244,7 +246,7 @@ func (c *Command) upsertConsulClientToken(consulClient *api.Client, smClient sec
 	token, _, err := consulClient.ACL().TokenCreate(&api.ACLToken{
 		Description: "ECS Consul client Token",
 		Policies:    []*api.ACLTokenPolicyLink{{Name: policy.Name}},
-	}, nil)
+	}, c.writeOptions())
 	if err != nil {
 		return fmt.Errorf("creating Consul client ACL token: %w", err)
 	}
@@ -265,5 +267,19 @@ func (c *Command) upsertConsulClientToken(consulClient *api.Client, smClient sec
 		return fmt.Errorf("updating secret: %s", err)
 	}
 	c.log.Info("secret updated successfully", "arn", c.flagConsulClientSecretARN)
+	return nil
+}
+
+func (c *Command) queryOptions() *api.QueryOptions {
+	if c.flagPartitionsEnabled {
+		return &api.QueryOptions{Partition: c.flagPartition}
+	}
+	return nil
+}
+
+func (c *Command) writeOptions() *api.WriteOptions {
+	if c.flagPartitionsEnabled {
+		return &api.WriteOptions{Partition: c.flagPartition}
+	}
 	return nil
 }

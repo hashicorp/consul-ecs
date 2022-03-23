@@ -44,6 +44,8 @@ type ServiceName struct {
 	Partition string
 	// Namespace that the service belongs to (Consul Enterprise).
 	Namespace string
+	// ACLNamespace defines the namespace that ACL tokens and policies are scoped to (Consul Enterprise).
+	ACLNamespace string
 }
 
 // ResourceLister is an interface for listing Resources.
@@ -223,12 +225,7 @@ func (s ServiceStateLister) fetchACLState() (map[ServiceName]*ServiceState, erro
 
 		for _, policy := range policyList {
 			if isInCluster(s.Cluster, policy.Description) {
-				name := serviceNameFromDescription(policy.Description)
-				serviceName := ServiceName{
-					Name:      name,
-					Partition: s.Partition,
-					Namespace: ns.Name,
-				}
+				serviceName := s.serviceNameFromDescription(policy.Description)
 				if state, ok := aclState[serviceName]; ok {
 					state.ACLPolicies = append(state.ACLPolicies, policy)
 				} else {
@@ -244,11 +241,7 @@ func (s ServiceStateLister) fetchACLState() (map[ServiceName]*ServiceState, erro
 
 		for _, token := range tokenList {
 			if isInCluster(s.Cluster, token.Description) {
-				serviceName := ServiceName{
-					Name:      serviceNameFromDescription(token.Description),
-					Partition: s.Partition,
-					Namespace: ns.Name,
-				}
+				serviceName := s.serviceNameFromDescription(token.Description)
 				if state, ok := aclState[serviceName]; ok {
 					state.ACLTokens = append(state.ACLTokens, token)
 				} else {
@@ -368,8 +361,10 @@ func (s ServiceStateLister) newServiceInfo(serviceName ServiceName, serviceState
 
 // Task definition ARN looks like this: arn:aws:ecs:us-east-1:1234567890:task-definition/service:1
 func (s ServiceStateLister) serviceNameForTask(t *ecs.Task) (ServiceName, error) {
-	var partition, namespace string
+	var partition, namespace, aclNamespace string
 	if PartitionsEnabled(s.Partition) {
+		// ACLs are always created in the default namespace.
+		aclNamespace = DefaultNamespace
 		partition = tagValue(t.Tags, partitionTag)
 		namespace = tagValue(t.Tags, namespaceTag)
 		if partition == "" && namespace == "" {
@@ -382,7 +377,11 @@ func (s ServiceStateLister) serviceNameForTask(t *ecs.Task) (ServiceName, error)
 		}
 	}
 	if serviceName := tagValue(t.Tags, serviceNameTag); serviceName != "" {
-		return ServiceName{Name: serviceName, Partition: partition, Namespace: namespace}, nil
+		return ServiceName{
+			Name:         serviceName,
+			Partition:    partition,
+			Namespace:    namespace,
+			ACLNamespace: aclNamespace}, nil
 	}
 	taskDefArn := *t.TaskDefinitionArn
 	splits := strings.Split(taskDefArn, "/")
@@ -394,7 +393,38 @@ func (s ServiceStateLister) serviceNameForTask(t *ecs.Task) (ServiceName, error)
 	if len(splits) != 2 {
 		return ServiceName{}, fmt.Errorf("cannot determine task family from task definition ARN: %q", taskDefArn)
 	}
-	return ServiceName{Name: splits[0], Partition: partition, Namespace: namespace}, nil
+	return ServiceName{
+		Name:         splits[0],
+		Partition:    partition,
+		Namespace:    namespace,
+		ACLNamespace: aclNamespace}, nil
+}
+
+// serviceNameFromDescription returns the fully qualified service name from the
+// description field of a token or policy created by the ACL controller.
+// If a valid name can't be determined from the input an empty name is returned.
+func (s ServiceStateLister) serviceNameFromDescription(d string) ServiceName {
+	// description is of the form: "<Policy|Token> for <name> service..."
+	var n int
+	var err error
+	var key, name, cluster, partition, namespace, aclNamespace string
+
+	if PartitionsEnabled(s.Partition) {
+		aclNamespace = DefaultNamespace
+		scanFmt := fmt.Sprintf("%%s for %%s service\n%s: %%s\n%s: %%s\n%s: %%s",
+			clusterTag,
+			partitionTag,
+			namespaceTag)
+		n, err = fmt.Sscanf(d, scanFmt, &key, &name, &cluster, &partition, &namespace)
+	} else {
+		n, err = fmt.Sscanf(d, "%s for %s service\n", &key, &name)
+	}
+
+	if err != nil || n < 2 {
+		return ServiceName{}
+	}
+
+	return ServiceName{Name: name, Partition: partition, Namespace: namespace, ACLNamespace: aclNamespace}
 }
 
 // ServiceState contains all of the information needed to determine if an ACL
@@ -442,7 +472,7 @@ func (s *ServiceInfo) Reconcile() error {
 // Upsert creates a service policy and token for the task if one doesn't already exist
 // and updates the secret with the contents of the token.
 func (s *ServiceInfo) Upsert() error {
-	opts := &api.QueryOptions{Partition: s.ServiceName.Partition, Namespace: s.ServiceName.Namespace}
+	opts := &api.QueryOptions{Partition: s.ServiceName.Partition, Namespace: s.ServiceName.ACLNamespace}
 
 	// upsert policy
 	currPolicy, _, err := s.ConsulClient.ACL().PolicyReadByName(s.policyName(), opts)
@@ -485,7 +515,7 @@ func (s *ServiceInfo) Upsert() error {
 
 // Delete removes the service policy and token for the given ServiceInfo.
 func (s *ServiceInfo) Delete() error {
-	opts := &api.WriteOptions{Partition: s.ServiceName.Partition, Namespace: s.ServiceName.Namespace}
+	opts := &api.WriteOptions{Partition: s.ServiceName.Partition, Namespace: s.ServiceName.ACLNamespace}
 
 	for _, token := range s.ServiceState.ACLTokens {
 		_, err := s.ConsulClient.ACL().TokenDelete(token.AccessorID, opts)
@@ -521,7 +551,7 @@ func (s *ServiceInfo) upsertSecret() (TokenSecretJSON, error) {
 	// Get current secret from AWS.
 	currSecretValue, err := s.SecretsManagerClient.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretId: aws.String(secretName)})
 	if err != nil {
-		return currSecret, fmt.Errorf("retrieving secret: %w", err)
+		return currSecret, fmt.Errorf("retrieving secret %s: %w", secretName, err)
 	}
 	err = json.Unmarshal([]byte(*currSecretValue.SecretString), &currSecret)
 	if err != nil {
@@ -568,7 +598,7 @@ func (s *ServiceInfo) createServicePolicy() error {
 		Name:        s.policyName(),
 		Description: s.aclDescription("Policy"),
 		Partition:   s.ServiceName.Partition,
-		Namespace:   s.ServiceName.Namespace,
+		Namespace:   s.ServiceName.ACLNamespace,
 		Rules:       s.policy(),
 	}, nil)
 	if err != nil {
@@ -582,14 +612,20 @@ func (s *ServiceInfo) createServicePolicy() error {
 // SecretID are set based on the AWS secret.
 func (s *ServiceInfo) createServiceToken(secret TokenSecretJSON) error {
 	s.Log.Info("creating service token", "id", s.ServiceName)
+	policies := []*api.ACLTokenPolicyLink{&api.ACLLink{Name: s.policyName()}}
+	if PartitionsEnabled(s.ServiceName.Partition) {
+		// Include the cross-namespace read policy when partitions are enabled.
+		policies = append(policies, &api.ACLLink{Name: xnsPolicyName})
+	}
+
 	// Create ACL token for envoy to register the service.
 	_, _, err := s.ConsulClient.ACL().TokenCreate(&api.ACLToken{
 		AccessorID:  secret.AccessorID,
 		SecretID:    secret.Token,
 		Description: s.aclDescription("Token"),
-		Policies:    []*api.ACLTokenPolicyLink{&api.ACLLink{Name: s.policyName()}},
+		Policies:    policies,
 		Partition:   s.ServiceName.Partition,
-		Namespace:   s.ServiceName.Namespace,
+		Namespace:   s.ServiceName.ACLNamespace,
 	}, nil)
 	if err != nil {
 		return fmt.Errorf("creating ACL token: %s", err)
@@ -600,19 +636,34 @@ func (s *ServiceInfo) createServiceToken(secret TokenSecretJSON) error {
 }
 
 func (s *ServiceInfo) secretName() string {
-	if s.ServiceName.Namespace == "" || s.ServiceName.Namespace == DefaultNamespace {
-		return fmt.Sprintf("%s-%s", s.SecretPrefix, s.ServiceName.Name)
+	if PartitionsEnabled(s.ServiceName.Partition) {
+		return fmt.Sprintf("%s-%s-%s-%s",
+			s.SecretPrefix,
+			s.ServiceName.Name,
+			s.ServiceName.Namespace,
+			s.ServiceName.Partition)
 	} else {
-		return fmt.Sprintf("%s-%s-%s", s.SecretPrefix, s.ServiceName.Name, s.ServiceName.Namespace)
+		return fmt.Sprintf("%s-%s", s.SecretPrefix, s.ServiceName.Name)
 	}
 }
 
 func (s *ServiceInfo) aclDescription(d string) string {
-	return fmt.Sprintf("%s for %s service\n%s: %s", d, s.ServiceName.Name, clusterTag, s.Cluster)
+	desc := fmt.Sprintf("%s for %s service\n%s: %s", d, s.ServiceName.Name, clusterTag, s.Cluster)
+	if PartitionsEnabled(s.ServiceName.Partition) {
+		desc = fmt.Sprintf("%s\n%s: %s\n%s: %s",
+			desc,
+			partitionTag, s.ServiceName.Partition,
+			namespaceTag, s.ServiceName.Namespace)
+	}
+	return desc
 }
 
 func (s *ServiceInfo) policyName() string {
-	return fmt.Sprintf("%s-service", s.ServiceName.Name)
+	if PartitionsEnabled(s.ServiceName.Partition) {
+		return fmt.Sprintf("%s-%s-service", s.ServiceName.Name, s.ServiceName.Namespace)
+	} else {
+		return fmt.Sprintf("%s-service", s.ServiceName.Name)
+	}
 }
 
 func (s *ServiceInfo) policy() string {
@@ -650,19 +701,6 @@ func tagValue(tags []*ecs.Tag, key string) string {
 // IsACLNotFoundError returns true if the ACL is not found.
 func IsACLNotFoundError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "Unexpected response code: 403 (ACL not found)")
-}
-
-// serviceNameFromDescription returns the fully qualified service name from the
-// description field of a token or policy created by the ACL controller.
-// If a valid name can't be determined from the input the empty string is returned.
-func serviceNameFromDescription(d string) string {
-	// description is of the form: "<Policy|Token> for <name> service..."
-	var key, val string
-	n, err := fmt.Sscanf(d, "%s for %s", &key, &val)
-	if err == nil && n == 2 {
-		return val
-	}
-	return ""
 }
 
 // PartitionsEnabled indicates if support for partitions and namespaces is enabled.

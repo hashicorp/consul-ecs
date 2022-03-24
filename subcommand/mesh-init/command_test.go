@@ -3,7 +3,6 @@ package meshinit
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -210,7 +209,7 @@ func TestRun(t *testing.T) {
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}
 
-			envoyBootstrapDir, err := ioutil.TempDir("", "")
+			envoyBootstrapDir, err := os.MkdirTemp("", "")
 			require.NoError(t, err)
 			envoyBootstrapFile := path.Join(envoyBootstrapDir, envoyBoostrapConfigFilename)
 			copyConsulECSBinary := path.Join(envoyBootstrapDir, "consul-ecs")
@@ -306,7 +305,7 @@ func TestRun(t *testing.T) {
 			require.NoError(t, err)
 			require.Empty(t, cmp.Diff(expectedProxyServiceRegistration, proxyService, agentServiceIgnoreFields))
 
-			envoyBootstrapContents, err := ioutil.ReadFile(envoyBootstrapFile)
+			envoyBootstrapContents, err := os.ReadFile(envoyBootstrapFile)
 			require.NoError(t, err)
 			require.NotEmpty(t, envoyBootstrapContents)
 

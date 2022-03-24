@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -87,7 +86,7 @@ func TestFromEnv(t *testing.T) {
 }
 
 func OpenFile(t *testing.T, path string) string {
-	byteFile, err := ioutil.ReadFile(path)
+	byteFile, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return string(byteFile)
 }

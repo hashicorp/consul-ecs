@@ -2,7 +2,6 @@ package meshinit
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
@@ -101,7 +100,7 @@ func (c *Command) realRun() error {
 	}
 
 	envoyBootstrapFile := path.Join(c.config.BootstrapDir, envoyBoostrapConfigFilename)
-	err = ioutil.WriteFile(envoyBootstrapFile, out, 0444)
+	err = os.WriteFile(envoyBootstrapFile, out, 0444)
 	if err != nil {
 		return err
 	}
@@ -114,13 +113,13 @@ func (c *Command) realRun() error {
 	if err != nil {
 		return err
 	}
-	data, err := ioutil.ReadFile(ex)
+	data, err := os.ReadFile(ex)
 	if err != nil {
 		return err
 	}
 
 	copyConsulECSBinary := path.Join(c.config.BootstrapDir, "consul-ecs")
-	err = ioutil.WriteFile(copyConsulECSBinary, data, 0755)
+	err = os.WriteFile(copyConsulECSBinary, data, 0755)
 	if err != nil {
 		return err
 	}

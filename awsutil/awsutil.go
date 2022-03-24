@@ -3,7 +3,7 @@ package awsutil
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"runtime"
@@ -67,7 +67,7 @@ func ECSTaskMetadata() (ECSTaskMeta, error) {
 	if err != nil {
 		return metadataResp, fmt.Errorf("calling metadata uri: %s", err)
 	}
-	respBytes, err := ioutil.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return metadataResp, fmt.Errorf("reading metadata uri response body: %s", err)
 	}

@@ -2,6 +2,7 @@ package healthsync
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -12,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
+	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
@@ -29,10 +31,14 @@ type Command struct {
 	config *config.Config
 	log    hclog.Logger
 	once   sync.Once
+
+	flagSet *flag.FlagSet
+	logging.LogOpts
 }
 
 func (c *Command) init() {
-	c.log = hclog.New(nil)
+	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
+	logging.Merge(c.flagSet, c.LogOpts.Flags())
 }
 
 func (c *Command) Run(args []string) int {
@@ -43,6 +49,11 @@ func (c *Command) Run(args []string) int {
 		c.UI.Error(fmt.Sprintf("invalid config: %s", err))
 		return 1
 	}
+
+	if err := c.flagSet.Parse(args); err != nil {
+		return 1
+	}
+	c.log = c.LogOpts.Logger()
 	c.config = config
 
 	consulClient, err := api.NewClient(api.DefaultConfig())

@@ -1,6 +1,7 @@
 package meshinit
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
+	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
@@ -25,14 +27,24 @@ type Command struct {
 	config *config.Config
 	once   sync.Once
 	log    hclog.Logger
+
+	flagSet *flag.FlagSet
+	logging.LogOpts
 }
 
 func (c *Command) init() {
-	c.log = hclog.New(nil)
+	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
+	logging.Merge(c.flagSet, c.LogOpts.Flags())
 }
 
-func (c *Command) Run(_ []string) int {
+func (c *Command) Run(args []string) int {
 	c.once.Do(c.init)
+
+	if err := c.flagSet.Parse(args); err != nil {
+		return 1
+	}
+
+	c.log = c.LogOpts.Logger()
 
 	config, err := config.FromEnv()
 	if err != nil {

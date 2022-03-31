@@ -39,7 +39,7 @@ func (c *Controller) Run(ctx context.Context) {
 
 // reconcile first lists all resources and then reconciles them with Controller's state.
 func (c *Controller) reconcile() error {
-	c.Log.Info("starting reconcile")
+	c.Log.Debug("starting reconcile")
 	resources, err := c.Resources.List()
 	if err != nil {
 		return fmt.Errorf("listing resources: %w", err)
@@ -56,6 +56,6 @@ func (c *Controller) reconcile() error {
 		}
 	}
 
-	c.Log.Info("reconcile finished successfully")
+	c.Log.Debug("reconcile finished successfully")
 	return nil
 }

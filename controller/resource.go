@@ -162,12 +162,12 @@ func (s ServiceStateLister) fetchECSTasks() (map[ServiceName]struct{}, error) {
 		}
 		for _, task := range tasks.Tasks {
 			if task == nil {
-				s.Log.Info("task is nil")
+				s.Log.Warn("task is nil")
 				continue
 			}
 
 			if !isMeshTask(task) {
-				s.Log.Info("skipping non-mesh task", "task-arn", *task.TaskArn)
+				s.Log.Debug("skipping non-mesh task", "task-arn", *task.TaskArn)
 				continue
 			}
 
@@ -179,7 +179,7 @@ func (s ServiceStateLister) fetchECSTasks() (map[ServiceName]struct{}, error) {
 			}
 
 			if serviceName.Partition != s.Partition {
-				s.Log.Info("skipping task in external partition", "partition", serviceName.Partition, "task-arn", *task.TaskArn)
+				s.Log.Debug("skipping task in external partition", "partition", serviceName.Partition, "task-arn", *task.TaskArn)
 				continue
 			}
 

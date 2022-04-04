@@ -1,4 +1,4 @@
-## UNRELEASED
+## 0.4.0 (April 04, 2022)
 
 FEATURES
 * Add support for admin partitions and namespaces (Consul Enterprise).

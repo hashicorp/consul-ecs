@@ -1,3 +1,5 @@
+## UNRELEASED
+
 ## 0.4.1 (April 08, 2022)
 
 This is a patch release that keeps the consul-ecs project in sync with the

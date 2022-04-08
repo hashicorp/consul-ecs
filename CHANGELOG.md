@@ -1,4 +1,7 @@
-## UNRELEASED
+## 0.4.1 (April 08, 2022)
+
+This is a patch release that keeps the consul-ecs project in sync with the
+[terraform-aws-consul-ecs](https://github.com/hashicorp/terraform-aws-consul-ecs) project.
 
 ## 0.4.0 (April 04, 2022)
 

@@ -4,13 +4,23 @@ package config
 
 import "github.com/hashicorp/consul/api"
 
+// ServiceTokenFilename is the file in the BootstrapDir where the token is written by `consul login`
+// if auth method login is enabled.
+const ServiceTokenFilename = "service-token"
+
 // Config is the top-level config object.
 type Config struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
+	AuthMethod           AuthMethod                      `json:"authMethod"`
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	LogLevel             string                          `json:"logLevel,omitempty"`
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
 	Service              ServiceRegistration             `json:"service"`
+}
+
+type AuthMethod struct {
+	Enabled    bool     `json:"enabled"`
+	LoginFlags []string `json:"loginFlags"`
 }
 
 // ServiceRegistration configures the Consul service registration.

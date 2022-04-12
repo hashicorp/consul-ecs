@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -50,14 +51,25 @@ func (c *Command) Run(args []string) int {
 }
 
 func (c *Command) realRun() error {
-	cfg := api.DefaultConfig()
-	consulClient, err := api.NewClient(cfg)
-	if err != nil {
-		return fmt.Errorf("constructing consul client: %s", err)
-	}
 	taskMeta, err := awsutil.ECSTaskMetadata()
 	if err != nil {
 		return err
+	}
+
+	cfg := api.DefaultConfig()
+
+	if c.config.AuthMethod.Enabled {
+		// If enabled, login to the auth method to obtain an ACL token.
+		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
+		if err := c.loginToAuthMethod(tokenFile, taskMeta); err != nil {
+			return err
+		}
+		cfg.TokenFile = tokenFile
+	}
+
+	consulClient, err := api.NewClient(cfg)
+	if err != nil {
+		return fmt.Errorf("constructing consul client: %s", err)
 	}
 
 	serviceRegistration, err := c.constructServiceRegistration(taskMeta)
@@ -124,6 +136,44 @@ func (c *Command) realRun() error {
 		return err
 	}
 	c.log.Info("copied binary", "file", copyConsulECSBinary)
+	return nil
+}
+
+// loginToAuthMethod runs a 'consul login' command to obtain a token.
+// The login command is skipped if LogintOptions is not set in the
+// consul-ecs config JSON, in order to support non-ACL deployments.
+func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMeta) error {
+	if len(c.config.AuthMethod.LoginFlags) == 0 {
+		// If login options not specified, do not login.
+		return fmt.Errorf("authMethod.loginFlags must be set to login to the auth method")
+	}
+	loginOpts := append(
+		[]string{
+			"login", "-type", "aws", "-token-sink-file", tokenFile,
+			"-aws-auto-bearer-token", "-aws-include-entity",
+			// This metadata is included in the token description.
+			"-meta", fmt.Sprintf("consul.hashicorp.com/ecs-task-id=%s", taskMeta.TaskID()),
+		},
+		c.config.AuthMethod.LoginFlags...,
+	)
+
+	err := backoff.RetryNotify(func() error {
+		// We'll get errors until the consul binary is copied to the volume ("fork/exec: text file busy")
+		c.log.Info("login", "cmd", fmt.Sprint(loginOpts))
+		cmd := exec.Command("consul", loginOpts...)
+		out, err := cmd.CombinedOutput()
+		c.log.Info("login", "output", string(out)) // TODO: remove
+		// TODO: Distinguish unrecoverable errors, like lack of permission to log in.
+		if err != nil {
+			c.log.Error(err.Error())
+			return err
+		}
+		return nil
+	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

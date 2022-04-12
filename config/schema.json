@@ -15,6 +15,22 @@
       "type": "string",
       "minLength": 1
     },
+    "authMethod": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Enable login to Consul's AWS IAM auth method to obtain an ACL token. This requires the auth method to be configured on the Consul server, and it the ECS task role to be trusted by the auth method. After login, the token is written to the file `<bootstrapDir>/service-token`.",
+          "type": "boolean"
+        },
+        "loginFlags": {
+          "description": "Additional CLI flags to pass to the `consul login` command. These are appended to `consul login -type aws -token-sink-file <file> -aws-auto-bearer-token -aws-include-identity`. The `-method` flag must be included to specify the auth method name.",
+          "type": ["array", "null"],
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "healthSyncContainers": {
       "description": "The names of containers that will have health check status synced from ECS into Consul. Cannot be specified with `service.checks`.",
       "type": ["array", "null"],

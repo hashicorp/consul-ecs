@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -36,16 +37,22 @@ func (c *Command) Run(args []string) int {
 		return 1
 	}
 
-	config, err := config.FromEnv()
+	conf, err := config.FromEnv()
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("invalid config: %s", err))
 		return 1
 	}
-	c.config = config
+	c.config = conf
 
 	c.log = logging.FromConfig(c.config).Logger()
 
-	consulClient, err := api.NewClient(api.DefaultConfig())
+	cfg := api.DefaultConfig()
+	if c.config.AuthMethod.Enabled {
+		// This file will already have been written by mesh-init.
+		cfg.TokenFile = filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
+	}
+
+	consulClient, err := api.NewClient(cfg)
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("constructing consul client: %s", err))
 		return 1

@@ -48,7 +48,7 @@ func (c *Command) Run(args []string) int {
 	// Flag parsing stops just before the first non-flag argument ("-" is a non-flag argument)
 	// or after the terminator "--"
 	if err := c.flagSet.Parse(args); err != nil {
-		c.UI.Error(fmt.Sprint(err))
+		c.UI.Error(err.Error())
 		return 1
 	}
 

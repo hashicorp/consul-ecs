@@ -1,12 +1,10 @@
 package meshinit
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path"
-	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -25,26 +23,14 @@ const (
 type Command struct {
 	UI     cli.Ui
 	config *config.Config
-	once   sync.Once
 	log    hclog.Logger
-
-	flagSet *flag.FlagSet
-	logging.LogOpts
-}
-
-func (c *Command) init() {
-	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
-	logging.Merge(c.flagSet, c.LogOpts.Flags())
 }
 
 func (c *Command) Run(args []string) int {
-	c.once.Do(c.init)
-
-	if err := c.flagSet.Parse(args); err != nil {
+	if len(args) > 0 {
+		c.UI.Error(fmt.Sprintf("unexpected argument: %v", args[0]))
 		return 1
 	}
-
-	c.log = c.LogOpts.Logger()
 
 	config, err := config.FromEnv()
 	if err != nil {
@@ -52,6 +38,8 @@ func (c *Command) Run(args []string) int {
 		return 1
 	}
 	c.config = config
+
+	c.log = logging.FromConfig(c.config).Logger()
 
 	err = c.realRun()
 	if err != nil {

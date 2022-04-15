@@ -93,6 +93,7 @@ func OpenFile(t *testing.T, path string) string {
 
 var (
 	expectedConfig = &Config{
+		LogLevel: "",
 		Service: ServiceRegistration{
 			Name: "blah",
 			Port: 1234,
@@ -114,6 +115,7 @@ var (
 	expectedExtensiveConfig = &Config{
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: []string{"frontend"},
+		LogLevel:             "DEBUG",
 		Service: ServiceRegistration{
 			Name:              "frontend",
 			Tags:              []string{"frontend"},
@@ -223,6 +225,7 @@ var (
 	expectedConfigNullTopLevelFields = &Config{
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: nil,
+		LogLevel:             "",
 		Service: ServiceRegistration{
 			Name:              "",
 			Tags:              nil,

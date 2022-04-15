@@ -27,6 +27,14 @@ func TestEcsHealthToConsulHealth(t *testing.T) {
 	require.Equal(t, api.HealthCritical, ecsHealthToConsulHealth(""))
 }
 
+func TestNoCLIFlagsSupported(t *testing.T) {
+	ui := cli.NewMockUi()
+	cmd := Command{UI: ui}
+	code := cmd.Run([]string{"some-arg"})
+	require.Equal(t, 1, code)
+	require.Equal(t, "unexpected argument: some-arg\n", ui.ErrorWriter.String())
+}
+
 type minimalContainerMetadata struct {
 	name       string
 	status     string

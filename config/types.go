@@ -8,9 +8,14 @@ import "github.com/hashicorp/consul/api"
 // if auth method login is enabled.
 const ServiceTokenFilename = "service-token"
 
+// DefaultAuthMethodName is the default name of the Consul IAM auth method used for `consul login`.
+const DefaultAuthMethodName = "iam-ecs-service-token"
+
 // Config is the top-level config object.
 type Config struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
+	ConsulHTTPAddr       string                          `json:"consulHTTPAddr"`
+	ConsulCACertFile     string                          `json:"consulCACertFile"`
 	AuthMethod           AuthMethod                      `json:"authMethod"`
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	LogLevel             string                          `json:"logLevel,omitempty"`
@@ -18,9 +23,12 @@ type Config struct {
 	Service              ServiceRegistration             `json:"service"`
 }
 
+// AuthMethod configures login options for the Consul IAM auth method.
 type AuthMethod struct {
-	Enabled    bool     `json:"enabled"`
-	LoginFlags []string `json:"loginFlags"`
+	Enabled         bool     `json:"enabled"`
+	Method          string   `json:"method"`
+	NoIncludeEntity bool     `json:"noIncludeEntity"`
+	ExtraLoginFlags []string `json:"extraLoginFlags"`
 }
 
 // ServiceRegistration configures the Consul service registration.

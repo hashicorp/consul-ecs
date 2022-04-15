@@ -143,37 +143,45 @@ func (c *Command) realRun() error {
 // The login command is skipped if LogintOptions is not set in the
 // consul-ecs config JSON, in order to support non-ACL deployments.
 func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMeta) error {
-	if len(c.config.AuthMethod.LoginFlags) == 0 {
-		// If login options not specified, do not login.
-		return fmt.Errorf("authMethod.loginFlags must be set to login to the auth method")
+	method := c.config.AuthMethod.Method
+	if method == "" {
+		method = config.DefaultAuthMethodName
 	}
-	loginOpts := append(
-		[]string{
-			"login", "-type", "aws", "-token-sink-file", tokenFile,
-			"-aws-auto-bearer-token", "-aws-include-entity",
-			// This metadata is included in the token description.
-			"-meta", fmt.Sprintf("consul.hashicorp.com/ecs-task-id=%s", taskMeta.TaskID()),
-		},
-		c.config.AuthMethod.LoginFlags...,
-	)
+	loginOpts := []string{
+		"login", "-type", "aws", "-method", method,
+		"-token-sink-file", tokenFile,
+		"-meta", fmt.Sprintf("consul.hashicorp.com/ecs-task-id=%s", taskMeta.TaskID()),
+		"-aws-auto-bearer-token",
+	}
+	if !c.config.AuthMethod.NoIncludeEntity {
+		loginOpts = append(loginOpts, "-aws-include-entity")
+	}
+	loginOpts = append(loginOpts)
+	if len(c.config.AuthMethod.ExtraLoginFlags) > 0 {
+		loginOpts = append(loginOpts, c.config.AuthMethod.ExtraLoginFlags...)
+	}
 
 	err := backoff.RetryNotify(func() error {
 		// We'll get errors until the consul binary is copied to the volume ("fork/exec: text file busy")
-		c.log.Info("login", "cmd", fmt.Sprint(loginOpts))
+		c.log.Debug("login", "cmd", fmt.Sprint(loginOpts))
 		cmd := exec.Command("consul", loginOpts...)
 		out, err := cmd.CombinedOutput()
-		c.log.Info("login", "output", string(out)) // TODO: remove
 		// TODO: Distinguish unrecoverable errors, like lack of permission to log in.
 		if err != nil {
+			if out != nil {
+				c.log.Error(string(out))
+			}
 			c.log.Error(err.Error())
 			return err
+		} else if out != nil {
+			c.log.Debug("login", "output", string(out))
 		}
+
 		return nil
-	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
+	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 

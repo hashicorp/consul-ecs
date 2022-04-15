@@ -4,16 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
+	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/consul/sdk/testutil"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
@@ -191,13 +188,8 @@ func TestRunWithContainerNames(t *testing.T) {
 			}
 			initialStage := true
 
-			server, err := testutil.NewTestServerConfigT(t, nil)
-			require.NoError(t, err)
-			t.Cleanup(func() {
-				_ = server.Stop()
-			})
-
-			consulClient, err := api.NewClient(&api.Config{Address: server.HTTPAddr})
+			cfg := testutil.ConsulServer(t, nil)
+			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
 
 			setupServiceAndChecks(t, expectedServiceName, ecsServiceMetadata, consulClient, c.initialContainers)
@@ -209,17 +201,13 @@ func TestRunWithContainerNames(t *testing.T) {
 				}
 			}
 
-			ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
-					if initialStage {
-						_, err = w.Write([]byte(metadataResponse(t, ecsServiceMetadata, c.initialContainers)))
-					} else {
-						_, err = w.Write([]byte(metadataResponse(t, ecsServiceMetadata, c.updatedContainers)))
-					}
-					require.NoError(t, err)
+			testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
+				if initialStage {
+					return metadataResponse(t, ecsServiceMetadata, c.initialContainers)
+				} else {
+					return metadataResponse(t, ecsServiceMetadata, c.updatedContainers)
 				}
 			}))
-			os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
 
 			sanityChecks := make(map[string]string)
 			for _, container := range c.initialContainers {

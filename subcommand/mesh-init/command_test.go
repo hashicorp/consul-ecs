@@ -1,10 +1,7 @@
 package meshinit
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path"
 	"regexp"
@@ -14,10 +11,9 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
+	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/consul/sdk/testutil"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
 )
@@ -177,51 +173,21 @@ func TestRun(t *testing.T) {
 				c.expUpstreams[i].DestinationNamespace = expectedNamespace
 			}
 
-			// Set up Consul server.
-			server, err := testutil.NewTestServerConfigT(t, nil)
-			require.NoError(t, err)
-			t.Cleanup(func() {
-				_ = server.Stop()
-				_ = os.Unsetenv("CONSUL_HTTP_ADDR")
-			})
-			server.WaitForLeader(t)
-			consulClient, err := api.NewClient(&api.Config{Address: server.HTTPAddr})
-			require.NoError(t, err)
-			// We need to set this so that consul connect envoy -bootstrap will talk to the right agent.
-			err = os.Setenv("CONSUL_HTTP_ADDR", server.HTTPAddr)
+			// Start a Consul server. This sets the CONSUL_HTTP_ADDR for `consul connect envoy -bootstrap`.
+			cfg := testutil.ConsulServer(t, nil)
+			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
 
-			// Set up ECS container metadata server.
+			// Set up ECS container metadata server. This sets ECS_CONTAINER_METADATA_URI_V4.
 			taskMetadataResponse := fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s"}`, taskARN, family)
-			ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
-					_, err := w.Write([]byte(taskMetadataResponse))
-					require.NoError(t, err)
-				}
-			}))
-			err = os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
-			require.NoError(t, err)
-			t.Cleanup(func() {
-				_ = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
-				ecsMetadataServer.Close()
-			})
+			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataResponse))
 
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}
 
-			envoyBootstrapDir, err := os.MkdirTemp("", "")
-			require.NoError(t, err)
+			envoyBootstrapDir := testutil.TempDir(t)
 			envoyBootstrapFile := path.Join(envoyBootstrapDir, envoyBoostrapConfigFilename)
 			copyConsulECSBinary := path.Join(envoyBootstrapDir, "consul-ecs")
-
-			t.Cleanup(func() {
-				os.Remove(envoyBootstrapFile)
-				os.Remove(copyConsulECSBinary)
-				err := os.Remove(envoyBootstrapDir)
-				if err != nil {
-					t.Logf("warning, failed to cleanup temp dir %s - %s", envoyBootstrapDir, err)
-				}
-			})
 
 			consulEcsConfig := config.Config{
 				BootstrapDir:         envoyBootstrapDir,
@@ -237,17 +203,7 @@ func TestRun(t *testing.T) {
 					Meta:   c.additionalMeta,
 				},
 			}
-
-			configBytes, err := json.MarshalIndent(consulEcsConfig, "", "  ")
-			require.NoError(t, err)
-
-			err = os.Setenv(config.ConfigEnvironmentVariable, string(configBytes))
-			require.NoError(t, err)
-			t.Cleanup(func() {
-				_ = os.Unsetenv(config.ConfigEnvironmentVariable)
-			})
-
-			t.Logf("%s=%s", config.ConfigEnvironmentVariable, os.Getenv(config.ConfigEnvironmentVariable))
+			testutil.SetECSConfigEnvVar(t, &consulEcsConfig)
 
 			code := cmd.Run(nil)
 			require.Equal(t, code, 0, ui.ErrorWriter.String())

@@ -9,8 +9,8 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
+	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/consul/sdk/testutil"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
@@ -61,22 +61,11 @@ func TestCreatePartitionEnt(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			adminToken := "123e4567-e89b-12d3-a456-426614174000"
-			testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
-				c.ACL.Enabled = true
-				c.ACL.Tokens.Master = adminToken
-				c.ACL.DefaultPolicy = "deny"
-			})
-			require.NoError(t, err)
-			defer func() { _ = testServer.Stop() }()
-			testServer.WaitForLeader(t)
-
-			clientConfig := api.DefaultConfig()
-			clientConfig.Address = testServer.HTTPAddr
-			clientConfig.Token = adminToken
+			cfg := ecstestutil.ConsulServer(t, ecstestutil.ConsulACLConfigFn)
 			if c.partition != "" {
-				clientConfig.Partition = c.partition
+				cfg.Partition = c.partition
 			}
+
 			consulClient, err := api.NewClient(clientConfig)
 			require.NoError(t, err)
 

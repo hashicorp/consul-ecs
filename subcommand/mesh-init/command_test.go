@@ -19,25 +19,23 @@ import (
 )
 
 func TestConfigValidation(t *testing.T) {
-	ui := cli.NewMockUi()
-	cmd := Command{UI: ui}
-	code := cmd.Run(nil)
-	require.Equal(t, code, 1)
-	require.Contains(t, ui.ErrorWriter.String(),
-		fmt.Sprintf(`invalid config: "%s" isn't populated`, config.ConfigEnvironmentVariable))
+	t.Run("CONSUL_ECS_CONFIG_JSON unset", func(t *testing.T) {
+		ui := cli.NewMockUi()
+		cmd := Command{UI: ui}
+		code := cmd.Run(nil)
+		require.Equal(t, code, 1)
+		require.Contains(t, ui.ErrorWriter.String(),
+			fmt.Sprintf(`invalid config: "%s" isn't populated`, config.ConfigEnvironmentVariable))
 
-	err := os.Setenv(config.ConfigEnvironmentVariable, "{}")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = os.Unsetenv(config.ConfigEnvironmentVariable)
 	})
-
-	ui = cli.NewMockUi()
-	cmd = Command{UI: ui}
-	code = cmd.Run(nil)
-	require.Equal(t, code, 1)
-	require.Contains(t, ui.ErrorWriter.String(), "invalid config: 2 errors occurred:")
-
+	t.Run("CONSUL_ECS_CONFIG_JSON is empty json", func(t *testing.T) {
+		testutil.SetECSConfigEnvVar(t, map[string]interface{}{})
+		ui := cli.NewMockUi()
+		cmd := Command{UI: ui}
+		code := cmd.Run(nil)
+		require.Equal(t, code, 1)
+		require.Contains(t, ui.ErrorWriter.String(), "invalid config: 2 errors occurred:")
+	})
 }
 
 // Note: this test cannot currently run in parallel with other tests

@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TempDir creates a temporary "bootstrap" directory. A test cleanup is configured to removes the
-// temp directory and its contents.
+// TempDir creates a temporary directory. A test cleanup removes the directory
+// and its contents.
 func TempDir(t *testing.T) string {
 	dir, err := ioutil.TempDir("", "")
 	require.NoError(t, err)
@@ -27,10 +27,9 @@ func TempDir(t *testing.T) string {
 }
 
 // SetECSConfigEnvVar the CONSUL_ECS_CONFIG_JSON environment variable
-// to the JSON string of the provided config.Config object. A test clean is added
-// to unset the environment variable.
-func SetECSConfigEnvVar(t *testing.T, conf *config.Config) {
-	configBytes, err := json.MarshalIndent(conf, "", "  ")
+// to the JSON string of the provided value, with a test cleanup.
+func SetECSConfigEnvVar(t *testing.T, val interface{}) {
+	configBytes, err := json.MarshalIndent(val, "", "  ")
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

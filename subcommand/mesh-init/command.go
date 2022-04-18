@@ -58,7 +58,7 @@ func (c *Command) realRun() error {
 
 	cfg := api.DefaultConfig()
 
-	if c.config.AuthMethod.Enabled {
+	if c.config.ConsulLogin.Enabled {
 		// If enabled, login to the auth method to obtain an ACL token.
 		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
 		if err := c.loginToAuthMethod(tokenFile, taskMeta); err != nil {
@@ -98,6 +98,9 @@ func (c *Command) realRun() error {
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
 	connectArgs := []string{"connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502"}
+	if c.config.ConsulLogin.Enabled {
+		connectArgs = append(connectArgs, "-token-file", cfg.TokenFile)
+	}
 	if serviceRegistration.Partition != "" {
 		// Partition/namespace support is enabled so augment the connect command.
 		connectArgs = append(connectArgs,
@@ -143,7 +146,7 @@ func (c *Command) realRun() error {
 // The login command is skipped if LogintOptions is not set in the
 // consul-ecs config JSON, in order to support non-ACL deployments.
 func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMeta) error {
-	method := c.config.AuthMethod.Method
+	method := c.config.ConsulLogin.Method
 	if method == "" {
 		method = config.DefaultAuthMethodName
 	}
@@ -153,12 +156,11 @@ func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMe
 		"-meta", fmt.Sprintf("consul.hashicorp.com/ecs-task-id=%s", taskMeta.TaskID()),
 		"-aws-auto-bearer-token",
 	}
-	if !c.config.AuthMethod.NoIncludeEntity {
+	if !c.config.ConsulLogin.NoIncludeEntity {
 		loginOpts = append(loginOpts, "-aws-include-entity")
 	}
-	loginOpts = append(loginOpts)
-	if len(c.config.AuthMethod.ExtraLoginFlags) > 0 {
-		loginOpts = append(loginOpts, c.config.AuthMethod.ExtraLoginFlags...)
+	if len(c.config.ConsulLogin.ExtraLoginFlags) > 0 {
+		loginOpts = append(loginOpts, c.config.ConsulLogin.ExtraLoginFlags...)
 	}
 
 	err := backoff.RetryNotify(func() error {
@@ -176,7 +178,7 @@ func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMe
 		} else if out != nil {
 			c.log.Debug("login", "output", string(out))
 		}
-
+		c.log.Info("login success")
 		return nil
 	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 	if err != nil {

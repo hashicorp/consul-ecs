@@ -23,7 +23,7 @@
       "description": "The file path of the Consul server CA certificate.",
       "type": ["string", "null"]
     },
-    "authMethod": {
+    "consulLogin": {
       "type": "object",
       "properties": {
         "enabled": {

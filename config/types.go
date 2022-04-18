@@ -16,15 +16,15 @@ type Config struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
 	ConsulHTTPAddr       string                          `json:"consulHTTPAddr"`
 	ConsulCACertFile     string                          `json:"consulCACertFile"`
-	AuthMethod           AuthMethod                      `json:"authMethod"`
+	ConsulLogin          ConsulLogin                     `json:"consulLogin"`
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	LogLevel             string                          `json:"logLevel,omitempty"`
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
 	Service              ServiceRegistration             `json:"service"`
 }
 
-// AuthMethod configures login options for the Consul IAM auth method.
-type AuthMethod struct {
+// ConsulLogin configures login options for the Consul IAM auth method.
+type ConsulLogin struct {
 	Enabled         bool     `json:"enabled"`
 	Method          string   `json:"method"`
 	NoIncludeEntity bool     `json:"noIncludeEntity"`

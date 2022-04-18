@@ -47,7 +47,7 @@ func (c *Command) Run(args []string) int {
 	c.log = logging.FromConfig(c.config).Logger()
 
 	cfg := api.DefaultConfig()
-	if c.config.AuthMethod.Enabled {
+	if c.config.ConsulLogin.Enabled {
 		// This file will already have been written by mesh-init.
 		cfg.TokenFile = filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
 	}

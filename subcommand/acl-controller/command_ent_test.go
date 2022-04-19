@@ -42,15 +42,12 @@ func TestUpsertConsulClientTokenEnt(t *testing.T) {
 	testUpsertConsulClientToken(t, cases)
 }
 
-func TestCreatePartitionEnt(t *testing.T) {
+func TestUpsertPartitionEnt(t *testing.T) {
 	cases := map[string]struct {
 		partition       string
 		createPartition bool
 		err             error
 	}{
-		"when partitions are not enabled": {
-			partition: "",
-		},
 		"when partitions are enabled and the configured partition already exists": {
 			partition:       testPartitionName,
 			createPartition: true,
@@ -61,12 +58,12 @@ func TestCreatePartitionEnt(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			cfg := ecstestutil.ConsulServer(t, ecstestutil.ConsulACLConfigFn)
+			cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
 			if c.partition != "" {
 				cfg.Partition = c.partition
 			}
 
-			consulClient, err := api.NewClient(clientConfig)
+			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
 
 			if c.createPartition {
@@ -86,7 +83,7 @@ func TestCreatePartitionEnt(t *testing.T) {
 				ctx:                   context.Background(),
 			}
 
-			err = cmd.createPartition(consulClient)
+			err = cmd.upsertPartition(consulClient)
 			if c.err == nil {
 				require.NoError(t, err)
 			} else {

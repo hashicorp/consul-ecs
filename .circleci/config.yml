@@ -51,7 +51,7 @@ jobs:
         default: ""
         type: string
       ENTERPRISE_FLAG:
-        description: | 
+        description: |
           Flag to indicate if the tests are running against Consul Enterprise.
           If using an Enterprise version of Consul this flag must be set to "-enterprise"
         default: ""
@@ -77,7 +77,11 @@ jobs:
                unzip consul_"${CONSUL_VERSION}"_linux_amd64.zip -d /home/circleci/bin &&
                rm consul_"${CONSUL_VERSION}"_linux_amd64.zip
           PACKAGE_NAMES=$(go list ./...)
-          gotestsum --junitfile $TEST_RESULTS/gotestsum-report.xml -- -p 4 $PACKAGE_NAMES -- << parameters.ENTERPRISE_FLAG >>
+          TAGS=""
+          if [ -n "<< parameters.ENTERPRISE_FLAG >>" ]; then
+            TAGS="-tags=enterprise"
+          fi
+          gotestsum --junitfile $TEST_RESULTS/gotestsum-report.xml -- -p 4 $PACKAGE_NAMES $TAGS -- << parameters.ENTERPRISE_FLAG >>
 
       - store_test_results:
           path: /tmp/test-results/consul_<< parameters.CONSUL_VERSION >>

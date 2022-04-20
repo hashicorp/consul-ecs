@@ -3,6 +3,7 @@
   "healthSyncContainers": [
     "frontend"
   ],
+  "logLevel": "DEBUG",
   "service": {
     "name": "frontend",
     "tags": [

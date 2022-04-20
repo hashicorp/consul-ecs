@@ -1,6 +1,7 @@
 {
   "bootstrapDir": "/consul/",
   "healthSyncContainers": null,
+  "logLevel": null,
   "service": {
     "name": null,
     "tags": null,

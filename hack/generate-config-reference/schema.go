@@ -46,7 +46,7 @@ func (s *Schema) EnumStr() string {
 		if len(s.Enum) > 2 && i > 0 {
 			result += ", "
 			if i == len(s.Enum)-1 {
-				result += "or"
+				result += "or "
 			}
 		}
 

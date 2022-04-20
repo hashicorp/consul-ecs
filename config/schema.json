@@ -5,6 +5,11 @@
   "description": "These are the top-level fields for the Consul ECS configuration format.",
   "type": "object",
   "properties": {
+    "logLevel": {
+      "description": "Sets the log level for the `consul-ecs mesh-init` and `consul-ecs health-sync` commands. Defaults to `INFO`.",
+      "type": ["string", "null"],
+      "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", null]
+    },
     "bootstrapDir": {
       "description": "The directory at which to mount the shared volume where Envoy bootstrap configuration is written by `consul-ecs mesh-init`.",
       "type": "string",

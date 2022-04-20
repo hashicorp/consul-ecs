@@ -22,6 +22,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNoCLIFlagsSupported(t *testing.T) {
+	ui := cli.NewMockUi()
+	cmd := Command{UI: ui}
+	code := cmd.Run([]string{"some-arg"})
+	require.Equal(t, 1, code)
+	require.Equal(t, "unexpected argument: some-arg\n", ui.ErrorWriter.String())
+}
+
 func TestConfigValidation(t *testing.T) {
 	ui := cli.NewMockUi()
 	cmd := Command{UI: ui}

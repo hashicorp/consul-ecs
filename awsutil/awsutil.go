@@ -45,6 +45,14 @@ func (e ECSTaskMeta) TaskID() string {
 	return split[len(split)-1]
 }
 
+func (e ECSTaskMeta) AccountID() (string, error) {
+	split := strings.Split(e.TaskARN, ":")
+	if len(split) < 5 {
+		return "", fmt.Errorf("unable to determine AWS account id from Task metadata")
+	}
+	return split[4], nil
+}
+
 func (e ECSTaskMeta) region() (string, error) {
 	// Task ARN: "arn:aws:ecs:us-east-1:000000000000:task/cluster/00000000000000000000000000000000"
 	// https://docs.aws.amazon.com/general/latest/gr/aws-arns-and-namespaces.html

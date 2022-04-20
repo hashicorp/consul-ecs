@@ -93,6 +93,10 @@ func TestECSTaskMeta(t *testing.T) {
 	region, err := ecsMeta.region()
 	require.Nil(t, err)
 	require.Equal(t, "us-east-1", region)
+
+	account, err := ecsMeta.AccountID()
+	require.NoError(t, err)
+	require.Equal(t, "123456789", account)
 }
 
 // Helper to restore the environment after a test.

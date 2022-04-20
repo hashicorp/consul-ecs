@@ -5,8 +5,6 @@ package envoyentrypoint
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,6 +13,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
+	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
@@ -115,32 +114,24 @@ func TestRun(t *testing.T) {
 			ecsMetaRequestCount := 0
 			if c.mockTaskMetadata {
 				// Simulate two requests with the app container running, and the rest with it stopped.
-				ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
-						meta := makeTaskMeta(
-							"some-app-container",
-							"consul-client",
-							"consul-ecs-health-sync",
-							"consul-ecs-mesh-init",
-							"sidecar-proxy",
-						)
-						if ecsMetaRequestCount < 2 {
-							meta.Containers[0].KnownStatus = "RUNNING"
-						} else {
-							meta.Containers[0].KnownStatus = "STOPPED"
-						}
-						ecsMetaRequestCount++
-						respData, err := json.Marshal(meta)
-						require.NoError(t, err)
-						_, err = w.Write(respData)
-						require.NoError(t, err)
+				testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
+					meta := makeTaskMeta(
+						"some-app-container",
+						"consul-client",
+						"consul-ecs-health-sync",
+						"consul-ecs-mesh-init",
+						"sidecar-proxy",
+					)
+					if ecsMetaRequestCount < 2 {
+						meta.Containers[0].KnownStatus = "RUNNING"
+					} else {
+						meta.Containers[0].KnownStatus = "STOPPED"
 					}
+					ecsMetaRequestCount++
+					respData, err := json.Marshal(meta)
+					require.NoError(t, err)
+					return string(respData)
 				}))
-				_ = os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
-				t.Cleanup(func() {
-					_ = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
-					ecsMetadataServer.Close()
-				})
 			}
 
 			if c.sendSigterm {

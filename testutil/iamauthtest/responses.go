@@ -2,7 +2,7 @@ package iamauthtest
 
 // This file is copied from these Consul files:
 // https://github.com/hashicorp/consul/blob/76c03872b709297b7649cb3f8999c3d1323361fb/internal/iamauth/responses/responses.go
-// https://github.com/hashicorp/consul/blob/main/internal/iamauth/responsestest/testing.go
+// https://github.com/hashicorp/consul/blob/76c03872b709297b7649cb3f8999c3d1323361fb/internal/iamauth/responsestest/testing.go
 
 import (
 	"encoding/xml"

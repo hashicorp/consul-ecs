@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
+	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
@@ -28,15 +28,13 @@ type Command struct {
 	UI     cli.Ui
 	config *config.Config
 	log    hclog.Logger
-	once   sync.Once
-}
-
-func (c *Command) init() {
-	c.log = hclog.New(nil)
 }
 
 func (c *Command) Run(args []string) int {
-	c.once.Do(c.init)
+	if len(args) > 0 {
+		c.UI.Error(fmt.Sprintf("unexpected argument: %s", args[0]))
+		return 1
+	}
 
 	config, err := config.FromEnv()
 	if err != nil {
@@ -44,6 +42,8 @@ func (c *Command) Run(args []string) int {
 		return 1
 	}
 	c.config = config
+
+	c.log = logging.FromConfig(c.config).Logger()
 
 	consulClient, err := api.NewClient(api.DefaultConfig())
 	if err != nil {

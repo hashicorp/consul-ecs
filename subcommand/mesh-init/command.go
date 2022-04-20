@@ -5,12 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
+	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
@@ -23,16 +23,14 @@ const (
 type Command struct {
 	UI     cli.Ui
 	config *config.Config
-	once   sync.Once
 	log    hclog.Logger
 }
 
-func (c *Command) init() {
-	c.log = hclog.New(nil)
-}
-
-func (c *Command) Run(_ []string) int {
-	c.once.Do(c.init)
+func (c *Command) Run(args []string) int {
+	if len(args) > 0 {
+		c.UI.Error(fmt.Sprintf("unexpected argument: %v", args[0]))
+		return 1
+	}
 
 	config, err := config.FromEnv()
 	if err != nil {
@@ -40,6 +38,8 @@ func (c *Command) Run(_ []string) int {
 		return 1
 	}
 	c.config = config
+
+	c.log = logging.FromConfig(c.config).Logger()
 
 	err = c.realRun()
 	if err != nil {

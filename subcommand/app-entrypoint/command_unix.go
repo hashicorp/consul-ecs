@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/consul-ecs/entrypoint"
+	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
 )
@@ -30,15 +31,15 @@ type Command struct {
 	sigs          chan os.Signal
 	appCmd        *entrypoint.Cmd
 	shutdownDelay time.Duration
+
+	logging.LogOpts
 }
 
 func (c *Command) init() {
-	c.log = hclog.New(&hclog.LoggerOptions{Name: "consul-ecs"})
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
 	c.flagSet.DurationVar(&c.shutdownDelay, flagShutdownDelay, 0,
 		`Continue running for this long after receiving SIGTERM. Must be a duration (e.g. "10s").`)
-	c.log = hclog.New(nil)
-
+	logging.Merge(c.flagSet, c.LogOpts.Flags())
 }
 
 func (c *Command) Run(args []string) int {
@@ -46,11 +47,12 @@ func (c *Command) Run(args []string) int {
 
 	// Flag parsing stops just before the first non-flag argument ("-" is a non-flag argument)
 	// or after the terminator "--"
-	err := c.flagSet.Parse(args)
-	if err != nil {
-		c.UI.Error(fmt.Sprint(err))
+	if err := c.flagSet.Parse(args); err != nil {
+		c.UI.Error(err.Error())
 		return 1
 	}
+
+	c.log = c.LogOpts.Logger().Named("consul-ecs")
 
 	// Remaining args for the application command, after parsing our flags
 	args = c.flagSet.Args()
@@ -79,7 +81,7 @@ func (c *Command) realRun() int {
 		return exitCode
 	}
 	if c.shutdownDelay > 0 {
-		c.log.Info(fmt.Sprintf("consul-ecs: received sigterm. waiting %s before terminating application.", c.shutdownDelay))
+		c.log.Info(fmt.Sprintf("received sigterm. waiting %s before terminating application.", c.shutdownDelay))
 		if exitCode, exited := c.waitForShutdownDelay(); exited {
 			return exitCode
 		}

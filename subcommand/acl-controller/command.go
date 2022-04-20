@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/secretsmanager/secretsmanageriface"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/controller"
+	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
@@ -39,6 +40,8 @@ type Command struct {
 	flagSet *flag.FlagSet
 	once    sync.Once
 	ctx     context.Context
+
+	logging.LogOpts
 }
 
 func (c *Command) init() {
@@ -48,15 +51,18 @@ func (c *Command) init() {
 	c.flagSet.StringVar(&c.flagPartition, flagPartition, "", "The Consul partition name that the ACL controller will use for ACL resources. If not provided will default to the `default` partition [Consul Enterprise]")
 	c.flagSet.BoolVar(&c.flagPartitionsEnabled, flagPartitionsEnabled, false, "Enables support for Consul partitions and namespaces [Consul Enterprise]")
 
-	c.log = hclog.New(nil)
+	logging.Merge(c.flagSet, c.LogOpts.Flags())
 	c.ctx = context.Background()
 }
 
 func (c *Command) Run(args []string) int {
 	c.once.Do(c.init)
+
 	if err := c.flagSet.Parse(args); err != nil {
 		return 1
 	}
+
+	c.log = c.LogOpts.Logger()
 
 	err := c.run()
 	if err != nil {

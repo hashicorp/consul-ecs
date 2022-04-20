@@ -23,6 +23,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -85,12 +86,21 @@ func RenderTemplates(path string, schema *Schema, wr io.Writer) {
 			log.Fatal(err)
 		}
 
-		for field := range schema.Properties {
+		for _, field := range sortedKeys(schema.Properties) {
 			propSchema := schema.Properties[field]
 			propPath := strings.Trim(path+"."+field, ".")
 			RenderTemplates(propPath, propSchema, wr)
 		}
 	}
+}
+
+func sortedKeys(props map[string]*Schema) []string {
+	result := make([]string, 0, len(props))
+	for k := range props {
+		result = append(result, k)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func main() {

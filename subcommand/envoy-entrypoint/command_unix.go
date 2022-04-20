@@ -5,12 +5,15 @@ package envoyentrypoint
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 
 	"github.com/hashicorp/consul-ecs/entrypoint"
+	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
 )
@@ -25,14 +28,27 @@ type Command struct {
 	cancel     context.CancelFunc
 	envoyCmd   *entrypoint.Cmd
 	appMonitor *AppContainerMonitor
+
+	flagSet *flag.FlagSet
+	logging.LogOpts
 }
 
 func (c *Command) init() {
-	c.log = hclog.New(&hclog.LoggerOptions{Name: "consul-ecs"})
+	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
+	logging.Merge(c.flagSet, c.LogOpts.Flags())
 }
 
 func (c *Command) Run(args []string) int {
 	c.once.Do(c.init)
+
+	if err := c.flagSet.Parse(args); err != nil {
+		c.UI.Error(fmt.Sprint(err))
+		return 1
+	}
+	c.log = c.LogOpts.Logger().Named("consul-ecs")
+
+	// Remaining args for the application command, after parsing our flags
+	args = c.flagSet.Args()
 
 	if len(args) == 0 {
 		c.UI.Error("command is required")

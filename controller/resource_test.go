@@ -28,8 +28,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
 	"github.com/hashicorp/consul-ecs/controller/mocks"
+	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/consul/sdk/testutil"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-uuid"
 	"github.com/stretchr/testify/require"
@@ -1147,23 +1147,10 @@ func TestACLDescriptions(t *testing.T) {
 
 // helper func that initializes a Consul test server and returns a Consul API client.
 func initConsul(t *testing.T) *api.Client {
-	adminToken := "123e4567-e89b-12d3-a456-426614174000"
-	testServer, err := testutil.NewTestServerConfigT(t, func(c *testutil.TestServerConfig) {
-		c.ACL.Enabled = true
-		c.ACL.Tokens.Master = adminToken
-		c.ACL.DefaultPolicy = "deny"
-	})
+	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+	client, err := api.NewClient(cfg)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = testServer.Stop() })
-	testServer.WaitForLeader(t)
-
-	clientConfig := api.DefaultConfig()
-	clientConfig.Address = testServer.HTTPAddr
-	clientConfig.Token = adminToken
-
-	consulClient, err := api.NewClient(clientConfig)
-	require.NoError(t, err)
-	return consulClient
+	return client
 }
 
 // listNamespaces is a helper func that returns a list of namespaces mapped to partition.

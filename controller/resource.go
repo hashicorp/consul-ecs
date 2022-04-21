@@ -338,7 +338,7 @@ func (s ServiceStateLister) createNamespaces(resources []Resource) error {
 			Partition: s.Partition,
 			Name:      n,
 			ACLs:      &api.NamespaceACLConfig{PolicyDefaults: []api.ACLLink{{Name: xnsPolicyName}}},
-		}, nil)
+		}, &api.WriteOptions{Partition: s.Partition})
 		if err != nil {
 			s.Log.Error("failed to create namespace", "name", n)
 			result = multierror.Append(result, err)

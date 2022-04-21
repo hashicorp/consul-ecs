@@ -15,6 +15,38 @@
       "type": "string",
       "minLength": 1
     },
+    "consulHTTPAddr": {
+      "description": "The HTTP(S) URL of the Consul server. Required when `authMethod.enabled` is set",
+      "type": ["string", "null"]
+    },
+    "consulCACertFile": {
+      "description": "The file path of the Consul server CA certificate.",
+      "type": ["string", "null"]
+    },
+    "consulLogin": {
+      "type": ["object", "null"],
+      "properties": {
+        "enabled": {
+          "description": "Enable login to Consul's AWS IAM auth method to obtain an ACL token. This requires the auth method to be configured on the Consul server, and the ECS task role must be trusted by the auth method. After login, the token is written to the file `<bootstrapDir>/service-token`.",
+          "type": ["boolean", "null"]
+        },
+        "method": {
+          "description": "The name of Consul auth method. This is passed as the `-method` option to the `consul login` command. Defaults to `iam-ecs-service-token`.",
+          "type": ["string", "null"]
+        },
+        "includeEntity": {
+          "description": "Defaults to true. Set this to false to remove the `-aws-include-entity` flag from the `consul login` command. The `-aws-include-entity` flag should be passed if and only if the Consul AWS IAM auth method is configured with `EnableIAMEntityDetails=true`.",
+          "type": ["boolean", "null"]
+        },
+        "extraLoginFlags": {
+          "description": "Additional CLI flags to pass to the `consul login` command. These are appended to the command `consul login -type aws -method <name> -token-sink-file <file> -aws-auto-bearer-token -aws-include-identity`.",
+          "type": ["array", "null"],
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "healthSyncContainers": {
       "description": "The names of containers that will have health check status synced from ECS into Consul. Cannot be specified with `service.checks`.",
       "type": ["array", "null"],

@@ -2,6 +2,7 @@ package meshinit
 
 import (
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"path"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/testutil"
+	"github.com/hashicorp/consul-ecs/testutil/iamauthtest"
 	"github.com/hashicorp/consul/api"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
@@ -64,6 +66,8 @@ func TestRun(t *testing.T) {
 		expAdditionalMeta map[string]string
 		serviceName       string
 		expServiceName    string
+
+		consulLogin config.ConsulLogin
 	}{
 		"basic service": {},
 		"service with port": {
@@ -136,6 +140,15 @@ func TestRun(t *testing.T) {
 			serviceName:    serviceName,
 			expServiceName: serviceName,
 		},
+		"auth method enabled": {
+			consulLogin: config.ConsulLogin{
+				Enabled:       true,
+				IncludeEntity: true,
+				ExtraLoginFlags: []string{
+					"-meta", "unittest-tag=12345",
+				},
+			},
+		},
 	}
 
 	for name, c := range cases {
@@ -179,14 +192,32 @@ func TestRun(t *testing.T) {
 				c.expUpstreams[i].DestinationNamespace = expectedNamespace
 			}
 
+			var srvConfig testutil.ServerConfigCallback
+			if c.consulLogin.Enabled {
+				// Enable ACLs to test with the auth method
+				srvConfig = testutil.ConsulACLConfigFn
+			}
+
 			// Start a Consul server. This sets the CONSUL_HTTP_ADDR for `consul connect envoy -bootstrap`.
-			cfg := testutil.ConsulServer(t, nil)
+			cfg := testutil.ConsulServer(t, srvConfig)
 			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
 
 			// Set up ECS container metadata server. This sets ECS_CONTAINER_METADATA_URI_V4.
 			taskMetadataResponse := fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s"}`, taskARN, family)
 			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataResponse))
+
+			if c.consulLogin.Enabled {
+				fakeAws := authMethodInit(t, consulClient, expectedServiceName)
+
+				// Point `consul login` at the local fake AWS server.
+				c.consulLogin.ExtraLoginFlags = append(c.consulLogin.ExtraLoginFlags,
+					"-aws-sts-endpoint", fakeAws.URL+"/sts",
+					"-aws-region", "fake-region",
+					"-aws-access-key-id", "fake-key-id",
+					"-aws-secret-access-key", "fake-secret-key",
+				)
+			}
 
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}
@@ -196,8 +227,10 @@ func TestRun(t *testing.T) {
 			copyConsulECSBinary := path.Join(envoyBootstrapDir, "consul-ecs")
 
 			consulEcsConfig := config.Config{
+				LogLevel:             "DEBUG",
 				BootstrapDir:         envoyBootstrapDir,
 				HealthSyncContainers: nil,
+				ConsulLogin:          &c.consulLogin,
 				Proxy: &config.AgentServiceConnectProxyConfig{
 					Upstreams: c.upstreams,
 				},
@@ -296,6 +329,62 @@ func TestRun(t *testing.T) {
 			}
 		})
 	}
+}
+
+// authMethodInit sets up necessary pieces for the IAM auth method:
+// - Start a fake AWS server. This responds an IAM role tagged with expectedServiceName.
+// - Configures an auth method + binding rule uses the tagged service name from the IAM
+//   role for the service identity.
+//
+// When using this, you will also need to point the login command at the fake AWS server:
+//
+//    fakeAws := authMethodInit(...)
+//    consulLogin.ExtraLoginFlags = []string{"-aws-sts-endpoint", fakeAws.URL + "/sts"}
+func authMethodInit(t *testing.T, consulClient *api.Client, expectedServiceName string) *httptest.Server {
+	arn := "arn:aws:iam::1234567890:role/my-role"
+	uniqueId := "AAAsomeuniqueid"
+
+	// Start a fake AWS API server for STS and IAM.
+	fakeAws := iamauthtest.NewTestServer(t, &iamauthtest.Server{
+		GetCallerIdentityResponse: iamauthtest.MakeGetCallerIdentityResponse(
+			arn, uniqueId, "1234567890",
+		),
+		GetRoleResponse: iamauthtest.MakeGetRoleResponse(
+			arn, uniqueId, iamauthtest.Tags{
+				Members: []iamauthtest.TagMember{
+					{Key: "service-name", Value: expectedServiceName},
+				},
+			},
+		),
+	})
+
+	method, _, err := consulClient.ACL().AuthMethodCreate(&api.ACLAuthMethod{
+		Name:        config.DefaultAuthMethodName,
+		Type:        "aws-iam",
+		Description: "aws auth method for unit test",
+		Config: map[string]interface{}{
+			// Trust the role to login.
+			"BoundIAMPrincipalARNs": []string{arn},
+			// Enable fetching the IAM role
+			"EnableIAMEntityDetails": true,
+			// Make this tag available to the binding rule: `entity_tags.service_name`
+			"IAMEntityTags": []string{"service-name"},
+			// Point the auth method at the local fake AWS server.
+			"STSEndpoint": fakeAws.URL + "/sts",
+			"IAMEndpoint": fakeAws.URL + "/iam",
+		},
+	}, nil)
+	require.NoError(t, err)
+
+	_, _, err = consulClient.ACL().BindingRuleCreate(&api.ACLBindingRule{
+		AuthMethod: method.Name,
+		BindType:   api.BindingRuleBindTypeService,
+		// Pull the service name from the IAM role `service-name` tag.
+		BindName: "${entity_tags.service-name}",
+	}, nil)
+	require.NoError(t, err)
+
+	return fakeAws
 }
 
 func TestConstructChecks(t *testing.T) {

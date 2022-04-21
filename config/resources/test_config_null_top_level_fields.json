@@ -2,6 +2,9 @@
   "bootstrapDir": "/consul/",
   "healthSyncContainers": null,
   "logLevel": null,
+  "consulHTTPAddr": null,
+  "consulCACertFile": null,
+  "consulLogin": null,
   "service": {
     "name": null,
     "tags": null,

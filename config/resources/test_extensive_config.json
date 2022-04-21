@@ -4,6 +4,14 @@
     "frontend"
   ],
   "logLevel": "DEBUG",
+  "consulHTTPAddr": "consul.example.com",
+  "consulCACertFile": "/consul/consul-ca-cert.pem",
+  "consulLogin": {
+    "enabled": true,
+    "method": "my-auth-method",
+    "includeEntity": false,
+    "extraLoginFlags": ["-aws-region", "fake"]
+  },
   "service": {
     "name": "frontend",
     "tags": [

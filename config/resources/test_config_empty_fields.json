@@ -1,6 +1,9 @@
 {
   "bootstrapDir": "/consul/",
   "healthSyncContainers": [],
+  "consulHTTPAddr": "",
+  "consulCACertFile": "",
+  "consulLogin": {},
   "service": {
     "name": "",
     "tags": [],

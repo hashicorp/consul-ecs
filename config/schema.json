@@ -24,18 +24,18 @@
       "type": ["string", "null"]
     },
     "consulLogin": {
-      "type": "object",
+      "type": ["object", "null"],
       "properties": {
         "enabled": {
           "description": "Enable login to Consul's AWS IAM auth method to obtain an ACL token. This requires the auth method to be configured on the Consul server, and the ECS task role must be trusted by the auth method. After login, the token is written to the file `<bootstrapDir>/service-token`.",
-          "type": "boolean"
+          "type": ["boolean", "null"]
         },
         "method": {
           "description": "The name of Consul auth method. This is passed as the `-method` option to the `consul login` command. Defaults to `iam-ecs-service-token`.",
           "type": ["string", "null"]
         },
-        "noIncludeEntity": {
-          "description": "Set this to true to remove the `-aws-include-entity` flag from the `consul login` command. By default, the `-aws-include-entity` flag is passed to the `consul login` command. The `-aws-include-entity` flag should be passed if and only if the Consul AWS IAM auth method is configured with `EnableIAMEntityDetails=true`.",
+        "includeEntity": {
+          "description": "Defaults to true. Set this to false to remove the `-aws-include-entity` flag from the `consul login` command. The `-aws-include-entity` flag should be passed if and only if the Consul AWS IAM auth method is configured with `EnableIAMEntityDetails=true`.",
           "type": ["boolean", "null"]
         },
         "extraLoginFlags": {

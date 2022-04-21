@@ -1,6 +1,12 @@
 {
   "bootstrapDir": "/consul/",
   "healthSyncContainers": null,
+  "consulLogin": {
+    "enabled": null,
+    "method": null,
+    "includeEntity": null,
+    "extraLoginFlags": null
+  },
   "service": {
     "name": null,
     "tags": null,

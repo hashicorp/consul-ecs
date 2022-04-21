@@ -142,7 +142,8 @@ func TestRun(t *testing.T) {
 		},
 		"auth method enabled": {
 			consulLogin: config.ConsulLogin{
-				Enabled: true,
+				Enabled:       true,
+				IncludeEntity: true,
 				ExtraLoginFlags: []string{
 					"-meta", "unittest-tag=12345",
 				},
@@ -229,7 +230,7 @@ func TestRun(t *testing.T) {
 				LogLevel:             "DEBUG",
 				BootstrapDir:         envoyBootstrapDir,
 				HealthSyncContainers: nil,
-				ConsulLogin:          c.consulLogin,
+				ConsulLogin:          &c.consulLogin,
 				Proxy: &config.AgentServiceConnectProxyConfig{
 					Upstreams: c.upstreams,
 				},

@@ -1,8 +1,11 @@
 //go:generate go run gen.go
-
 package config
 
-import "github.com/hashicorp/consul/api"
+import (
+	"encoding/json"
+
+	"github.com/hashicorp/consul/api"
+)
 
 // ServiceTokenFilename is the file in the BootstrapDir where the token is written by `consul login`
 // if auth method login is enabled.
@@ -16,7 +19,7 @@ type Config struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
 	ConsulHTTPAddr       string                          `json:"consulHTTPAddr"`
 	ConsulCACertFile     string                          `json:"consulCACertFile"`
-	ConsulLogin          ConsulLogin                     `json:"consulLogin"`
+	ConsulLogin          *ConsulLogin                    `json:"consulLogin"`
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	LogLevel             string                          `json:"logLevel,omitempty"`
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
@@ -27,8 +30,32 @@ type Config struct {
 type ConsulLogin struct {
 	Enabled         bool     `json:"enabled"`
 	Method          string   `json:"method"`
-	NoIncludeEntity bool     `json:"noIncludeEntity"`
+	IncludeEntity   bool     `json:"includeEntity"`
 	ExtraLoginFlags []string `json:"extraLoginFlags"`
+}
+
+// UnmarshalJSON is a custom unmarshaller that defaults `includeEntity` to true
+func (c *ConsulLogin) UnmarshalJSON(data []byte) error {
+	type Alias ConsulLogin // Avoid recursive calls to this function
+	alias := struct {
+		*Alias
+		// *bool to detect if field is not present
+		RawIncludeEntity *bool `json:"includeEntity"`
+	}{
+		Alias: (*Alias)(c), // Unmarshal other fields into *c
+	}
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Default IncludeEntity to true
+	if alias.RawIncludeEntity == nil {
+		c.IncludeEntity = true
+	} else {
+		c.IncludeEntity = *alias.RawIncludeEntity
+	}
+	return nil
 }
 
 // ServiceRegistration configures the Consul service registration.

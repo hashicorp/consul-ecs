@@ -156,7 +156,7 @@ func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMe
 		"-meta", fmt.Sprintf("consul.hashicorp.com/ecs-task-id=%s", taskMeta.TaskID()),
 		"-aws-auto-bearer-token",
 	}
-	if !c.config.ConsulLogin.NoIncludeEntity {
+	if c.config.ConsulLogin.IncludeEntity {
 		loginOpts = append(loginOpts, "-aws-include-entity")
 	}
 	if len(c.config.ConsulLogin.ExtraLoginFlags) > 0 {
@@ -169,14 +169,14 @@ func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMe
 		cmd := exec.Command("consul", loginOpts...)
 		out, err := cmd.CombinedOutput()
 		// TODO: Distinguish unrecoverable errors, like lack of permission to log in.
-		if err != nil {
-			if out != nil {
-				c.log.Error(string(out))
-			}
-			c.log.Error(err.Error())
-			return err
+		if out != nil && err != nil {
+			c.log.Error("login", "output", string(out))
 		} else if out != nil {
 			c.log.Debug("login", "output", string(out))
+		}
+		if err != nil {
+			c.log.Error(err.Error())
+			return err
 		}
 		c.log.Info("login success")
 		return nil

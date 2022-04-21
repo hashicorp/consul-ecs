@@ -147,6 +147,7 @@ func TestServiceStateLister_List(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			consulClient := initConsul(t)
@@ -266,6 +267,7 @@ func TestReconcile(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			smClient := &mocks.SMClient{Secret: &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}}
@@ -446,6 +448,7 @@ func TestTask_Upsert(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			smClient := &mocks.SMClient{Secret: c.existingSecret}
@@ -527,6 +530,7 @@ func TestTask_Delete(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			existingSecret := &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}
@@ -720,6 +724,7 @@ func TestParseServiceNameFromTaskDefinitionARN(t *testing.T) {
 		cases["error when only namespace tag provided"] = c
 	}
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			l := ServiceStateLister{
@@ -783,6 +788,7 @@ func TestReconcileNamespaces(t *testing.T) {
 		},
 	}
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			consulClient := initConsul(t)
@@ -1168,6 +1174,7 @@ func TestACLDescriptions(t *testing.T) {
 		},
 	}
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			s := &ServiceInfo{

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/hashicorp/consul/api"
@@ -15,6 +16,63 @@ func TestServiceRegistrationToConsulType(t *testing.T) {
 func TestProxyRegistrationToConsulType(t *testing.T) {
 	consulType := testProxyRegistration.ToConsulType()
 	require.Equal(t, consulType, expectedConsulProxyRegistration)
+}
+
+// Test that IncludEntity defaults to true.
+func TestConsulLoginIncludeEntity(t *testing.T) {
+	cases := map[string]struct {
+		extraFields      map[string]interface{}
+		expIncludeEntity bool
+	}{
+		"includeEntity absent": {
+			expIncludeEntity: true,
+		},
+		"includeEntity = null": {
+			extraFields: map[string]interface{}{
+				"includeEntity": nil,
+			},
+			expIncludeEntity: true,
+		},
+		"includeEntity = false": {
+			extraFields: map[string]interface{}{
+				"includeEntity": false,
+			},
+			expIncludeEntity: false,
+		},
+		"includeEntity = true": {
+			extraFields: map[string]interface{}{
+				"includeEntity": true,
+			},
+			expIncludeEntity: true,
+		},
+	}
+	for name, c := range cases {
+		c := c
+		t.Run(name, func(t *testing.T) {
+			fields := map[string]interface{}{
+				"enabled":         true,
+				"method":          "my-method",
+				"extraLoginFlags": []string{"-aws-region", "fake"},
+			}
+			for k, v := range c.extraFields {
+				fields[k] = v
+			}
+
+			jsonBytes, err := json.Marshal(fields)
+			require.NoError(t, err)
+			t.Logf("json = %s", string(jsonBytes))
+
+			var login ConsulLogin
+			require.NoError(t, json.Unmarshal(jsonBytes, &login))
+
+			t.Logf("parsed = %+v", login)
+			require.Equal(t, fields["enabled"], login.Enabled)
+			require.Equal(t, fields["method"], login.Method)
+			require.Equal(t, fields["extraLoginFlags"], login.ExtraLoginFlags)
+			require.Equal(t, c.expIncludeEntity, login.IncludeEntity)
+		})
+	}
+
 }
 
 var (

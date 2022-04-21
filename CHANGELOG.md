@@ -4,6 +4,9 @@ FEATURES
 * Add `-log-level` flag to `acl-controller`, `envoy-entrypoint`, and `app-entrypoint`
   commands. Add `logLevel` field to config JSON for `mesh-init` and `health-sync` commands.
   [[GH-67](https://github.com/hashicorp/consul-ecs/pull/67)]
+* Add `consulHTTPAddr`, `consulCACertFile`, and `consulLogin` fields to config JSON.
+  `mesh-init` now does a `consul login` to obtain a token if `consulLogin.enabled = true`.
+  [[GH-69](https://github.com/hashicorp/consul-ecs/pull/69)]
 
 ## 0.4.1 (April 08, 2022)
 

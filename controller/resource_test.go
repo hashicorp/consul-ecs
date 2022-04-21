@@ -36,6 +36,7 @@ import (
 )
 
 func TestServiceStateLister_List(t *testing.T) {
+	t.Parallel()
 	enterprise := enterpriseFlag()
 	cluster := "cluster"
 	meshKey := "consul.hashicorp.com/mesh"
@@ -147,6 +148,7 @@ func TestServiceStateLister_List(t *testing.T) {
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			consulClient := initConsul(t)
 
 			if enterprise {
@@ -221,6 +223,7 @@ func TestServiceStateLister_List(t *testing.T) {
 }
 
 func TestReconcile(t *testing.T) {
+	t.Parallel()
 	cluster := "test-cluster"
 	aclToken1 := &api.ACLToken{}
 	aclPolicy1 := &api.ACLPolicy{Name: "service1-service"}
@@ -264,6 +267,7 @@ func TestReconcile(t *testing.T) {
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			smClient := &mocks.SMClient{Secret: &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}}
 			consulClient := initConsul(t)
 
@@ -366,6 +370,7 @@ func TestReconcile(t *testing.T) {
 }
 
 func TestRecreatingAToken(t *testing.T) {
+	t.Parallel()
 	smClient := &mocks.SMClient{Secret: &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}}
 	consulClient := initConsul(t)
 
@@ -414,6 +419,7 @@ func TestRecreatingAToken(t *testing.T) {
 }
 
 func TestTask_Upsert(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		createExistingToken bool
 		existingSecret      *secretsmanager.GetSecretValueOutput
@@ -441,6 +447,7 @@ func TestTask_Upsert(t *testing.T) {
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			smClient := &mocks.SMClient{Secret: c.existingSecret}
 			consulClient := initConsul(t)
 
@@ -503,6 +510,7 @@ func TestTask_Upsert(t *testing.T) {
 }
 
 func TestTask_Delete(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		createExistingToken   bool
 		updateExistingSecret  bool
@@ -520,6 +528,7 @@ func TestTask_Delete(t *testing.T) {
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			existingSecret := &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}
 			smClient := &mocks.SMClient{Secret: existingSecret}
 			consulClient := initConsul(t)
@@ -586,6 +595,7 @@ func TestTask_Delete(t *testing.T) {
 }
 
 func TestParseServiceNameFromTaskDefinitionARN(t *testing.T) {
+	t.Parallel()
 	validARN := "arn:aws:ecs:us-east-1:1234567890:task-definition/service:1"
 	cases := map[string]struct {
 		task        ecs.Task
@@ -711,6 +721,7 @@ func TestParseServiceNameFromTaskDefinitionARN(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			l := ServiceStateLister{
 				Partition: c.partition,
 			}
@@ -726,6 +737,7 @@ func TestParseServiceNameFromTaskDefinitionARN(t *testing.T) {
 }
 
 func TestReconcileNamespaces(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		partition string
 		expNS     map[string][]string
@@ -759,6 +771,7 @@ func TestReconcileNamespaces(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			consulClient := initConsul(t)
 
 			if !enterpriseFlag() {
@@ -800,6 +813,7 @@ func TestReconcileNamespaces(t *testing.T) {
 }
 
 func TestTaskLifecycle(t *testing.T) {
+	t.Parallel()
 	cluster := "cluster"
 	meshKey := "consul.hashicorp.com/mesh"
 	meshValue := "true"
@@ -971,7 +985,9 @@ func TestTaskLifecycle(t *testing.T) {
 		},
 	}
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
 			enterprise := enterpriseFlag()
 			if !enterprise {
@@ -1119,6 +1135,7 @@ func TestTaskLifecycle(t *testing.T) {
 }
 
 func TestACLDescriptions(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		cluster     string
 		serviceName ServiceName
@@ -1134,6 +1151,7 @@ func TestACLDescriptions(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			s := &ServiceInfo{
 				Cluster:     c.cluster,
 				ServiceName: c.serviceName,

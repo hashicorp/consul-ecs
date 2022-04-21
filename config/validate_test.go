@@ -27,9 +27,9 @@ func TestParse(t *testing.T) {
 			filename:       "resources/test_config_null_top_level_fields.json",
 			expectedConfig: expectedConfigNullTopLevelFields,
 		},
-		"null_proxy_and_service_fields": {
-			filename:       "resources/test_config_null_proxy_and_service_fields.json",
-			expectedConfig: expectedConfigNullProxyAndServiceFields,
+		"null_nested_fields": {
+			filename:       "resources/test_config_null_nested_fields.json",
+			expectedConfig: expectedConfigNullNestedFields,
 		},
 		"empty_fields": {
 			filename:       "resources/test_config_empty_fields.json",
@@ -116,6 +116,14 @@ var (
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: []string{"frontend"},
 		LogLevel:             "DEBUG",
+		ConsulHTTPAddr:       "consul.example.com",
+		ConsulCACertFile:     "/consul/consul-ca-cert.pem",
+		ConsulLogin: &ConsulLogin{
+			Enabled:         true,
+			Method:          "my-auth-method",
+			IncludeEntity:   false,
+			ExtraLoginFlags: []string{"-aws-region", "fake"},
+		},
 		Service: ServiceRegistration{
 			Name:              "frontend",
 			Tags:              []string{"frontend"},
@@ -226,6 +234,9 @@ var (
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: nil,
 		LogLevel:             "",
+		ConsulHTTPAddr:       "",
+		ConsulCACertFile:     "",
+		ConsulLogin:          nil,
 		Service: ServiceRegistration{
 			Name:              "",
 			Tags:              nil,
@@ -240,9 +251,17 @@ var (
 		Proxy: nil,
 	}
 
-	expectedConfigNullProxyAndServiceFields = &Config{
+	expectedConfigNullNestedFields = &Config{
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: nil,
+		ConsulHTTPAddr:       "",
+		ConsulCACertFile:     "",
+		ConsulLogin: &ConsulLogin{
+			Enabled:         false,
+			Method:          "",
+			IncludeEntity:   true, // default true
+			ExtraLoginFlags: nil,
+		},
 		Service: ServiceRegistration{
 			Name:              "",
 			Tags:              nil,
@@ -303,6 +322,12 @@ var (
 	expectedConfigEmptyFields = &Config{
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: []string{},
+		ConsulLogin: &ConsulLogin{
+			Enabled:         false,
+			Method:          "",
+			IncludeEntity:   true, // default true
+			ExtraLoginFlags: nil,
+		},
 		Service: ServiceRegistration{
 			Name:              "",
 			Tags:              []string{},

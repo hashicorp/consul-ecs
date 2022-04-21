@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -50,14 +51,25 @@ func (c *Command) Run(args []string) int {
 }
 
 func (c *Command) realRun() error {
-	cfg := api.DefaultConfig()
-	consulClient, err := api.NewClient(cfg)
-	if err != nil {
-		return fmt.Errorf("constructing consul client: %s", err)
-	}
 	taskMeta, err := awsutil.ECSTaskMetadata()
 	if err != nil {
 		return err
+	}
+
+	cfg := api.DefaultConfig()
+
+	if c.config.ConsulLogin.Enabled {
+		// If enabled, login to the auth method to obtain an ACL token.
+		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
+		if err := c.loginToAuthMethod(tokenFile, taskMeta); err != nil {
+			return err
+		}
+		cfg.TokenFile = tokenFile
+	}
+
+	consulClient, err := api.NewClient(cfg)
+	if err != nil {
+		return fmt.Errorf("constructing consul client: %s", err)
 	}
 
 	serviceRegistration, err := c.constructServiceRegistration(taskMeta)
@@ -86,6 +98,9 @@ func (c *Command) realRun() error {
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
 	connectArgs := []string{"connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502"}
+	if c.config.ConsulLogin.Enabled {
+		connectArgs = append(connectArgs, "-token-file", cfg.TokenFile)
+	}
 	if serviceRegistration.Partition != "" {
 		// Partition/namespace support is enabled so augment the connect command.
 		connectArgs = append(connectArgs,
@@ -124,6 +139,51 @@ func (c *Command) realRun() error {
 		return err
 	}
 	c.log.Info("copied binary", "file", copyConsulECSBinary)
+	return nil
+}
+
+// loginToAuthMethod runs a 'consul login' command to obtain a token.
+// The login command is skipped if LogintOptions is not set in the
+// consul-ecs config JSON, in order to support non-ACL deployments.
+func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMeta) error {
+	method := c.config.ConsulLogin.Method
+	if method == "" {
+		method = config.DefaultAuthMethodName
+	}
+	loginOpts := []string{
+		"login", "-type", "aws", "-method", method,
+		"-token-sink-file", tokenFile,
+		"-meta", fmt.Sprintf("consul.hashicorp.com/ecs-task-id=%s", taskMeta.TaskID()),
+		"-aws-auto-bearer-token",
+	}
+	if c.config.ConsulLogin.IncludeEntity {
+		loginOpts = append(loginOpts, "-aws-include-entity")
+	}
+	if len(c.config.ConsulLogin.ExtraLoginFlags) > 0 {
+		loginOpts = append(loginOpts, c.config.ConsulLogin.ExtraLoginFlags...)
+	}
+
+	err := backoff.RetryNotify(func() error {
+		// We'll get errors until the consul binary is copied to the volume ("fork/exec: text file busy")
+		c.log.Debug("login", "cmd", fmt.Sprint(loginOpts))
+		cmd := exec.Command("consul", loginOpts...)
+		out, err := cmd.CombinedOutput()
+		// TODO: Distinguish unrecoverable errors, like lack of permission to log in.
+		if out != nil && err != nil {
+			c.log.Error("login", "output", string(out))
+		} else if out != nil {
+			c.log.Debug("login", "output", string(out))
+		}
+		if err != nil {
+			c.log.Error(err.Error())
+			return err
+		}
+		c.log.Info("login success")
+		return nil
+	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

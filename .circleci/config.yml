@@ -137,13 +137,13 @@ workflows:
       - go-fmt-and-vet
       - linters
       - test:
-          CONSUL_VERSION: "1.11.4"
+          CONSUL_VERSION: "1.12.0"
           name: test-consul
           requires:
             - go-fmt-and-vet
             - linters
       - test:
-          CONSUL_VERSION: "1.11.4+ent"
+          CONSUL_VERSION: "1.12.0+ent"
           ENTERPRISE_FLAG: "-enterprise"
           name: test-consul+ent
           requires:

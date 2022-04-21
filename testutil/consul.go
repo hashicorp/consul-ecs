@@ -9,10 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type ServerConfigCallback = testutil.ServerConfigCallback
+
 const AdminToken = "123e4567-e89b-12d3-a456-426614174000"
 
 // ConsulServer initializes a Consul test server and returns Consul client config.
-func ConsulServer(t *testing.T, cb testutil.ServerConfigCallback) *api.Config {
+func ConsulServer(t *testing.T, cb ServerConfigCallback) *api.Config {
 	server, err := testutil.NewTestServerConfigT(t, cb)
 	require.NoError(t, err)
 	t.Cleanup(func() {

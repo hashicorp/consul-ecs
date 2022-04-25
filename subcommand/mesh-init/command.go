@@ -175,8 +175,8 @@ func (c *Command) constructLoginCmd(tokenFile string, taskMeta awsutil.ECSTaskMe
 	}
 	loginOpts := []string{
 		"login", "-type", "aws", "-method", method,
-		// NOTE: If http-addr and ca-file are empty strings, Consul ignores them.
-		// It will default to using the logging in with local Consul client.
+		// NOTE: If -http-addr and -ca-file are empty strings, Consul ignores them.
+		// The -http-addr flag will default to the local Consul client.
 		"-http-addr", c.config.ConsulHTTPAddr,
 		"-ca-file", c.config.ConsulCACertFile,
 		"-token-sink-file", tokenFile,

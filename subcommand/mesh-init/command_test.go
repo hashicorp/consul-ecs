@@ -507,7 +507,7 @@ func TestConstructLoginCmd(t *testing.T) {
 				ConsulCACertFile: caCertFile,
 				ConsulLogin: &config.ConsulLogin{
 					Method:        method,
-					IncludeEntity: true, // defaults to true, when parsed
+					IncludeEntity: true, // defaults to true, when parsed from JSON
 				},
 			},
 			expCmd: []string{

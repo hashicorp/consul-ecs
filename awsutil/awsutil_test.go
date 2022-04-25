@@ -28,7 +28,7 @@ func TestNewSession(t *testing.T) {
 		},
 		"no-env-and-invalid-task-arn": {
 			taskArn:     "invalid-task-arn",
-			expectError: "unable to determine AWS region from Task metadata",
+			expectError: `unable to determine AWS region from Task ARN: "invalid-task-arn"`,
 		},
 		"aws-region": {
 			env:          map[string]string{"AWS_REGION": nonTaskRegion},

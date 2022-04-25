@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul-ecs/testutil/iamauthtest"
@@ -480,6 +481,92 @@ func TestConstructServiceName(t *testing.T) {
 	cmd.config.Service.Name = expectedServiceName
 	serviceName = cmd.constructServiceName(family)
 	require.Equal(t, expectedServiceName, serviceName)
+}
+
+func TestConstructLoginCmd(t *testing.T) {
+	var (
+		taskARN = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+		meta    = awsutil.ECSTaskMeta{
+			Cluster: "my-cluster",
+			TaskARN: taskARN,
+			Family:  "my-service",
+		}
+		method     = "test-method"
+		tokenFile  = "test-file"
+		httpAddr   = "consul.example.com"
+		caCertFile = "my-ca-cert.pem"
+	)
+
+	cases := map[string]struct {
+		config *config.Config
+		expCmd []string
+	}{
+		"defaults": {
+			config: &config.Config{
+				ConsulHTTPAddr:   httpAddr,
+				ConsulCACertFile: caCertFile,
+				ConsulLogin: &config.ConsulLogin{
+					Method:        method,
+					IncludeEntity: true, // defaults to true, when parsed
+				},
+			},
+			expCmd: []string{
+				"login", "-type", "aws", "-method", method,
+				"-http-addr", httpAddr,
+				"-ca-file", caCertFile,
+				"-token-sink-file", tokenFile,
+				"-meta", "consul.hashicorp.com/task-id=abcdef",
+				"-meta", "consul.hashicorp.com/cluster=my-cluster",
+				"-aws-auto-bearer-token", "-aws-include-entity",
+			},
+		},
+		"fewest fields": {
+			config: &config.Config{
+				ConsulLogin: &config.ConsulLogin{
+					Method:        method,
+					IncludeEntity: false,
+				},
+			},
+			expCmd: []string{
+				"login", "-type", "aws", "-method", method,
+				"-http-addr", "", // unset
+				"-ca-file", "",
+				"-token-sink-file", tokenFile,
+				"-meta", "consul.hashicorp.com/task-id=abcdef",
+				"-meta", "consul.hashicorp.com/cluster=my-cluster",
+				"-aws-auto-bearer-token",
+				// no -aws-include-entity
+			},
+		},
+		"all fields": {
+			config: &config.Config{
+				ConsulHTTPAddr:   httpAddr,
+				ConsulCACertFile: caCertFile,
+				ConsulLogin: &config.ConsulLogin{
+					Method:          method,
+					IncludeEntity:   true,
+					ExtraLoginFlags: []string{"-aws-region", "fake-region"},
+				},
+			},
+			expCmd: []string{
+				"login", "-type", "aws", "-method", method,
+				"-http-addr", httpAddr,
+				"-ca-file", caCertFile,
+				"-token-sink-file", tokenFile,
+				"-meta", "consul.hashicorp.com/task-id=abcdef",
+				"-meta", "consul.hashicorp.com/cluster=my-cluster",
+				"-aws-auto-bearer-token", "-aws-include-entity",
+				"-aws-region", "fake-region",
+			},
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			cmd := &Command{config: c.config}
+			loginOpts := cmd.constructLoginCmd(tokenFile, meta)
+			require.Equal(t, loginOpts, c.expCmd)
+		})
+	}
 }
 
 // toAgentCheck translates the request type (AgentServiceCheck) into an "expected"

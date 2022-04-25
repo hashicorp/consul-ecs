@@ -147,6 +147,7 @@ func TestServiceStateLister_List(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			consulClient := initConsul(t)
@@ -266,6 +267,7 @@ func TestReconcile(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			smClient := &mocks.SMClient{Secret: &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}}
@@ -446,6 +448,7 @@ func TestTask_Upsert(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			smClient := &mocks.SMClient{Secret: c.existingSecret}
@@ -527,6 +530,7 @@ func TestTask_Delete(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			existingSecret := &secretsmanager.GetSecretValueOutput{Name: aws.String("test-service"), SecretString: aws.String(`{}`)}
@@ -720,6 +724,7 @@ func TestParseServiceNameFromTaskDefinitionARN(t *testing.T) {
 		cases["error when only namespace tag provided"] = c
 	}
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			l := ServiceStateLister{
@@ -768,8 +773,22 @@ func TestReconcileNamespaces(t *testing.T) {
 				"resource4": {ServiceName: ServiceName{Name: "service-1", Partition: "default", Namespace: "namespace-2"}},
 			},
 		},
+		"with resources in non-default partition": {
+			partition: "part-1",
+			expNS: map[string][]string{
+				"default": {"default"},
+				"part-1":  {"default", "namespace-1", "namespace-2"},
+			},
+			resources: map[string]*ServiceInfo{
+				"resource1": {ServiceName: ServiceName{Name: "service-1", Partition: "part-1", Namespace: "default"}},
+				"resource2": {ServiceName: ServiceName{Name: "service-1", Partition: "part-1", Namespace: "namespace-1"}},
+				"resource3": {ServiceName: ServiceName{Name: "service-2", Partition: "part-1", Namespace: "namespace-1"}},
+				"resource4": {ServiceName: ServiceName{Name: "service-1", Partition: "part-1", Namespace: "namespace-2"}},
+			},
+		},
 	}
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			consulClient := initConsul(t)
@@ -777,6 +796,11 @@ func TestReconcileNamespaces(t *testing.T) {
 			if !enterpriseFlag() {
 				c.partition = ""
 				c.expNS = make(map[string][]string)
+			} else if c.partition != "" && c.partition != "default" {
+				_, _, err := consulClient.Partitions().Create(context.Background(), &api.Partition{
+					Name: c.partition,
+				}, nil)
+				require.NoError(t, err)
 			}
 
 			s := ServiceStateLister{
@@ -1150,6 +1174,7 @@ func TestACLDescriptions(t *testing.T) {
 		},
 	}
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			s := &ServiceInfo{

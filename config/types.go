@@ -19,7 +19,7 @@ type Config struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
 	ConsulHTTPAddr       string                          `json:"consulHTTPAddr"`
 	ConsulCACertFile     string                          `json:"consulCACertFile"`
-	ConsulLogin          *ConsulLogin                    `json:"consulLogin"`
+	ConsulLogin          ConsulLogin                     `json:"consulLogin"`
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	LogLevel             string                          `json:"logLevel,omitempty"`
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`

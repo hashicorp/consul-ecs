@@ -146,24 +146,9 @@ func (c *Command) realRun() error {
 // The login command is skipped if LogintOptions is not set in the
 // consul-ecs config JSON, in order to support non-ACL deployments.
 func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMeta) error {
-	method := c.config.ConsulLogin.Method
-	if method == "" {
-		method = config.DefaultAuthMethodName
-	}
-	loginOpts := []string{
-		"login", "-type", "aws", "-method", method,
-		"-token-sink-file", tokenFile,
-		"-meta", fmt.Sprintf("consul.hashicorp.com/ecs-task-id=%s", taskMeta.TaskID()),
-		"-aws-auto-bearer-token",
-	}
-	if c.config.ConsulLogin.IncludeEntity {
-		loginOpts = append(loginOpts, "-aws-include-entity")
-	}
-	if len(c.config.ConsulLogin.ExtraLoginFlags) > 0 {
-		loginOpts = append(loginOpts, c.config.ConsulLogin.ExtraLoginFlags...)
-	}
+	loginOpts := c.constructLoginCmd(tokenFile, taskMeta)
 
-	err := backoff.RetryNotify(func() error {
+	return backoff.RetryNotify(func() error {
 		// We'll get errors until the consul binary is copied to the volume ("fork/exec: text file busy")
 		c.log.Debug("login", "cmd", fmt.Sprint(loginOpts))
 		cmd := exec.Command("consul", loginOpts...)
@@ -181,10 +166,31 @@ func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMe
 		c.log.Info("login success")
 		return nil
 	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
-	if err != nil {
-		return err
+}
+
+func (c *Command) constructLoginCmd(tokenFile string, taskMeta awsutil.ECSTaskMeta) []string {
+	method := c.config.ConsulLogin.Method
+	if method == "" {
+		method = config.DefaultAuthMethodName
 	}
-	return nil
+	loginOpts := []string{
+		"login", "-type", "aws", "-method", method,
+		// NOTE: If -http-addr and -ca-file are empty strings, Consul ignores them.
+		// The -http-addr flag will default to the local Consul client.
+		"-http-addr", c.config.ConsulHTTPAddr,
+		"-ca-file", c.config.ConsulCACertFile,
+		"-token-sink-file", tokenFile,
+		"-meta", fmt.Sprintf("consul.hashicorp.com/task-id=%s", taskMeta.TaskID()),
+		"-meta", fmt.Sprintf("consul.hashicorp.com/cluster=%s", taskMeta.Cluster),
+		"-aws-auto-bearer-token",
+	}
+	if c.config.ConsulLogin.IncludeEntity {
+		loginOpts = append(loginOpts, "-aws-include-entity")
+	}
+	if len(c.config.ConsulLogin.ExtraLoginFlags) > 0 {
+		loginOpts = append(loginOpts, c.config.ConsulLogin.ExtraLoginFlags...)
+	}
+	return loginOpts
 }
 
 func (c *Command) Synopsis() string {

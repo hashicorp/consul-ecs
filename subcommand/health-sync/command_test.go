@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
@@ -315,6 +318,98 @@ func TestFindContainersToSync(t *testing.T) {
 			require.Equal(t, testData.found, found)
 		})
 	}
+}
+
+func TestLogoutSuccess(t *testing.T) {
+	bootstrapDir := testutil.TempDir(t)
+	tokenFile := filepath.Join(bootstrapDir, "test-token")
+
+	// Start Consul server.
+	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+	client, err := api.NewClient(cfg)
+	require.NoError(t, err)
+
+	// Login to an auth method. We can only log out of tokens created by a login.
+	fakeAws := testutil.AuthMethodInit(t, client, "test-service")
+	loginCmd := exec.Command(
+		"consul", "login", "-type", "aws",
+		"-method", config.DefaultAuthMethodName,
+		"-token-sink-file", tokenFile,
+		"-aws-auto-bearer-token", "-aws-include-entity",
+		"-aws-sts-endpoint", fakeAws.URL+"/sts",
+		"-aws-region", "fake-region",
+		"-aws-access-key-id", "fake-key-id",
+		"-aws-secret-access-key", "fake-secret-key",
+	)
+	out, err := loginCmd.CombinedOutput()
+	require.NoError(t, err, "out=%s", out)
+	require.FileExists(t, tokenFile)
+
+	// Configure a client with the token.
+	tokenCfg := api.DefaultConfig()
+	tokenCfg.Address = cfg.Address
+	tokenCfg.TokenFile = tokenFile
+	tokenClient, err := api.NewClient(tokenCfg)
+	require.NoError(t, err)
+	_, _, err = tokenClient.ACL().TokenReadSelf(nil)
+	require.NoError(t, err)
+
+	ui := cli.NewMockUi()
+	cmd := &Command{
+		UI: ui,
+		config: &config.Config{
+			BootstrapDir:     bootstrapDir,
+			ConsulHTTPAddr:   cfg.Address,
+			ConsulCACertFile: cfg.TLSConfig.CAFile,
+			ConsulLogin: config.ConsulLogin{
+				Enabled: true,
+			},
+		},
+	}
+
+	err = cmd.logout(tokenFile)
+	require.NoError(t, err)
+
+	// Ensure the token was deleted.
+	tok, _, err := tokenClient.ACL().TokenReadSelf(nil)
+	require.Error(t, err)
+	require.Nil(t, tok)
+}
+
+func TestLogoutFailure(t *testing.T) {
+	bootstrapDir := testutil.TempDir(t)
+	tokenFile := filepath.Join(bootstrapDir, "test-token")
+
+	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+	//client, err := api.NewClient(cfg)
+	//require.NoError(t, err)
+
+	cmd := &Command{
+		UI: cli.NewMockUi(),
+		config: &config.Config{
+			BootstrapDir:     bootstrapDir,
+			ConsulHTTPAddr:   cfg.Address,
+			ConsulCACertFile: cfg.TLSConfig.CAFile,
+			ConsulLogin: config.ConsulLogin{
+				Enabled: true,
+			},
+		},
+	}
+
+	t.Run("token file not found", func(t *testing.T) {
+		err := cmd.logout(tokenFile)
+		require.Error(t, err)
+		t.Logf("err=%v", err)
+		require.Contains(t, err.Error(), "creating client for logout")
+	})
+	t.Run("invalid token", func(t *testing.T) {
+		err := os.WriteFile(tokenFile, []byte("3a336524-e02f-4a7e-85f3-fe8687d20891"), 0600)
+		require.NoError(t, err)
+		err = cmd.logout(tokenFile)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "logout failed")
+	})
+
 }
 
 // metadataResponse returns a JSON string that the AWS metadata endpoint

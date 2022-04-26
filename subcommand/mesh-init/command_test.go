@@ -564,7 +564,7 @@ func TestConstructLoginCmd(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			cmd := &Command{config: c.config}
 			loginOpts := cmd.constructLoginCmd(tokenFile, meta)
-			require.Equal(t, loginOpts, c.expCmd)
+			require.Equal(t, c.expCmd, loginOpts)
 		})
 	}
 }

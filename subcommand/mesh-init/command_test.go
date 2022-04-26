@@ -230,7 +230,7 @@ func TestRun(t *testing.T) {
 				LogLevel:             "DEBUG",
 				BootstrapDir:         envoyBootstrapDir,
 				HealthSyncContainers: nil,
-				ConsulLogin:          &c.consulLogin,
+				ConsulLogin:          c.consulLogin,
 				Proxy: &config.AgentServiceConnectProxyConfig{
 					Upstreams: c.upstreams,
 				},

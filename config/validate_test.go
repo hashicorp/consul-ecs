@@ -94,6 +94,15 @@ func OpenFile(t *testing.T, path string) string {
 var (
 	expectedConfig = &Config{
 		LogLevel: "",
+		ConsulLogin: ConsulLogin{
+			Enabled: false,
+			Method:  "",
+			// Because ConsulLogin is not a pointer, when `consulLogin` is absent from
+			// the JSON, UnmarshalJSON is not called, so IncludeEntity is not defaulted
+			// to `true`. This is okay since if Enabled=false, IncludeEntity is not used.
+			IncludeEntity:   false,
+			ExtraLoginFlags: nil,
+		},
 		Service: ServiceRegistration{
 			Name: "blah",
 			Port: 1234,
@@ -118,7 +127,7 @@ var (
 		LogLevel:             "DEBUG",
 		ConsulHTTPAddr:       "consul.example.com",
 		ConsulCACertFile:     "/consul/consul-ca-cert.pem",
-		ConsulLogin: &ConsulLogin{
+		ConsulLogin: ConsulLogin{
 			Enabled:         true,
 			Method:          "my-auth-method",
 			IncludeEntity:   false,
@@ -236,7 +245,12 @@ var (
 		LogLevel:             "",
 		ConsulHTTPAddr:       "",
 		ConsulCACertFile:     "",
-		ConsulLogin:          nil,
+		ConsulLogin: ConsulLogin{
+			Enabled:         false,
+			Method:          "",
+			IncludeEntity:   true, // default true
+			ExtraLoginFlags: nil,
+		},
 		Service: ServiceRegistration{
 			Name:              "",
 			Tags:              nil,
@@ -256,7 +270,7 @@ var (
 		HealthSyncContainers: nil,
 		ConsulHTTPAddr:       "",
 		ConsulCACertFile:     "",
-		ConsulLogin: &ConsulLogin{
+		ConsulLogin: ConsulLogin{
 			Enabled:         false,
 			Method:          "",
 			IncludeEntity:   true, // default true
@@ -322,7 +336,7 @@ var (
 	expectedConfigEmptyFields = &Config{
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: []string{},
-		ConsulLogin: &ConsulLogin{
+		ConsulLogin: ConsulLogin{
 			Enabled:         false,
 			Method:          "",
 			IncludeEntity:   true, // default true

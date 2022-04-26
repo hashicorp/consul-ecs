@@ -87,10 +87,10 @@ func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
 		case <-ctx.Done():
 			result := c.setChecksCritical(consulClient, taskMeta.TaskID(), serviceName, healthSyncContainers)
 			if c.config.ConsulLogin.Enabled {
-				if err := c.logout(filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)); err != nil {
+				if err := c.logout(config.ServiceTokenFilename); err != nil {
 					result = multierror.Append(result, err)
 				}
-				if err := c.logout(filepath.Join(c.config.BootstrapDir, config.ClientTokenFilename)); err != nil {
+				if err := c.logout(config.ClientTokenFilename); err != nil {
 					result = multierror.Append(result, err)
 				}
 			}
@@ -190,7 +190,10 @@ func (c *Command) setChecksCritical(consulClient *api.Client, taskID string, ser
 	return result
 }
 
+// logout calls POST /acl/logout to destroy the token in the given file.
+// The given file should be relative path of a file in the bootstrap directory.
 func (c *Command) logout(tokenFile string) error {
+	tokenFile = filepath.Join(c.config.BootstrapDir, tokenFile)
 	cfg := api.DefaultConfig()
 	if c.config.ConsulHTTPAddr != "" {
 		cfg.Address = c.config.ConsulHTTPAddr

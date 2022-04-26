@@ -322,7 +322,8 @@ func TestFindContainersToSync(t *testing.T) {
 
 func TestLogoutSuccess(t *testing.T) {
 	bootstrapDir := testutil.TempDir(t)
-	tokenFile := filepath.Join(bootstrapDir, "test-token")
+	tokenFilename := "test-token"
+	tokenPath := filepath.Join(bootstrapDir, tokenFilename)
 
 	// Start Consul server.
 	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
@@ -334,7 +335,7 @@ func TestLogoutSuccess(t *testing.T) {
 	loginCmd := exec.Command(
 		"consul", "login", "-type", "aws",
 		"-method", config.DefaultAuthMethodName,
-		"-token-sink-file", tokenFile,
+		"-token-sink-file", tokenPath,
 		"-aws-auto-bearer-token", "-aws-include-entity",
 		"-aws-sts-endpoint", fakeAws.URL+"/sts",
 		"-aws-region", "fake-region",
@@ -343,12 +344,12 @@ func TestLogoutSuccess(t *testing.T) {
 	)
 	out, err := loginCmd.CombinedOutput()
 	require.NoError(t, err, "out=%s", out)
-	require.FileExists(t, tokenFile)
+	require.FileExists(t, tokenPath)
 
 	// Configure a client with the token.
 	tokenCfg := api.DefaultConfig()
 	tokenCfg.Address = cfg.Address
-	tokenCfg.TokenFile = tokenFile
+	tokenCfg.TokenFile = tokenPath
 	tokenClient, err := api.NewClient(tokenCfg)
 	require.NoError(t, err)
 	_, _, err = tokenClient.ACL().TokenReadSelf(nil)
@@ -367,7 +368,7 @@ func TestLogoutSuccess(t *testing.T) {
 		},
 	}
 
-	err = cmd.logout(tokenFile)
+	err = cmd.logout(tokenFilename)
 	require.NoError(t, err)
 
 	// Ensure the token was deleted.
@@ -378,12 +379,10 @@ func TestLogoutSuccess(t *testing.T) {
 
 func TestLogoutFailure(t *testing.T) {
 	bootstrapDir := testutil.TempDir(t)
-	tokenFile := filepath.Join(bootstrapDir, "test-token")
+	tokenFilename := "test-token"
+	tokenPath := filepath.Join(bootstrapDir, tokenFilename)
 
 	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
-	//client, err := api.NewClient(cfg)
-	//require.NoError(t, err)
-
 	cmd := &Command{
 		UI: cli.NewMockUi(),
 		config: &config.Config{
@@ -397,15 +396,14 @@ func TestLogoutFailure(t *testing.T) {
 	}
 
 	t.Run("token file not found", func(t *testing.T) {
-		err := cmd.logout(tokenFile)
+		err := cmd.logout(tokenFilename)
 		require.Error(t, err)
-		t.Logf("err=%v", err)
 		require.Contains(t, err.Error(), "creating client for logout")
 	})
 	t.Run("invalid token", func(t *testing.T) {
-		err := os.WriteFile(tokenFile, []byte("3a336524-e02f-4a7e-85f3-fe8687d20891"), 0600)
+		err := os.WriteFile(tokenPath, []byte("3a336524-e02f-4a7e-85f3-fe8687d20891"), 0600)
 		require.NoError(t, err)
-		err = cmd.logout(tokenFile)
+		err = cmd.logout(tokenFilename)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "logout failed")
 	})

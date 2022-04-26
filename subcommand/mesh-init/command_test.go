@@ -485,7 +485,7 @@ func TestConstructServiceName(t *testing.T) {
 
 func TestConstructLoginCmd(t *testing.T) {
 	var (
-		taskARN = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+		taskARN = "arn:aws:ecs:bogus-east-1:123456789:task/test/abcdef"
 		meta    = awsutil.ECSTaskMeta{
 			Cluster: "my-cluster",
 			TaskARN: taskARN,
@@ -517,6 +517,7 @@ func TestConstructLoginCmd(t *testing.T) {
 				"-token-sink-file", tokenFile,
 				"-meta", "consul.hashicorp.com/task-id=abcdef",
 				"-meta", "consul.hashicorp.com/cluster=my-cluster",
+				"-aws-region", "bogus-east-1",
 				"-aws-auto-bearer-token", "-aws-include-entity",
 			},
 		},
@@ -534,6 +535,7 @@ func TestConstructLoginCmd(t *testing.T) {
 				"-token-sink-file", tokenFile,
 				"-meta", "consul.hashicorp.com/task-id=abcdef",
 				"-meta", "consul.hashicorp.com/cluster=my-cluster",
+				"-aws-region", "bogus-east-1",
 				"-aws-auto-bearer-token",
 				// no -aws-include-entity
 			},
@@ -545,7 +547,7 @@ func TestConstructLoginCmd(t *testing.T) {
 				ConsulLogin: config.ConsulLogin{
 					Method:          method,
 					IncludeEntity:   true,
-					ExtraLoginFlags: []string{"-aws-region", "fake-region"},
+					ExtraLoginFlags: []string{"-aws-server-id-header-value", "abcd"},
 				},
 			},
 			expCmd: []string{
@@ -555,15 +557,17 @@ func TestConstructLoginCmd(t *testing.T) {
 				"-token-sink-file", tokenFile,
 				"-meta", "consul.hashicorp.com/task-id=abcdef",
 				"-meta", "consul.hashicorp.com/cluster=my-cluster",
+				"-aws-region", "bogus-east-1",
 				"-aws-auto-bearer-token", "-aws-include-entity",
-				"-aws-region", "fake-region",
+				"-aws-server-id-header-value", "abcd",
 			},
 		},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			cmd := &Command{config: c.config}
-			loginOpts := cmd.constructLoginCmd(tokenFile, meta)
+			loginOpts, err := cmd.constructLoginCmd(tokenFile, meta)
+			require.NoError(t, err)
 			require.Equal(t, c.expCmd, loginOpts)
 		})
 	}

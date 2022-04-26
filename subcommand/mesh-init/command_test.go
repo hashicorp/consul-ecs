@@ -505,7 +505,7 @@ func TestConstructLoginCmd(t *testing.T) {
 			config: &config.Config{
 				ConsulHTTPAddr:   httpAddr,
 				ConsulCACertFile: caCertFile,
-				ConsulLogin: &config.ConsulLogin{
+				ConsulLogin: config.ConsulLogin{
 					Method:        method,
 					IncludeEntity: true, // defaults to true, when parsed from JSON
 				},
@@ -522,7 +522,7 @@ func TestConstructLoginCmd(t *testing.T) {
 		},
 		"fewest fields": {
 			config: &config.Config{
-				ConsulLogin: &config.ConsulLogin{
+				ConsulLogin: config.ConsulLogin{
 					Method:        method,
 					IncludeEntity: false,
 				},
@@ -542,7 +542,7 @@ func TestConstructLoginCmd(t *testing.T) {
 			config: &config.Config{
 				ConsulHTTPAddr:   httpAddr,
 				ConsulCACertFile: caCertFile,
-				ConsulLogin: &config.ConsulLogin{
+				ConsulLogin: config.ConsulLogin{
 					Method:          method,
 					IncludeEntity:   true,
 					ExtraLoginFlags: []string{"-aws-region", "fake-region"},

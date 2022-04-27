@@ -146,7 +146,10 @@ func (c *Command) realRun() error {
 // The login command is skipped if LogintOptions is not set in the
 // consul-ecs config JSON, in order to support non-ACL deployments.
 func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMeta) error {
-	loginOpts := c.constructLoginCmd(tokenFile, taskMeta)
+	loginOpts, err := c.constructLoginCmd(tokenFile, taskMeta)
+	if err != nil {
+		return err
+	}
 
 	return backoff.RetryNotify(func() error {
 		// We'll get errors until the consul binary is copied to the volume ("fork/exec: text file busy")
@@ -168,11 +171,16 @@ func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMe
 	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 }
 
-func (c *Command) constructLoginCmd(tokenFile string, taskMeta awsutil.ECSTaskMeta) []string {
+func (c *Command) constructLoginCmd(tokenFile string, taskMeta awsutil.ECSTaskMeta) ([]string, error) {
 	method := c.config.ConsulLogin.Method
 	if method == "" {
 		method = config.DefaultAuthMethodName
 	}
+	region, err := taskMeta.Region()
+	if err != nil {
+		return nil, err
+	}
+
 	loginOpts := []string{
 		"login", "-type", "aws", "-method", method,
 		// NOTE: If -http-addr and -ca-file are empty strings, Consul ignores them.
@@ -182,6 +190,7 @@ func (c *Command) constructLoginCmd(tokenFile string, taskMeta awsutil.ECSTaskMe
 		"-token-sink-file", tokenFile,
 		"-meta", fmt.Sprintf("consul.hashicorp.com/task-id=%s", taskMeta.TaskID()),
 		"-meta", fmt.Sprintf("consul.hashicorp.com/cluster=%s", taskMeta.Cluster),
+		"-aws-region", region,
 		"-aws-auto-bearer-token",
 	}
 	if c.config.ConsulLogin.IncludeEntity {
@@ -190,7 +199,7 @@ func (c *Command) constructLoginCmd(tokenFile string, taskMeta awsutil.ECSTaskMe
 	if len(c.config.ConsulLogin.ExtraLoginFlags) > 0 {
 		loginOpts = append(loginOpts, c.config.ConsulLogin.ExtraLoginFlags...)
 	}
-	return loginOpts
+	return loginOpts, nil
 }
 
 func (c *Command) Synopsis() string {

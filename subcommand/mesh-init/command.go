@@ -19,6 +19,8 @@ import (
 
 const (
 	envoyBoostrapConfigFilename = "envoy-bootstrap.json"
+	raftReplicationTimeout      = 2 * time.Second
+	tokenReadPollingInterval    = 100 * time.Millisecond
 )
 
 type Command struct {
@@ -70,6 +72,14 @@ func (c *Command) realRun() error {
 	consulClient, err := api.NewClient(cfg)
 	if err != nil {
 		return fmt.Errorf("constructing consul client: %s", err)
+	}
+
+	if c.config.ConsulLogin.Enabled {
+		// The just-created token is not immediately replicated to Consul server followers.
+		// Mitigate against this by waiting for the token in stale consistency mode.
+		if err := c.waitForTokenReplication(consulClient); err != nil {
+			return err
+		}
 	}
 
 	serviceRegistration, err := c.constructServiceRegistration(taskMeta)
@@ -169,6 +179,55 @@ func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMe
 		c.log.Info("login success")
 		return nil
 	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
+}
+
+func (c *Command) waitForTokenReplication(client *api.Client) error {
+	// A workaround to check that the ACL token is replicated to other Consul servers.
+	// Code borrowed from: https://github.com/hashicorp/consul-k8s/pull/887
+	//
+	// This problem can potentially occur because of:
+	//
+	// - Replication lag: After a token is created on the Consul server leader it may take up to
+	//   100ms (typically) for the token to be replicated to server followers:
+	//   https://www.consul.io/docs/install/performance#read-write-tuning
+	// - Stale consistency mode: Consul clients may connect to a Consul server follower, which may
+	//   have stale state, in order to reduce load on the server leader.
+	// - Negative caching: When a Consul server validates a token, if the server does know about the
+	//   token (e.g. due to replication lag), then an "ACL not found" response is cached. By default,
+	//   the cache time is 30s: https://www.consul.io/docs/agent/config/config-files#acl_token_ttl.
+	// - Sticky connections: Consul clients maintain a connection to a single Consul server, and
+	//   these connections are only rebalanced every 2-3 mins.
+	//
+	// Therefore, an "ACL not found" error may be cached just after token creation. When this
+	// happens, the token will be unusable for the acl_token_ttl (30s by default). Retrying requests
+	// won't help since client likely won't change Consul servers for a potentially longer time
+	// (2-3 min). If you are running 3 Consul servers, you have a 2/3 chance to hit a follower and
+	// encounter this problem, so this is a potentially frequent problem.
+	//
+	// We don't want to delay start up by the "long" cache time (default 30s). Instead, we wait
+	// for the token to be read successfully in stale consistency mode, which should take <=100ms since
+	// that is the typical Raft replication time.
+	//
+	// The does not eliminate this problem completely. It's still possible for this call and the
+	// next call to reach different servers and those servers to have different states from each
+	// other, but this is unlikely since clients use sticky connections.
+	c.log.Info("Checking that the ACL token exists when reading it in the stale consistency mode")
+	// Use raft timeout and polling interval to determine the number of retries.
+	numTokenReadRetries := uint64(raftReplicationTimeout.Milliseconds() / tokenReadPollingInterval.Milliseconds())
+	err := backoff.Retry(func() error {
+		_, _, err := client.ACL().TokenReadSelf(&api.QueryOptions{AllowStale: true})
+		if err != nil {
+			c.log.Error("Unable to read ACL token; retrying", "err", err)
+		}
+		return err
+	}, backoff.WithMaxRetries(backoff.NewConstantBackOff(tokenReadPollingInterval), numTokenReadRetries))
+	if err != nil {
+		c.log.Error("Unable to read ACL token from a Consul server; "+
+			"please check that your server cluster is healthy", "err", err)
+		return err
+	}
+	c.log.Info("Successfully read ACL token from the server")
+	return nil
 }
 
 func (c *Command) constructLoginCmd(tokenFile string, taskMeta awsutil.ECSTaskMeta) ([]string, error) {

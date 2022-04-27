@@ -54,7 +54,7 @@ func (e ECSTaskMeta) AccountID() (string, error) {
 	return a.AccountID, nil
 }
 
-func (e ECSTaskMeta) region() (string, error) {
+func (e ECSTaskMeta) Region() (string, error) {
 	// Task ARN: "arn:aws:ecs:us-east-1:000000000000:task/cluster/00000000000000000000000000000000"
 	// https://docs.aws.amazon.com/general/latest/gr/aws-arns-and-namespaces.html
 	// See also: https://github.com/aws/containers-roadmap/issues/337
@@ -111,7 +111,7 @@ func NewSession(meta ECSTaskMeta, userAgentCaller string) (*session.Session, err
 
 	cfg := clientSession.Config
 	if cfg.Region == nil || *cfg.Region == "" {
-		region, err := meta.region()
+		region, err := meta.Region()
 		if err != nil {
 			return nil, err
 		}

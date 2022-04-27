@@ -90,7 +90,7 @@ func TestECSTaskMeta(t *testing.T) {
 		Family:  "task",
 	}
 	require.Equal(t, "abcdef", ecsMeta.TaskID())
-	region, err := ecsMeta.region()
+	region, err := ecsMeta.Region()
 	require.Nil(t, err)
 	require.Equal(t, "us-east-1", region)
 

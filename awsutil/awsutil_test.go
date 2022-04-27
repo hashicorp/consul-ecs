@@ -28,7 +28,7 @@ func TestNewSession(t *testing.T) {
 		},
 		"no-env-and-invalid-task-arn": {
 			taskArn:     "invalid-task-arn",
-			expectError: "unable to determine AWS region from Task metadata",
+			expectError: `unable to determine AWS region from Task ARN: "invalid-task-arn"`,
 		},
 		"aws-region": {
 			env:          map[string]string{"AWS_REGION": nonTaskRegion},
@@ -93,6 +93,10 @@ func TestECSTaskMeta(t *testing.T) {
 	region, err := ecsMeta.region()
 	require.Nil(t, err)
 	require.Equal(t, "us-east-1", region)
+
+	account, err := ecsMeta.AccountID()
+	require.NoError(t, err)
+	require.Equal(t, "123456789", account)
 }
 
 // Helper to restore the environment after a test.

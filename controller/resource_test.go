@@ -147,6 +147,8 @@ func TestServiceStateLister_List(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		// Necessary to avoid sharing `c` across subtest functions,
+		// which would cause issues when running those functions in parallel.
 		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

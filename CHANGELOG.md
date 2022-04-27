@@ -11,6 +11,7 @@ FEATURES
 * Add `consulHTTPAddr`, `consulCACertFile`, and `consulLogin` fields to config JSON.
   `mesh-init` now does a `consul login` to obtain a token if `consulLogin.enabled = true`.
   [[GH-69](https://github.com/hashicorp/consul-ecs/pull/69)]
+  [[GH-77](https://github.com/hashicorp/consul-ecs/pull/77)]
 * Update `acl-controller` to configure Consul's AWS IAM auth method at startup.
   Add `-iam-role-path` flag to specify the path of IAM roles permitted to login.
   [[GH-71](https://github.com/hashicorp/consul-ecs/pull/71)]

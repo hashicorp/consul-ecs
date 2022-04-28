@@ -639,8 +639,10 @@ func TestWaitForTokenReplication(t *testing.T) {
 				require.NoError(t, err)
 
 				// Token should exist.
-				_, _, err = tokenClient.ACL().TokenReadSelf(nil)
+				token, _, err := tokenClient.ACL().TokenReadSelf(nil)
 				require.NoError(t, err)
+				require.Equal(t, accessorID, token.AccessorID)
+				require.Equal(t, secretID, token.SecretID)
 			}
 
 		})

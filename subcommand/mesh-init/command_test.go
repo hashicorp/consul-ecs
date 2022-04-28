@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"os"
-	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -226,8 +226,8 @@ func TestRun(t *testing.T) {
 			cmd := Command{UI: ui}
 
 			envoyBootstrapDir := testutil.TempDir(t)
-			envoyBootstrapFile := path.Join(envoyBootstrapDir, envoyBoostrapConfigFilename)
-			copyConsulECSBinary := path.Join(envoyBootstrapDir, "consul-ecs")
+			envoyBootstrapFile := filepath.Join(envoyBootstrapDir, envoyBoostrapConfigFilename)
+			copyConsulECSBinary := filepath.Join(envoyBootstrapDir, "consul-ecs")
 
 			consulEcsConfig := config.Config{
 				LogLevel:             "DEBUG",
@@ -598,8 +598,14 @@ func TestWaitForTokenReplication(t *testing.T) {
 			secretID, err := uuid.GenerateUUID()
 			require.NoError(t, err)
 
+			// Write the token to a file.
+			tmpDir := testutil.TempDir(t)
+			tokenFile := filepath.Join(tmpDir, "test-token")
+			err = os.WriteFile(tokenFile, []byte(secretID), 0600)
+			require.NoError(t, err)
+
 			tokenCfg := api.DefaultConfig()
-			tokenCfg.Token = secretID
+			tokenCfg.TokenFile = tokenFile
 
 			tokenClient, err := api.NewClient(tokenCfg)
 			require.NoError(t, err)
@@ -632,7 +638,7 @@ func TestWaitForTokenReplication(t *testing.T) {
 					ConsulCACertFile: cfg.TLSConfig.CAFile,
 				},
 			}
-			err = cmd.waitForTokenReplication(tokenCfg)
+			err = cmd.waitForTokenReplication(tokenFile)
 			if c.expError {
 				require.Error(t, err)
 			} else {

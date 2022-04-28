@@ -67,19 +67,17 @@ func (c *Command) realRun() error {
 			return err
 		}
 		cfg.TokenFile = tokenFile
+
+		// The just-created token is not immediately replicated to Consul server followers.
+		// Mitigate against this by waiting for the token in stale consistency mode.
+		if err := c.waitForTokenReplication(tokenFile); err != nil {
+			return err
+		}
 	}
 
 	consulClient, err := api.NewClient(cfg)
 	if err != nil {
 		return fmt.Errorf("constructing consul client: %s", err)
-	}
-
-	if c.config.ConsulLogin.Enabled {
-		// The just-created token is not immediately replicated to Consul server followers.
-		// Mitigate against this by waiting for the token in stale consistency mode.
-		if err := c.waitForTokenReplication(cfg); err != nil {
-			return err
-		}
 	}
 
 	serviceRegistration, err := c.constructServiceRegistration(taskMeta)
@@ -181,7 +179,7 @@ func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMe
 	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 }
 
-func (c *Command) waitForTokenReplication(cfg *api.Config) error {
+func (c *Command) waitForTokenReplication(tokenFile string) error {
 	// A workaround to check that the ACL token is replicated to other Consul servers.
 	// Code borrowed from: https://github.com/hashicorp/consul-k8s/pull/887
 	//
@@ -217,8 +215,7 @@ func (c *Command) waitForTokenReplication(cfg *api.Config) error {
 	newCfg := api.DefaultConfig()
 	newCfg.Address = c.config.ConsulHTTPAddr
 	newCfg.TLSConfig.CAFile = c.config.ConsulCACertFile
-	newCfg.TokenFile = cfg.TokenFile
-	newCfg.Token = cfg.Token
+	newCfg.TokenFile = tokenFile
 
 	client, err := api.NewClient(newCfg)
 	if err != nil {

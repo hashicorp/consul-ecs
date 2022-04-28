@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"os"
-	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -17,6 +17,8 @@ import (
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul-ecs/testutil/iamauthtest"
 	"github.com/hashicorp/consul/api"
+	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-uuid"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
 )
@@ -224,8 +226,8 @@ func TestRun(t *testing.T) {
 			cmd := Command{UI: ui}
 
 			envoyBootstrapDir := testutil.TempDir(t)
-			envoyBootstrapFile := path.Join(envoyBootstrapDir, envoyBoostrapConfigFilename)
-			copyConsulECSBinary := path.Join(envoyBootstrapDir, "consul-ecs")
+			envoyBootstrapFile := filepath.Join(envoyBootstrapDir, envoyBoostrapConfigFilename)
+			copyConsulECSBinary := filepath.Join(envoyBootstrapDir, "consul-ecs")
 
 			consulEcsConfig := config.Config{
 				LogLevel:             "DEBUG",
@@ -569,6 +571,86 @@ func TestConstructLoginCmd(t *testing.T) {
 			loginOpts, err := cmd.constructLoginCmd(tokenFile, meta)
 			require.NoError(t, err)
 			require.Equal(t, c.expCmd, loginOpts)
+		})
+	}
+}
+
+func TestWaitForTokenReplication(t *testing.T) {
+	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+	client, err := api.NewClient(cfg)
+	require.NoError(t, err)
+
+	cases := []struct {
+		lagTime  time.Duration
+		expError bool
+	}{
+		{lagTime: 50 * time.Millisecond},
+		{lagTime: 100 * time.Millisecond},
+		{lagTime: 500 * time.Millisecond},
+		// 2s is as long as we wait.
+		{lagTime: 2500 * time.Millisecond, expError: true},
+	}
+	for _, c := range cases {
+		name := c.lagTime.String()
+		t.Run(name, func(t *testing.T) {
+			accessorID, err := uuid.GenerateUUID()
+			require.NoError(t, err)
+			secretID, err := uuid.GenerateUUID()
+			require.NoError(t, err)
+
+			// Write the token to a file.
+			tmpDir := testutil.TempDir(t)
+			tokenFile := filepath.Join(tmpDir, "test-token")
+			err = os.WriteFile(tokenFile, []byte(secretID), 0600)
+			require.NoError(t, err)
+
+			tokenCfg := api.DefaultConfig()
+			tokenCfg.TokenFile = tokenFile
+
+			tokenClient, err := api.NewClient(tokenCfg)
+			require.NoError(t, err)
+
+			// After c.lagTime, create the token.
+			//
+			// This simulates the token not existing for a short period of time
+			// on the Consul server. This is not the exact replication lag
+			// between two Consul servers, but close enough to exercise the code.
+			timer := time.AfterFunc(
+				c.lagTime,
+				func() {
+					token, _, err := client.ACL().TokenCreate(&api.ACLToken{
+						AccessorID: accessorID,
+						SecretID:   secretID,
+					}, nil)
+					require.NoError(t, err)
+					// Sanity check
+					require.Equal(t, accessorID, token.AccessorID)
+					require.Equal(t, secretID, token.SecretID)
+				},
+			)
+			t.Cleanup(func() { timer.Stop() })
+
+			// Wait for the token to "replicate".
+			cmd := &Command{
+				log: hclog.NewNullLogger(),
+				config: &config.Config{
+					ConsulHTTPAddr:   cfg.Address,
+					ConsulCACertFile: cfg.TLSConfig.CAFile,
+				},
+			}
+			err = cmd.waitForTokenReplication(tokenFile)
+			if c.expError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+
+				// Token should exist.
+				token, _, err := tokenClient.ACL().TokenReadSelf(nil)
+				require.NoError(t, err)
+				require.Equal(t, accessorID, token.AccessorID)
+				require.Equal(t, secretID, token.SecretID)
+			}
+
 		})
 	}
 }

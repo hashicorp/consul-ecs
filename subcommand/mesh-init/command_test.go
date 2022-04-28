@@ -599,7 +599,6 @@ func TestWaitForTokenReplication(t *testing.T) {
 			require.NoError(t, err)
 
 			tokenCfg := api.DefaultConfig()
-			tokenCfg.Address = cfg.Address
 			tokenCfg.Token = secretID
 
 			tokenClient, err := api.NewClient(tokenCfg)
@@ -626,8 +625,14 @@ func TestWaitForTokenReplication(t *testing.T) {
 			t.Cleanup(func() { timer.Stop() })
 
 			// Wait for the token to "replicate".
-			cmd := &Command{log: hclog.NewNullLogger()}
-			err = cmd.waitForTokenReplication(tokenClient)
+			cmd := &Command{
+				log: hclog.NewNullLogger(),
+				config: &config.Config{
+					ConsulHTTPAddr:   cfg.Address,
+					ConsulCACertFile: cfg.TLSConfig.CAFile,
+				},
+			}
+			err = cmd.waitForTokenReplication(tokenCfg)
 			if c.expError {
 				require.Error(t, err)
 			} else {

@@ -77,7 +77,7 @@ func (c *Command) realRun() error {
 	if c.config.ConsulLogin.Enabled {
 		// The just-created token is not immediately replicated to Consul server followers.
 		// Mitigate against this by waiting for the token in stale consistency mode.
-		if err := c.waitForTokenReplication(consulClient); err != nil {
+		if err := c.waitForTokenReplication(cfg); err != nil {
 			return err
 		}
 	}
@@ -181,7 +181,7 @@ func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMe
 	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 }
 
-func (c *Command) waitForTokenReplication(client *api.Client) error {
+func (c *Command) waitForTokenReplication(cfg *api.Config) error {
 	// A workaround to check that the ACL token is replicated to other Consul servers.
 	// Code borrowed from: https://github.com/hashicorp/consul-k8s/pull/887
 	//
@@ -211,10 +211,24 @@ func (c *Command) waitForTokenReplication(client *api.Client) error {
 	// The does not eliminate this problem completely. It's still possible for this call and the
 	// next call to reach different servers and those servers to have different states from each
 	// other, but this is unlikely since clients use sticky connections.
+
+	// Mesh-init talks to the local Consul client agent (for now). We need this to hit the Consul
+	// server(s) directly.
+	newCfg := api.DefaultConfig()
+	newCfg.Address = c.config.ConsulHTTPAddr
+	newCfg.TLSConfig.CAFile = c.config.ConsulCACertFile
+	newCfg.TokenFile = cfg.TokenFile
+	newCfg.Token = cfg.Token
+
+	client, err := api.NewClient(newCfg)
+	if err != nil {
+		return err
+	}
+
 	c.log.Info("Checking that the ACL token exists when reading it in the stale consistency mode")
 	// Use raft timeout and polling interval to determine the number of retries.
 	numTokenReadRetries := uint64(raftReplicationTimeout.Milliseconds() / tokenReadPollingInterval.Milliseconds())
-	err := backoff.Retry(func() error {
+	err = backoff.Retry(func() error {
 		_, _, err := client.ACL().TokenReadSelf(&api.QueryOptions{AllowStale: true})
 		if err != nil {
 			c.log.Error("Unable to read ACL token; retrying", "err", err)

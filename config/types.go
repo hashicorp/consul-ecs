@@ -7,9 +7,12 @@ import (
 	"github.com/hashicorp/consul/api"
 )
 
-// ServiceTokenFilename is the file in the BootstrapDir where the token is written by `consul login`
-// if auth method login is enabled.
+// ServiceTokenFilename is the file in the BootstrapDir where the service token is written by `consul login`.
 const ServiceTokenFilename = "service-token"
+
+// ClientTokenFilename is the file in the BootstrapDir where the Consul client token is expected.
+// The consul-ecs binary does not write this file, but health-sync will attempt to do a `consul logout` for this token.
+const ClientTokenFilename = "client-token"
 
 // DefaultAuthMethodName is the default name of the Consul IAM auth method used for `consul login`.
 const DefaultAuthMethodName = "iam-ecs-service-token"

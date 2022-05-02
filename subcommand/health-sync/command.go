@@ -193,6 +193,7 @@ func (c *Command) setChecksCritical(consulClient *api.Client, taskID string, ser
 // logout calls POST /acl/logout to destroy the token in the given file.
 // The given file should be relative path of a file in the bootstrap directory.
 func (c *Command) logout(tokenFile string) error {
+	c.log.Info("log out token", "file", tokenFile)
 	tokenFile = filepath.Join(c.config.BootstrapDir, tokenFile)
 	cfg := api.DefaultConfig()
 	if c.config.ConsulHTTPAddr != "" {

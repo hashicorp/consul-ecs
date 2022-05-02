@@ -8,9 +8,12 @@ FEATURES
 * Add `-log-level` flag to `acl-controller`, `envoy-entrypoint`, and `app-entrypoint`
   commands. Add `logLevel` field to config JSON for `mesh-init` and `health-sync` commands.
   [[GH-67](https://github.com/hashicorp/consul-ecs/pull/67)]
-* Add `consulHTTPAddr`, `consulCACertFile`, and `consulLogin` fields to config JSON.
+* Support obtaining ACL tokens from Consul's AWS IAM auth method. This requires Consul 1.12.0+.
   `mesh-init` now does a `consul login` to obtain a token if `consulLogin.enabled = true`.
+  `health-sync` does a `consul logout` during shutdown to destroy these tokens.
+  Add `consulHTTPAddr`, `consulCACertFile`, and `consulLogin` fields to the config JSON.
   [[GH-69](https://github.com/hashicorp/consul-ecs/pull/69)]
+  [[GH-76](https://github.com/hashicorp/consul-ecs/pull/76)]
   [[GH-77](https://github.com/hashicorp/consul-ecs/pull/77)]
 * Update `acl-controller` to configure Consul's AWS IAM auth method at startup.
   Add `-iam-role-path` flag to specify the path of IAM roles permitted to login.

@@ -85,7 +85,16 @@ func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
 		case <-time.After(pollInterval):
 			currentStatuses = c.syncChecks(consulClient, currentStatuses, serviceName, healthSyncContainers)
 		case <-ctx.Done():
-			return c.setChecksCritical(consulClient, taskMeta.TaskID(), serviceName, healthSyncContainers)
+			result := c.setChecksCritical(consulClient, taskMeta.TaskID(), serviceName, healthSyncContainers)
+			if c.config.ConsulLogin.Enabled {
+				if err := c.logout(config.ServiceTokenFilename); err != nil {
+					result = multierror.Append(result, err)
+				}
+				if err := c.logout(config.ClientTokenFilename); err != nil {
+					result = multierror.Append(result, err)
+				}
+			}
+			return result
 		}
 	}
 }
@@ -124,13 +133,13 @@ func (c *Command) syncChecks(consulClient *api.Client, currentStatuses map[strin
 		if err != nil {
 			c.log.Error("failed to update Consul health status for missing container", "err", err, "container", name)
 		} else {
-			c.log.Info("Container health check updated in Consul for missing container", "container", name)
+			c.log.Info("container health check updated in Consul for missing container", "container", name)
 			currentStatuses[name] = api.HealthCritical
 		}
 	}
 
 	for _, container := range containersToSync {
-		c.log.Debug("Updating Consul TTL check from ECS container health",
+		c.log.Debug("updating Consul TTL check from ECS container health",
 			"name", container.Name,
 			"status", container.Health.Status,
 			"statusSince", container.Health.StatusSince,
@@ -145,7 +154,7 @@ func (c *Command) syncChecks(consulClient *api.Client, currentStatuses map[strin
 			if err != nil {
 				c.log.Warn("failed to update Consul health status", "err", err)
 			} else {
-				c.log.Info("Container health check updated in Consul",
+				c.log.Info("container health check updated in Consul",
 					"name", container.Name,
 					"status", container.Health.Status,
 					"statusSince", container.Health.StatusSince,
@@ -179,6 +188,31 @@ func (c *Command) setChecksCritical(consulClient *api.Client, taskID string, ser
 	}
 
 	return result
+}
+
+// logout calls POST /acl/logout to destroy the token in the given file.
+// The given file should be relative path of a file in the bootstrap directory.
+func (c *Command) logout(tokenFile string) error {
+	tokenFile = filepath.Join(c.config.BootstrapDir, tokenFile)
+	c.log.Info("log out token", "file", tokenFile)
+	cfg := api.DefaultConfig()
+	if c.config.ConsulHTTPAddr != "" {
+		cfg.Address = c.config.ConsulHTTPAddr
+	}
+	if c.config.ConsulCACertFile != "" {
+		cfg.TLSConfig.CAFile = c.config.ConsulCACertFile
+	}
+	cfg.TokenFile = tokenFile
+
+	client, err := api.NewClient(cfg)
+	if err != nil {
+		return fmt.Errorf("creating client for logout: %w", err)
+	}
+	_, err = client.ACL().Logout(nil)
+	if err != nil {
+		return fmt.Errorf("logout failed: %w", err)
+	}
+	return nil
 }
 
 func findContainersToSync(containerNames []string, taskMeta awsutil.ECSTaskMeta) ([]awsutil.ECSTaskMetaContainer, []string) {

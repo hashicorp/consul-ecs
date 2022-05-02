@@ -3,6 +3,7 @@
 BUG FIXES:
 * Fix issue in the `acl-controller` command where namespaces are not created in the correct
   partition when using Consul 1.12. [[GH-72](https://github.com/hashicorp/consul-ecs/pull/72)]
+* Fix note text for synced Consul health checks. [[GH-80](https://github.com/hashicorp/consul-ecs/pull/80)]
 
 FEATURES
 * Add `-log-level` flag to `acl-controller`, `envoy-entrypoint`, and `app-entrypoint`

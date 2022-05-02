@@ -357,7 +357,8 @@ func TestLogoutSuccess(t *testing.T) {
 
 	ui := cli.NewMockUi()
 	cmd := &Command{
-		UI: ui,
+		UI:  ui,
+		log: hclog.NewNullLogger(),
 		config: &config.Config{
 			BootstrapDir:     bootstrapDir,
 			ConsulHTTPAddr:   cfg.Address,
@@ -384,7 +385,8 @@ func TestLogoutFailure(t *testing.T) {
 
 	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
 	cmd := &Command{
-		UI: cli.NewMockUi(),
+		UI:  cli.NewMockUi(),
+		log: hclog.NewNullLogger(),
 		config: &config.Config{
 			BootstrapDir:     bootstrapDir,
 			ConsulHTTPAddr:   cfg.Address,

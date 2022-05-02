@@ -133,13 +133,13 @@ func (c *Command) syncChecks(consulClient *api.Client, currentStatuses map[strin
 		if err != nil {
 			c.log.Error("failed to update Consul health status for missing container", "err", err, "container", name)
 		} else {
-			c.log.Info("Container health check updated in Consul for missing container", "container", name)
+			c.log.Info("container health check updated in Consul for missing container", "container", name)
 			currentStatuses[name] = api.HealthCritical
 		}
 	}
 
 	for _, container := range containersToSync {
-		c.log.Debug("Updating Consul TTL check from ECS container health",
+		c.log.Debug("updating Consul TTL check from ECS container health",
 			"name", container.Name,
 			"status", container.Health.Status,
 			"statusSince", container.Health.StatusSince,
@@ -154,7 +154,7 @@ func (c *Command) syncChecks(consulClient *api.Client, currentStatuses map[strin
 			if err != nil {
 				c.log.Warn("failed to update Consul health status", "err", err)
 			} else {
-				c.log.Info("Container health check updated in Consul",
+				c.log.Info("container health check updated in Consul",
 					"name", container.Name,
 					"status", container.Health.Status,
 					"statusSince", container.Health.StatusSince,

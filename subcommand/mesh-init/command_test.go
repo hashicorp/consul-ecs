@@ -2,6 +2,8 @@ package meshinit
 
 import (
 	"fmt"
+	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-uuid"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,8 +17,6 @@ import (
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/go-uuid"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
 )
@@ -358,13 +358,13 @@ func TestConstructChecks(t *testing.T) {
 	syncedCheck1 := config.AgentServiceCheck{
 		CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName1),
 		Name:    "consul ecs synced",
-		Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
+		Notes:   "consul-ecs created and updates this check because the containerName1 container is essential and has an ECS health check.",
 		TTL:     "100000h",
 	}
 	syncedCheck2 := config.AgentServiceCheck{
 		CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName2),
 		Name:    "consul ecs synced",
-		Notes:   "consul-ecs created and updates this check because the ${containerName} container is essential and has an ECS health check.",
+		Notes:   "consul-ecs created and updates this check because the containerName2 container is essential and has an ECS health check.",
 		TTL:     "100000h",
 	}
 

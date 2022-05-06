@@ -39,7 +39,11 @@ type ECSTaskMetaHealth struct {
 }
 
 func (e ECSTaskMeta) TaskID() string {
-	split := strings.Split(e.TaskARN, "/")
+	return ParseTaskID(e.TaskARN)
+}
+
+func ParseTaskID(taskArn string) string {
+	split := strings.Split(taskArn, "/")
 	if len(split) == 0 {
 		return ""
 	}

@@ -75,8 +75,11 @@ func (c *Command) run() error {
 	if err != nil {
 		return err
 	}
-	cluster := ecsMeta.Cluster
-	c.log.Info("cluster name determined", "cluster", cluster)
+	clusterArn, err := ecsMeta.ClusterARN()
+	if err != nil {
+		return err
+	}
+	c.log.Info("cluster arn determined", "cluster-arn", clusterArn)
 
 	clientSession, err := awsutil.NewSession(ecsMeta, "controller")
 	if err != nil {
@@ -105,7 +108,7 @@ func (c *Command) run() error {
 	taskStateLister := &controller.TaskStateLister{
 		ECSClient:    ecsClient,
 		ConsulClient: consulClient,
-		Cluster:      cluster,
+		ClusterARN:   clusterArn,
 		Partition:    c.flagPartition,
 		Log:          c.log,
 	}

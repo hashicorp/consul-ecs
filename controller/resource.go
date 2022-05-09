@@ -63,8 +63,8 @@ type TaskStateLister struct {
 	// ConsulClient is the Consul client to be used by the ServiceStateLister.
 	ConsulClient *api.Client
 
-	// Cluster is the name or the ARN of the ECS cluster.
-	Cluster string
+	// ClusterARN is the name or the ARN of the ECS cluster.
+	ClusterARN string
 
 	// Partition is the partition that is used by the ServiceStateLister [Consul Enterprise].
 	// If partition and namespace support are not enabled then this is set to the empty string.
@@ -113,7 +113,7 @@ func (s TaskStateLister) List() ([]Resource, error) {
 }
 
 // fetchECSTasks retrieves all of the ECS tasks that are managed by consul-ecs
-// for the current cluster (s.Cluster) and returns a set of tasks found. Tasks which are not
+// for the current cluster (s.ClusterARN) and returns a set of tasks found. Tasks which are not
 // tagged with the current partition (s.Partition) are ignored.
 func (s TaskStateLister) fetchECSTasks() (map[TaskID]*TaskState, error) {
 	resources := make(map[TaskID]*TaskState)
@@ -125,7 +125,7 @@ func (s TaskStateLister) fetchECSTasks() (map[TaskID]*TaskState, error) {
 	// because we'll break out of it as soon as nextToken is nil.
 	for {
 		taskListOutput, err := s.ECSClient.ListTasks(&ecs.ListTasksInput{
-			Cluster:   aws.String(s.Cluster),
+			Cluster:   aws.String(s.ClusterARN),
 			NextToken: nextToken,
 		})
 		if err != nil {
@@ -134,7 +134,7 @@ func (s TaskStateLister) fetchECSTasks() (map[TaskID]*TaskState, error) {
 		nextToken = taskListOutput.NextToken
 
 		tasks, err := s.ECSClient.DescribeTasks(&ecs.DescribeTasksInput{
-			Cluster: aws.String(s.Cluster),
+			Cluster: aws.String(s.ClusterARN),
 			Tasks:   taskListOutput.TaskArns,
 			Include: []*string{aws.String("TAGS")},
 		})
@@ -208,7 +208,7 @@ func (s TaskStateLister) fetchACLState() (map[TaskID]*TaskState, error) {
 				s.Log.Debug("ignoring token", "token", token.AccessorID, "description", token.Description, "err", err)
 				continue
 			}
-			if s.Cluster != state.Cluster { // TODO: Be sure this is always either ARN or the cluster name.
+			if s.ClusterARN != state.ClusterARN { // TODO: Be sure this is always either ARN or the cluster name.
 				continue
 			}
 			if found, ok := aclState[state.TaskID]; ok {
@@ -320,7 +320,7 @@ func (s TaskStateLister) newTaskState(taskId TaskID, clusterArn string) *TaskSta
 		ConsulClient: s.ConsulClient,
 		Log:          s.Log,
 		TaskID:       TaskID(taskId),
-		Cluster:      clusterArn,
+		ClusterARN:   clusterArn,
 	}
 }
 
@@ -393,8 +393,8 @@ type TaskState struct {
 
 	// TaskID is the id of the ECS task.
 	TaskID TaskID
-	// Cluster is the ECS cluster.
-	Cluster string
+	// ClusterARN is the ECS cluster.
+	ClusterARN string
 	// Partition that the task belongs to [Consul Enterprise].
 	Partition string
 	// Namespace that the task belongs to [Consul Enterprise].

@@ -42,6 +42,19 @@ func (e ECSTaskMeta) TaskID() string {
 	return ParseTaskID(e.TaskARN)
 }
 
+func (e ECSTaskMeta) ClusterARN() (string, error) {
+	if strings.HasPrefix(e.Cluster, "arn:") {
+		return e.Cluster, nil
+	}
+	// On EC2, the "Cluster" field is the name, not the ARN.
+	clusterArn := strings.Replace(e.TaskARN, ":task/", ":cluster/", 1)
+	index := strings.LastIndex(clusterArn, "/")
+	if index < 0 {
+		return "", fmt.Errorf("unable to determine cluster ARN from task ARN %q", e.TaskARN)
+	}
+	return clusterArn[:index], nil
+}
+
 func ParseTaskID(taskArn string) string {
 	split := strings.Split(taskArn, "/")
 	if len(split) == 0 {

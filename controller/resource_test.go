@@ -57,7 +57,7 @@ func makeECSTask(t *testing.T, taskId string, tags ...string) *ecs.Task {
 func makeTaskState(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry) *TaskState {
 	t := &TaskState{
 		TaskID:       TaskID(taskId),
-		Cluster:      testClusterArn,
+		ClusterARN:   testClusterArn,
 		ECSTaskFound: taskFound,
 		ACLTokens:    tokens,
 	}
@@ -296,7 +296,7 @@ func TestTaskStateListerList(t *testing.T) {
 			lister := TaskStateLister{
 				ECSClient:    &mocks.ECSClient{Tasks: c.initTasks},
 				ConsulClient: consulClient,
-				Cluster:      testClusterArn,
+				ClusterARN:   testClusterArn,
 				Log:          hclog.Default().Named("lister"),
 			}
 

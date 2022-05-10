@@ -385,10 +385,11 @@
           "additionalProperties": false
         },
         "name": {
-          "description": "The name the service will be registered as in Consul. Defaults to the Task family name.",
+          "description": "The name the gateway will be registered as in Consul. Defaults to the Task family name.",
           "type": ["string", "null"]
         },
         "tags": {
+          "description": "List of string values that can be used to add labels to the gateway.",
           "type": ["array", "null"],
           "items": {
             "type": "string"
@@ -396,6 +397,7 @@
           "uniqueItems": true
         },
         "meta": {
+          "description": "Key-value pairs of metadata to include for the gateway.",
           "type": ["object", "null"],
           "patternProperties": {
             ".*": {
@@ -404,12 +406,15 @@
           }
         },
         "namespace": {
+          "description": "Consul namespace in which the gateway will register [Consul Enterprise].",
           "type": ["string", "null"]
         },
         "partition": {
+          "description": "Consul admin partition in which the gateway will register [Consul Enterprise].",
           "type": ["string", "null"]
         },
         "proxy": {
+          "description": "Object that contains the proxy parameters.",
           "type": ["object", "null"],
           "properties": {
             "config": {

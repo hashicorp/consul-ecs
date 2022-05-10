@@ -18,8 +18,14 @@ const (
 	// DefaultAuthMethodName is the default name of the Consul IAM auth method used for `consul login`.
 	DefaultAuthMethodName = "iam-ecs-service-token"
 
-	// 8443 is the default gateway registration port used by 'consul connect envoy -register'
-	DefaultGatewayAddress = 8443
+	// DefaultGatewayPort (8443) is the default gateway registration port used by 'consul connect envoy -register'.
+	DefaultGatewayPort = 8443
+
+	// TaggedAddressLAN is the map key for LAN tagged addresses.
+	TaggedAddressLAN = "lan"
+
+	// TaggedAddressWAN is the map key for WAN tagged addresses.
+	TaggedAddressWAN = "wan"
 )
 
 // Config is the top-level config object.
@@ -313,13 +319,13 @@ type GatewayRegistration struct {
 	Meta       map[string]string   `json:"meta,omitempty"`
 	Namespace  string              `json:"namespace,omitempty"`
 	Partition  string              `json:"partition,omitempty"`
-	Proxy      *GatewayProxyConfig `json:"proxy"`
+	Proxy      *GatewayProxyConfig `json:"proxy,omitempty"`
 }
 
 func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
 	result := &api.AgentServiceRegistration{
 		Kind:      g.Kind,
-		Port:      DefaultGatewayAddress,
+		Port:      DefaultGatewayPort,
 		Name:      g.Name,
 		Tags:      g.Tags,
 		Meta:      g.Meta,
@@ -339,14 +345,14 @@ func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
 		result.Port = lanAddr.Port
 
 		if lanAddr.Address != "" {
-			taggedAddresses["lan"] = lanAddr
+			taggedAddresses[TaggedAddressLAN] = lanAddr
 		}
 	}
 	if g.WanAddress != nil {
 		wanAddr := g.WanAddress.ToConsulType()
 		// We only set this if the address is passed? That's what 'consul connect envoy -register' does.
 		if wanAddr.Address != "" {
-			taggedAddresses["wan"] = wanAddr
+			taggedAddresses[TaggedAddressWAN] = wanAddr
 		}
 	}
 	if len(taggedAddresses) > 0 {
@@ -376,7 +382,7 @@ func (a *GatewayAddress) ToConsulType() api.ServiceAddress {
 		Port:    a.Port,
 	}
 	if result.Port == 0 {
-		result.Port = DefaultGatewayAddress
+		result.Port = DefaultGatewayPort
 	}
 	return result
 }

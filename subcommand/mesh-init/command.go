@@ -2,7 +2,6 @@ package meshinit
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -132,11 +131,11 @@ func (c *Command) realRun() error {
 	if c.config.ConsulLogin.Enabled {
 		cmdArgs = append(cmdArgs, "-token-file", cfg.TokenFile)
 	}
-	if serviceRegistration.Partition != "" {
+	if proxyRegistration.Partition != "" {
 		// Partition/namespace support is enabled so augment the connect command.
 		cmdArgs = append(cmdArgs,
-			"-partition", serviceRegistration.Partition,
-			"-namespace", serviceRegistration.Namespace)
+			"-partition", proxyRegistration.Partition,
+			"-namespace", proxyRegistration.Namespace)
 	}
 
 	c.log.Info("Running", "cmd", cmdArgs)
@@ -447,6 +446,7 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 		},
 	}
 
-	log.Printf("%+v", gwRegistration)
+	c.log.Debug(fmt.Sprintf("%+v", gwRegistration))
+
 	return gwRegistration, nil
 }

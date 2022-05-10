@@ -2,10 +2,13 @@ package meshinit
 
 import (
 	"fmt"
+	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -80,43 +83,64 @@ func (c *Command) realRun() error {
 		return fmt.Errorf("constructing consul client: %s", err)
 	}
 
-	serviceRegistration, err := c.constructServiceRegistration(taskMeta)
-	if err != nil {
-		return err
+	var serviceRegistration, proxyRegistration *api.AgentServiceRegistration
+	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
+		proxyRegistration, err = c.constructGatewayProxyRegistration(taskMeta)
+		if err != nil {
+			return err
+		}
+	} else {
+		serviceRegistration, err = c.constructServiceRegistration(taskMeta)
+		if err != nil {
+			return err
+		}
+		proxyRegistration = c.constructProxyRegistration(serviceRegistration)
 	}
-	err = backoff.RetryNotify(func() error {
-		c.log.Info("registering service")
-		return consulClient.Agent().ServiceRegister(serviceRegistration)
-	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
-	if err != nil {
-		return err
+
+	if serviceRegistration != nil {
+		// No need to register the service for gateways.
+		err = backoff.RetryNotify(func() error {
+			c.log.Info("registering service")
+			return consulClient.Agent().ServiceRegister(serviceRegistration)
+		}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
+		if err != nil {
+			return err
+		}
+
+		c.log.Info("service registered successfully", "name", serviceRegistration.Name, "id", serviceRegistration.ID)
 	}
 
 	// Register the proxy.
-	proxyRegistration := c.constructProxyRegistration(serviceRegistration)
 	err = backoff.RetryNotify(func() error {
-		c.log.Info("registering proxy")
+		c.log.Info("registering proxy", "kind", proxyRegistration.Kind)
 		return consulClient.Agent().ServiceRegister(proxyRegistration)
 	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
 
-	c.log.Info("service and proxy registered successfully", "name", serviceRegistration.Name, "id", serviceRegistration.ID)
+	c.log.Info("proxy registered successfully", "name", proxyRegistration.Name, "id", proxyRegistration.ID)
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
-	connectArgs := []string{"connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502"}
+	cmdArgs := []string{
+		"consul", "connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502",
+	}
+	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
+		kind := strings.ReplaceAll(string(c.config.Gateway.Kind), "-gateway", "")
+		cmdArgs = append(cmdArgs, "-gateway", kind)
+	}
 	if c.config.ConsulLogin.Enabled {
-		connectArgs = append(connectArgs, "-token-file", cfg.TokenFile)
+		cmdArgs = append(cmdArgs, "-token-file", cfg.TokenFile)
 	}
 	if serviceRegistration.Partition != "" {
 		// Partition/namespace support is enabled so augment the connect command.
-		connectArgs = append(connectArgs,
+		cmdArgs = append(cmdArgs,
 			"-partition", serviceRegistration.Partition,
 			"-namespace", serviceRegistration.Namespace)
 	}
 
-	cmd := exec.Command("consul", connectArgs...)
+	c.log.Info("Running", "cmd", cmdArgs)
+	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, string(out))
@@ -384,4 +408,45 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServi
 	proxyRegistration.Weights = serviceRegistration.Weights
 	proxyRegistration.EnableTagOverride = serviceRegistration.EnableTagOverride
 	return proxyRegistration
+}
+
+func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta) (*api.AgentServiceRegistration, error) {
+	serviceName := c.config.Gateway.Name
+	if serviceName == "" {
+		serviceName = taskMeta.Family
+	}
+
+	taskID := taskMeta.TaskID()
+	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
+
+	gwRegistration := c.config.Gateway.ToConsulType()
+	gwRegistration.ID = serviceID
+	gwRegistration.Name = serviceName
+	gwRegistration.Meta = mergeMeta(map[string]string{
+		"task-id":  taskID,
+		"task-arn": taskMeta.TaskARN,
+		"source":   "consul-ecs",
+	}, c.config.Gateway.Meta)
+
+	// Health check localhost (default) or the LAN address if specified.
+	// TODO: Use the task address by default?
+	healthCheckAddr := api.ServiceAddress{
+		Address: "127.0.0.1",
+		Port:    gwRegistration.Port, // defaulted to 8443
+	}
+	if gwRegistration.Address != "" {
+		healthCheckAddr.Address = gwRegistration.Address
+	}
+
+	gwRegistration.Checks = []*api.AgentServiceCheck{
+		{
+			Name:                           fmt.Sprintf("%s listener", gwRegistration.Kind),
+			TCP:                            net.JoinHostPort(healthCheckAddr.Address, fmt.Sprint(healthCheckAddr.Port)),
+			Interval:                       "10s",
+			DeregisterCriticalServiceAfter: "10m",
+		},
+	}
+
+	log.Printf("%+v", gwRegistration)
+	return gwRegistration, nil
 }

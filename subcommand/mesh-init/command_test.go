@@ -2,14 +2,18 @@ package meshinit
 
 import (
 	"fmt"
-	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/go-uuid"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-uuid"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -331,6 +335,168 @@ func TestRun(t *testing.T) {
 		})
 	}
 }
+
+func TestGateway(t *testing.T) {
+	var (
+		family               = "family-name-mesh-gateway"
+		serviceName          = "service-name-mesh-gateway"
+		taskARN              = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+		taskMetadataResponse = fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s"}`, taskARN, family)
+		expectedTaskMeta     = map[string]string{
+			"task-id":  "abcdef",
+			"task-arn": taskARN,
+			"source":   "consul-ecs",
+		}
+	)
+	// Simulate mesh gateway registration:
+	// Specify "gateway" and "service" configuration, and verify the details of the registered service.
+
+	cases := map[string]struct {
+		config *config.Config
+
+		expServiceID       string
+		expServiceName     string
+		expLanAddress      string
+		expTaggedAddresses map[string]api.ServiceAddress
+		expPort            int
+	}{
+		"mesh gateway default port": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+				},
+			},
+			expServiceID:   family + "-abcdef",
+			expServiceName: family,
+			expPort:        8443, // default gateway port if unspecified
+		},
+		"mesh gateway with port": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					LanAddress: &config.GatewayAddress{
+						Port: 12345,
+					},
+				},
+			},
+			expServiceID:   family + "-abcdef",
+			expServiceName: family,
+			expPort:        12345,
+		},
+		"mesh gateway with service name": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					LanAddress: &config.GatewayAddress{
+						Port: 12345,
+					},
+					Name: serviceName,
+				},
+			},
+			expServiceID:   serviceName + "-abcdef",
+			expServiceName: serviceName,
+			expPort:        12345,
+		},
+		"mesh gateway with lan address": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					LanAddress: &config.GatewayAddress{
+						Address: "10.1.2.3",
+						Port:    12345,
+					},
+					Name: serviceName,
+				},
+			},
+			expServiceID:   serviceName + "-abcdef",
+			expServiceName: serviceName,
+			expLanAddress:  "10.1.2.3",
+			expPort:        12345,
+			expTaggedAddresses: map[string]api.ServiceAddress{
+				"lan": {
+					Address: "10.1.2.3",
+					Port:    12345,
+				},
+				"lan_ipv4": {
+					Address: "10.1.2.3",
+					Port:    12345,
+				},
+				"wan_ipv4": {
+					Address: "10.1.2.3",
+					Port:    12345,
+				},
+			},
+		},
+		"mesh gateway with wan address": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					WanAddress: &config.GatewayAddress{
+						Address: "255.1.2.3",
+						Port:    12345,
+					},
+				},
+				Service: config.ServiceRegistration{},
+			},
+			expServiceID:   family + "-abcdef",
+			expServiceName: family,
+			expPort:        8443, // default gateway port
+			expLanAddress:  "",
+			expTaggedAddresses: map[string]api.ServiceAddress{
+				"wan": {
+					Address: "255.1.2.3",
+					Port:    12345,
+				},
+			},
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Logf("%v", c.config)
+
+			apiCfg := testutil.ConsulServer(t, nil)
+			setupEcsTaskMetadataServer(t, taskMetadataResponse)
+
+			c.config.BootstrapDir = setupTempBootstrapDir(t)
+			testutil.SetECSConfigEnvVar(t, c.config)
+
+			consulClient, err := api.NewClient(apiCfg)
+			require.NoError(t, err)
+
+			ui := cli.NewMockUi()
+			cmd := Command{UI: ui}
+
+			code := cmd.Run(nil)
+			require.Equal(t, code, 0, ui.ErrorWriter.String())
+
+			expectedServiceRegistration := &api.AgentService{
+				Kind:            c.config.Gateway.Kind,
+				ID:              c.expServiceID,
+				Service:         c.expServiceName,
+				Proxy:           &api.AgentServiceConnectProxyConfig{},
+				Address:         c.expLanAddress,
+				Port:            c.expPort,
+				Meta:            expectedTaskMeta,
+				Tags:            []string{},
+				Datacenter:      "dc1",
+				TaggedAddresses: c.expTaggedAddresses,
+				Weights: api.AgentWeights{
+					Passing: 1,
+					Warning: 1,
+				},
+			}
+
+			agentServiceIgnoreFields := cmpopts.IgnoreFields(api.AgentService{},
+				"ContentHash", "ModifyIndex", "CreateIndex")
+
+			service, _, err := consulClient.Agent().Service(expectedServiceRegistration.ID, nil)
+			require.NoError(t, err)
+			require.Empty(t, cmp.Diff(expectedServiceRegistration, service, agentServiceIgnoreFields))
+
+		})
+	}
+}
+
 func TestConstructChecks(t *testing.T) {
 	// Bunch of test data.
 	serviceID := "serviceID"
@@ -638,4 +804,40 @@ func enterpriseFlag() bool {
 		}
 	}
 	return false
+}
+
+// setupEcsTaskMetadataServer - Starts a local HTTP server to mimic the ECS Task Metadata server.
+// This sets the ECS_CONTAINER_METADATA_URI_V4 environment variable, with a test cleanup to ensure
+// it is unset. Because of the environment variable, this is unsafe for running test in parallel.
+func setupEcsTaskMetadataServer(t *testing.T, taskMetadataResponse string) {
+	ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
+			_, err := w.Write([]byte(taskMetadataResponse))
+			require.NoError(t, err)
+		}
+	}))
+	t.Cleanup(func() {
+		_ = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
+		ecsMetadataServer.Close()
+	})
+
+	err := os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
+	require.NoError(t, err)
+}
+
+// setupTempBootstrapDir creates a temporary "bootstrap" directory, where mesh-init will write
+// out the Envoy bootstrap configuration and copy the consul-ecs binary (for other containers
+// to use). A test cleanup is added to remove the temp directory and its contents.
+func setupTempBootstrapDir(t *testing.T) string {
+	envoyBootstrapDir, err := ioutil.TempDir("", "")
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		err := os.RemoveAll(envoyBootstrapDir)
+		if err != nil {
+			t.Logf("warning, failed to cleanup temp dir %s - %s", envoyBootstrapDir, err)
+		}
+	})
+
+	return envoyBootstrapDir
 }

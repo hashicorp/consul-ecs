@@ -2,9 +2,6 @@ package meshinit
 
 import (
 	"fmt"
-	"io/ioutil"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -455,9 +452,9 @@ func TestGateway(t *testing.T) {
 			t.Logf("%v", c.config)
 
 			apiCfg := testutil.ConsulServer(t, nil)
-			setupEcsTaskMetadataServer(t, taskMetadataResponse)
+			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataResponse))
 
-			c.config.BootstrapDir = setupTempBootstrapDir(t)
+			c.config.BootstrapDir = testutil.TempDir(t)
 			testutil.SetECSConfigEnvVar(t, c.config)
 
 			consulClient, err := api.NewClient(apiCfg)
@@ -802,40 +799,4 @@ func toAgentCheck(check config.AgentServiceCheck) *api.AgentCheck {
 			Timeout:          api.ReadableDuration(expTimeout),
 		},
 	}
-}
-
-// setupEcsTaskMetadataServer - Starts a local HTTP server to mimic the ECS Task Metadata server.
-// This sets the ECS_CONTAINER_METADATA_URI_V4 environment variable, with a test cleanup to ensure
-// it is unset. Because of the environment variable, this is unsafe for running test in parallel.
-func setupEcsTaskMetadataServer(t *testing.T, taskMetadataResponse string) {
-	ecsMetadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
-			_, err := w.Write([]byte(taskMetadataResponse))
-			require.NoError(t, err)
-		}
-	}))
-	t.Cleanup(func() {
-		_ = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
-		ecsMetadataServer.Close()
-	})
-
-	err := os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
-	require.NoError(t, err)
-}
-
-// setupTempBootstrapDir creates a temporary "bootstrap" directory, where mesh-init will write
-// out the Envoy bootstrap configuration and copy the consul-ecs binary (for other containers
-// to use). A test cleanup is added to remove the temp directory and its contents.
-func setupTempBootstrapDir(t *testing.T) string {
-	envoyBootstrapDir, err := ioutil.TempDir("", "")
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		err := os.RemoveAll(envoyBootstrapDir)
-		if err != nil {
-			t.Logf("warning, failed to cleanup temp dir %s - %s", envoyBootstrapDir, err)
-		}
-	})
-
-	return envoyBootstrapDir
 }

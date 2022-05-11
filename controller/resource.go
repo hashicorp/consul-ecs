@@ -79,15 +79,10 @@ type TaskStateLister struct {
 // - Tokens whcih may need to be cleaned up
 func (s TaskStateLister) List() ([]Resource, error) {
 	var resources []Resource
-	buildingResources := make(map[TaskID]*TaskState)
 
-	tasks, err := s.fetchECSTasks()
+	buildingResources, err := s.fetchECSTasks()
 	if err != nil {
 		return nil, err
-	}
-
-	for id, task := range tasks {
-		buildingResources[id] = task
 	}
 
 	aclState, err := s.fetchACLState()
@@ -208,7 +203,7 @@ func (s TaskStateLister) fetchACLState() (map[TaskID]*TaskState, error) {
 				s.Log.Debug("ignoring token", "token", token.AccessorID, "description", token.Description, "err", err)
 				continue
 			}
-			if s.ClusterARN != state.ClusterARN { // TODO: Be sure this is always either ARN or the cluster name.
+			if s.ClusterARN != state.ClusterARN {
 				continue
 			}
 			if found, ok := aclState[state.TaskID]; ok {

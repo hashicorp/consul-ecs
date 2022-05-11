@@ -38,76 +38,6 @@ import (
 
 const testClusterArn = "arn:aws:ecs:bogus-east-1:000000000000:cluster/my-cluster"
 
-func makeECSTask(t *testing.T, taskId string, tags ...string) *ecs.Task {
-	require.Equal(t, 0, len(tags)%2, "tags must be even length")
-	var ecsTags []*ecs.Tag
-	for i := 0; i < len(tags); i += 2 {
-		ecsTags = append(ecsTags, &ecs.Tag{
-			Key:   aws.String(tags[i]),
-			Value: aws.String(tags[i+1]),
-		})
-	}
-	return &ecs.Task{
-		ClusterArn: aws.String(testClusterArn),
-		TaskArn:    aws.String("arn:aws:ecs:bogus-east-1:000000000000:task/my-cluster/" + taskId),
-		Tags:       ecsTags,
-	}
-}
-
-func makeTaskState(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry) *TaskState {
-	t := &TaskState{
-		TaskID:       TaskID(taskId),
-		ClusterARN:   testClusterArn,
-		ECSTaskFound: taskFound,
-		ACLTokens:    tokens,
-	}
-	if enterpriseFlag() && taskFound {
-		t.Partition = DefaultPartition
-		t.NS = DefaultNamespace
-	}
-	return t
-}
-
-func makeTaskStateEnt(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry, partition, namespace string) *TaskState {
-	t := makeTaskState(taskId, taskFound, tokens)
-	t.Partition = partition
-	t.NS = namespace
-	return t
-}
-
-func makeToken(t *testing.T, taskId string, isLogin bool) *api.ACLTokenListEntry {
-	accessor, err := uuid.GenerateUUID()
-	require.NoError(t, err)
-	secret, err := uuid.GenerateUUID()
-	require.NoError(t, err)
-
-	description := "non login token"
-	if isLogin {
-		description = fmt.Sprintf(
-			`token created via login: {"%s":"%s","%s":"%s"}`,
-			clusterTag, testClusterArn, taskIdTag, taskId,
-		)
-	}
-	tok := &api.ACLTokenListEntry{
-		AccessorID:        accessor,
-		SecretID:          secret,
-		Description:       description,
-		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "test-service"}},
-	}
-	if enterpriseFlag() {
-		tok.Partition = DefaultPartition
-		tok.Namespace = DefaultNamespace
-	}
-	return tok
-}
-
-func makeTokenEnt(t *testing.T, taskId string, isLogin bool, partition, namespace string) *api.ACLTokenListEntry {
-	tok := makeToken(t, taskId, isLogin)
-	tok.Partition = partition
-	tok.Namespace = namespace
-	return tok
-}
-
 func TestTaskStateListerList(t *testing.T) {
 	t.Parallel()
 	meshTasks := []*ecs.Task{
@@ -316,71 +246,7 @@ func TestTaskStateListerList(t *testing.T) {
 			sortTaskStates(c.expResources)
 			sortTaskStates(resources)
 
-			for _, r := range resources {
-				t.Logf("resource: %+v", r)
-				state := r.(*TaskState)
-				for _, tok := range state.ACLTokens {
-					t.Logf("  token: %+v", tok)
-				}
-			}
-			for _, r := range c.expResources {
-				t.Logf("expResource: %+v", r)
-				state := r.(*TaskState)
-				for _, tok := range state.ACLTokens {
-					t.Logf("  token: %+v", tok)
-				}
-			}
-
 			require.Empty(t, cmp.Diff(c.expResources, resources, tokenIgnoreFields, taskStateIgnoreFields))
-		})
-	}
-}
-
-func createPartitions(t *testing.T, client *api.Client, partitions map[string][]string) {
-	ctx := context.Background()
-	for ptn, namespaces := range partitions {
-		opts := &api.WriteOptions{Partition: ptn}
-		_, _, err := client.Partitions().Create(ctx, &api.Partition{Name: ptn}, opts)
-		require.NoError(t, err)
-
-		for _, ns := range namespaces {
-			_, _, err = client.Namespaces().Create(&api.Namespace{Name: ns}, opts)
-			require.NoError(t, err)
-		}
-	}
-}
-
-func createTokens(t *testing.T, client *api.Client, tokens ...*api.ACLTokenListEntry) {
-	for _, tok := range tokens {
-		_, _, err := client.ACL().TokenCreate(
-			&api.ACLToken{
-				AccessorID:        tok.AccessorID,
-				SecretID:          tok.SecretID,
-				Description:       tok.Description,
-				ServiceIdentities: tok.ServiceIdentities,
-			},
-			&api.WriteOptions{
-				Partition: tok.Partition,
-				Namespace: tok.Namespace,
-			},
-		)
-		require.NoError(t, err)
-	}
-}
-
-func sortTaskStates(states []Resource) {
-	// Sort by TaskID
-	sort.Slice(states, func(i, j int) bool {
-		a := states[i].(*TaskState)
-		b := states[j].(*TaskState)
-		return a.TaskID < b.TaskID
-	})
-
-	// Sort ACLTokens by AccessorID
-	for _, r := range states {
-		state := r.(*TaskState)
-		sort.Slice(state.ACLTokens, func(i, j int) bool {
-			return state.ACLTokens[i].AccessorID < state.ACLTokens[j].AccessorID
 		})
 	}
 }
@@ -584,37 +450,6 @@ func TestReconcileNamespaces(t *testing.T) {
 	}
 }
 
-//func TestACLDescriptions(t *testing.T) {
-//	t.Parallel()
-//	cases := map[string]struct {
-//		cluster     string
-//		serviceName MeshTask
-//	}{
-//		"with partitions": {
-//			cluster:     "c1",
-//			serviceName: MeshTask{Name: "s1", Partition: "p1", Namespace: "n1", ACLNamespace: "default"},
-//		},
-//		"without partitions": {
-//			cluster:     "c1",
-//			serviceName: MeshTask{Name: "s1"},
-//		},
-//	}
-//	for name, c := range cases {
-//		c := c
-//		t.Run(name, func(t *testing.T) {
-//			t.Parallel()
-//			s := &ServiceInfo{
-//				Cluster:     c.cluster,
-//				ServiceName: c.serviceName,
-//			}
-//			desc := s.aclDescription("Token")
-//			l := TaskStateLister{Cluster: c.cluster, Partition: c.serviceName.Partition}
-//			require.Equal(t, c.serviceName, l.serviceNameFromDescription(desc))
-//		})
-//	}
-//}
-//
-
 // helper func that initializes a Consul test server and returns a Consul API client.
 func initConsul(t *testing.T) *api.Client {
 	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
@@ -644,40 +479,124 @@ func listNamespaces(t *testing.T, consulClient *api.Client) map[string][]string 
 	return names
 }
 
-//// helper func that lists all policies and tokens within all namespaces in a partition
-//func listACLs(consulClient *api.Client, partition string) ([]*api.ACLPolicyListEntry, []*api.ACLTokenListEntry, error) {
-//	var err error
-//	policies := make([]*api.ACLPolicyListEntry, 0)
-//	tokens := make([]*api.ACLTokenListEntry, 0)
-//	opts := &api.QueryOptions{Partition: partition}
-//	var namespaces []*api.Namespace
-//
-//	if enterpriseFlag() {
-//		// only list namespaces in enterprise tests
-//		namespaces, _, err = consulClient.Namespaces().List(opts)
-//		if err != nil {
-//			return policies, tokens, err
-//		}
-//	} else {
-//		namespaces = append(namespaces, &api.Namespace{})
-//	}
-//
-//	for _, ns := range namespaces {
-//		opts.Namespace = ns.Name
-//		aclPolicies, _, err := consulClient.ACL().PolicyList(opts)
-//		if err != nil {
-//			return policies, tokens, err
-//		}
-//		policies = append(policies, aclPolicies...)
-//
-//		aclTokens, _, err := consulClient.ACL().TokenList(opts)
-//		if err != nil {
-//			return policies, tokens, err
-//		}
-//		tokens = append(tokens, aclTokens...)
-//	}
-//	return policies, tokens, nil
-//}
+func makeECSTask(t *testing.T, taskId string, tags ...string) *ecs.Task {
+	require.Equal(t, 0, len(tags)%2, "tags must be even length")
+	var ecsTags []*ecs.Tag
+	for i := 0; i < len(tags); i += 2 {
+		ecsTags = append(ecsTags, &ecs.Tag{
+			Key:   aws.String(tags[i]),
+			Value: aws.String(tags[i+1]),
+		})
+	}
+	return &ecs.Task{
+		ClusterArn: aws.String(testClusterArn),
+		TaskArn:    aws.String("arn:aws:ecs:bogus-east-1:000000000000:task/my-cluster/" + taskId),
+		Tags:       ecsTags,
+	}
+}
+
+func makeTaskState(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry) *TaskState {
+	t := &TaskState{
+		TaskID:       TaskID(taskId),
+		ClusterARN:   testClusterArn,
+		ECSTaskFound: taskFound,
+		ACLTokens:    tokens,
+	}
+	if enterpriseFlag() && taskFound {
+		t.Partition = DefaultPartition
+		t.NS = DefaultNamespace
+	}
+	return t
+}
+
+func makeTaskStateEnt(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry, partition, namespace string) *TaskState {
+	t := makeTaskState(taskId, taskFound, tokens)
+	t.Partition = partition
+	t.NS = namespace
+	return t
+}
+
+func makeToken(t *testing.T, taskId string, isLogin bool) *api.ACLTokenListEntry {
+	accessor, err := uuid.GenerateUUID()
+	require.NoError(t, err)
+	secret, err := uuid.GenerateUUID()
+	require.NoError(t, err)
+
+	description := "non login token"
+	if isLogin {
+		description = fmt.Sprintf(
+			`token created via login: {"%s":"%s","%s":"%s"}`,
+			clusterTag, testClusterArn, taskIdTag, taskId,
+		)
+	}
+	tok := &api.ACLTokenListEntry{
+		AccessorID:        accessor,
+		SecretID:          secret,
+		Description:       description,
+		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "test-service"}},
+	}
+	if enterpriseFlag() {
+		tok.Partition = DefaultPartition
+		tok.Namespace = DefaultNamespace
+	}
+	return tok
+}
+
+func makeTokenEnt(t *testing.T, taskId string, isLogin bool, partition, namespace string) *api.ACLTokenListEntry {
+	tok := makeToken(t, taskId, isLogin)
+	tok.Partition = partition
+	tok.Namespace = namespace
+	return tok
+}
+
+func createPartitions(t *testing.T, client *api.Client, partitions map[string][]string) {
+	ctx := context.Background()
+	for ptn, namespaces := range partitions {
+		opts := &api.WriteOptions{Partition: ptn}
+		_, _, err := client.Partitions().Create(ctx, &api.Partition{Name: ptn}, opts)
+		require.NoError(t, err)
+
+		for _, ns := range namespaces {
+			_, _, err = client.Namespaces().Create(&api.Namespace{Name: ns}, opts)
+			require.NoError(t, err)
+		}
+	}
+}
+
+func createTokens(t *testing.T, client *api.Client, tokens ...*api.ACLTokenListEntry) {
+	for _, tok := range tokens {
+		_, _, err := client.ACL().TokenCreate(
+			&api.ACLToken{
+				AccessorID:        tok.AccessorID,
+				SecretID:          tok.SecretID,
+				Description:       tok.Description,
+				ServiceIdentities: tok.ServiceIdentities,
+			},
+			&api.WriteOptions{
+				Partition: tok.Partition,
+				Namespace: tok.Namespace,
+			},
+		)
+		require.NoError(t, err)
+	}
+}
+
+func sortTaskStates(states []Resource) {
+	// Sort by TaskID
+	sort.Slice(states, func(i, j int) bool {
+		a := states[i].(*TaskState)
+		b := states[j].(*TaskState)
+		return a.TaskID < b.TaskID
+	})
+
+	// Sort ACLTokens by AccessorID
+	for _, r := range states {
+		state := r.(*TaskState)
+		sort.Slice(state.ACLTokens, func(i, j int) bool {
+			return state.ACLTokens[i].AccessorID < state.ACLTokens[j].AccessorID
+		})
+	}
+}
 
 func enterpriseFlag() bool {
 	re := regexp.MustCompile("^-+enterprise$")

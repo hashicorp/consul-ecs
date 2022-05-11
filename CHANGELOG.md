@@ -1,5 +1,10 @@
 ## UNRELEASED
 
+BREAKING CHANGES
+* Update `acl-controller` to cleanup ACL tokens created from Consul's AWS IAM auth method. Remove
+  `-secret-name-prefix` and `-consul-client-secret-arn` flags. The controller no longer creates ACL
+  tokens. [[GH-82](https://github.com/hashicorp/consul-ecs/pull/82)]
+
 BUG FIXES:
 * Fix issue in the `acl-controller` command where namespaces are not created in the correct
   partition when using Consul 1.12. [[GH-72](https://github.com/hashicorp/consul-ecs/pull/72)]
@@ -19,9 +24,6 @@ FEATURES
 * Update `acl-controller` to configure Consul's AWS IAM auth method at startup.
   Add `-iam-role-path` flag to specify the path of IAM roles permitted to login.
   [[GH-71](https://github.com/hashicorp/consul-ecs/pull/71)]
-* Update `acl-controller` to cleanup ACL tokens created from Consul's AWS IAM auth method. Remove
-  `-secret-name-prefix` and `-consul-client-secret-arn` flags. The controller no longer creates ACL
-  tokens. [[GH-82](https://github.com/hashicorp/consul-ecs/pull/82)]
 
 ## 0.4.1 (April 08, 2022)
 

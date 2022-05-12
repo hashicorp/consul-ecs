@@ -5,9 +5,6 @@ package aclcontroller
 import (
 	"fmt"
 	"testing"
-
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/secretsmanager"
 )
 
 var expPartitionedClientPolicy = fmt.Sprintf(`partition "%s" {
@@ -38,19 +35,4 @@ func TestUpsertConsulResourcesEnt(t *testing.T) {
 			expPolicyRules:     expPartitionedClientPolicy,
 		},
 	})
-}
-
-func TestUpsertConsulClientTokenEnt(t *testing.T) {
-	cases := testCases{
-		"when partitions are enabled with no token or policy": {
-			existingSecret: &secretsmanager.GetSecretValueOutput{
-				ARN:          aws.String("test-consul-client-token-arn"),
-				Name:         aws.String("test-consul-client-token"),
-				SecretString: aws.String(`{}`),
-			},
-			partitionsEnabled: true,
-			expPolicyRules:    expPartitionedClientPolicy,
-		},
-	}
-	testUpsertConsulClientToken(t, cases)
 }

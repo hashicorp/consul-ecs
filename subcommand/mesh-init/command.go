@@ -445,8 +445,5 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 			DeregisterCriticalServiceAfter: "10m",
 		},
 	}
-
-	c.log.Debug(fmt.Sprintf("%+v", gwRegistration))
-
 	return gwRegistration, nil
 }

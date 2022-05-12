@@ -352,7 +352,7 @@
         "kind": {
           "description": "The gateway kind.",
           "type": "string",
-          "enum": ["mesh-gateway", "terminating-gateway", "ingress-gateway"]
+          "enum": ["mesh-gateway"]
         },
         "lanAddress": {
           "description": "LAN address and port for the gateway. If not specified, defaults to the task/node address.",

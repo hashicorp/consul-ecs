@@ -2,14 +2,14 @@ package meshinit
 
 import (
 	"fmt"
-	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/go-uuid"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-uuid"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -45,7 +45,7 @@ func TestConfigValidation(t *testing.T) {
 		cmd := Command{UI: ui}
 		code := cmd.Run(nil)
 		require.Equal(t, code, 1)
-		require.Contains(t, ui.ErrorWriter.String(), "invalid config: 2 errors occurred:")
+		require.Contains(t, ui.ErrorWriter.String(), "invalid config: 1 error occurred:")
 	})
 }
 
@@ -166,7 +166,7 @@ func TestRun(t *testing.T) {
 				expectedNamespace   = ""
 			)
 
-			if enterpriseFlag() {
+			if testutil.EnterpriseFlag() {
 				expectedPartition = "default"
 				expectedNamespace = "default"
 			}
@@ -331,6 +331,177 @@ func TestRun(t *testing.T) {
 		})
 	}
 }
+
+func TestGateway(t *testing.T) {
+	var (
+		family               = "family-name-mesh-gateway"
+		serviceName          = "service-name-mesh-gateway"
+		taskARN              = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+		taskMetadataResponse = fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s"}`, taskARN, family)
+		expectedTaskMeta     = map[string]string{
+			"task-id":  "abcdef",
+			"task-arn": taskARN,
+			"source":   "consul-ecs",
+		}
+	)
+	// Simulate mesh gateway registration:
+	// Specify "gateway" and "service" configuration, and verify the details of the registered service.
+
+	cases := map[string]struct {
+		config *config.Config
+
+		expServiceID       string
+		expServiceName     string
+		expLanAddress      string
+		expTaggedAddresses map[string]api.ServiceAddress
+		expPort            int
+	}{
+		"mesh gateway default port": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+				},
+			},
+			expServiceID:   family + "-abcdef",
+			expServiceName: family,
+			expPort:        8443, // default gateway port if unspecified
+		},
+		"mesh gateway with port": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					LanAddress: &config.GatewayAddress{
+						Port: 12345,
+					},
+				},
+			},
+			expServiceID:   family + "-abcdef",
+			expServiceName: family,
+			expPort:        12345,
+		},
+		"mesh gateway with service name": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					LanAddress: &config.GatewayAddress{
+						Port: 12345,
+					},
+					Name: serviceName,
+				},
+			},
+			expServiceID:   serviceName + "-abcdef",
+			expServiceName: serviceName,
+			expPort:        12345,
+		},
+		"mesh gateway with lan address": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					LanAddress: &config.GatewayAddress{
+						Address: "10.1.2.3",
+						Port:    12345,
+					},
+					Name: serviceName,
+				},
+			},
+			expServiceID:   serviceName + "-abcdef",
+			expServiceName: serviceName,
+			expLanAddress:  "10.1.2.3",
+			expPort:        12345,
+			expTaggedAddresses: map[string]api.ServiceAddress{
+				"lan": {
+					Address: "10.1.2.3",
+					Port:    12345,
+				},
+				"lan_ipv4": {
+					Address: "10.1.2.3",
+					Port:    12345,
+				},
+				"wan_ipv4": {
+					Address: "10.1.2.3",
+					Port:    12345,
+				},
+			},
+		},
+		"mesh gateway with wan address": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					WanAddress: &config.GatewayAddress{
+						Address: "255.1.2.3",
+						Port:    12345,
+					},
+				},
+				Service: config.ServiceRegistration{},
+			},
+			expServiceID:   family + "-abcdef",
+			expServiceName: family,
+			expPort:        8443, // default gateway port
+			expLanAddress:  "",
+			expTaggedAddresses: map[string]api.ServiceAddress{
+				"wan": {
+					Address: "255.1.2.3",
+					Port:    12345,
+				},
+			},
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Logf("%v", c.config)
+
+			apiCfg := testutil.ConsulServer(t, nil)
+			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataResponse))
+
+			c.config.BootstrapDir = testutil.TempDir(t)
+			testutil.SetECSConfigEnvVar(t, c.config)
+
+			consulClient, err := api.NewClient(apiCfg)
+			require.NoError(t, err)
+
+			ui := cli.NewMockUi()
+			cmd := Command{UI: ui}
+
+			code := cmd.Run(nil)
+			require.Equal(t, code, 0, ui.ErrorWriter.String())
+
+			var partition, namespace string
+			if testutil.EnterpriseFlag() {
+				// TODO add enterprise tests
+				partition = "default"
+				namespace = "default"
+			}
+
+			expectedServiceRegistration := &api.AgentService{
+				Kind:            c.config.Gateway.Kind,
+				ID:              c.expServiceID,
+				Service:         c.expServiceName,
+				Proxy:           &api.AgentServiceConnectProxyConfig{},
+				Address:         c.expLanAddress,
+				Port:            c.expPort,
+				Meta:            expectedTaskMeta,
+				Tags:            []string{},
+				Datacenter:      "dc1",
+				TaggedAddresses: c.expTaggedAddresses,
+				Partition:       partition,
+				Namespace:       namespace,
+				Weights: api.AgentWeights{
+					Passing: 1,
+					Warning: 1,
+				},
+			}
+
+			agentServiceIgnoreFields := cmpopts.IgnoreFields(api.AgentService{},
+				"ContentHash", "ModifyIndex", "CreateIndex")
+
+			service, _, err := consulClient.Agent().Service(expectedServiceRegistration.ID, nil)
+			require.NoError(t, err)
+			require.Empty(t, cmp.Diff(expectedServiceRegistration, service, agentServiceIgnoreFields))
+
+		})
+	}
+}
+
 func TestConstructChecks(t *testing.T) {
 	// Bunch of test data.
 	serviceID := "serviceID"
@@ -603,7 +774,7 @@ func toAgentCheck(check config.AgentServiceCheck) *api.AgentCheck {
 	expTimeout, _ := time.ParseDuration(check.Timeout)
 	expPartition := ""
 	expNamespace := ""
-	if enterpriseFlag() {
+	if testutil.EnterpriseFlag() {
 		expPartition = "default"
 		expNamespace = "default"
 	}
@@ -628,14 +799,4 @@ func toAgentCheck(check config.AgentServiceCheck) *api.AgentCheck {
 			Timeout:          api.ReadableDuration(expTimeout),
 		},
 	}
-}
-
-func enterpriseFlag() bool {
-	re := regexp.MustCompile("^-+enterprise$")
-	for _, a := range os.Args {
-		if re.Match([]byte(strings.ToLower(a))) {
-			return true
-		}
-	}
-	return false
 }

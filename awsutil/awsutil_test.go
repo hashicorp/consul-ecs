@@ -97,6 +97,10 @@ func TestECSTaskMeta(t *testing.T) {
 	account, err := ecsMeta.AccountID()
 	require.NoError(t, err)
 	require.Equal(t, "123456789", account)
+
+	clusterArn, err := ecsMeta.ClusterARN()
+	require.NoError(t, err)
+	require.Equal(t, clusterArn, "arn:aws:ecs:us-east-1:123456789:cluster/test")
 }
 
 // Helper to restore the environment after a test.

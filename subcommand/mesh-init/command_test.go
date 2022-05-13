@@ -15,7 +15,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
-	"github.com/hashicorp/consul-ecs/controller"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/mitchellh/cli"
@@ -352,7 +351,7 @@ func TestGateway(t *testing.T) {
 		config *config.Config
 
 		expServiceID       string
-		expServiceName     controller.ServiceName
+		expServiceName     string
 		expLanAddress      string
 		expTaggedAddresses map[string]api.ServiceAddress
 		expPort            int
@@ -364,7 +363,7 @@ func TestGateway(t *testing.T) {
 				},
 			},
 			expServiceID:   family + "-abcdef",
-			expServiceName: controller.ServiceName{Name: family},
+			expServiceName: family,
 			expPort:        8443, // default gateway port if unspecified
 		},
 		"mesh gateway with port": {
@@ -377,7 +376,7 @@ func TestGateway(t *testing.T) {
 				},
 			},
 			expServiceID:   family + "-abcdef",
-			expServiceName: controller.ServiceName{Name: family},
+			expServiceName: family,
 			expPort:        12345,
 		},
 		"mesh gateway with service name": {
@@ -391,7 +390,7 @@ func TestGateway(t *testing.T) {
 				},
 			},
 			expServiceID:   serviceName + "-abcdef",
-			expServiceName: controller.ServiceName{Name: serviceName},
+			expServiceName: serviceName,
 			expPort:        12345,
 		},
 		"mesh gateway with lan address": {
@@ -406,7 +405,7 @@ func TestGateway(t *testing.T) {
 				},
 			},
 			expServiceID:   serviceName + "-abcdef",
-			expServiceName: controller.ServiceName{Name: serviceName},
+			expServiceName: serviceName,
 			expLanAddress:  "10.1.2.3",
 			expPort:        12345,
 			expTaggedAddresses: map[string]api.ServiceAddress{
@@ -436,7 +435,7 @@ func TestGateway(t *testing.T) {
 				Service: config.ServiceRegistration{},
 			},
 			expServiceID:   family + "-abcdef",
-			expServiceName: controller.ServiceName{Name: family},
+			expServiceName: family,
 			expPort:        8443, // default gateway port
 			expLanAddress:  "",
 			expTaggedAddresses: map[string]api.ServiceAddress{
@@ -466,16 +465,17 @@ func TestGateway(t *testing.T) {
 			code := cmd.Run(nil)
 			require.Equal(t, code, 0, ui.ErrorWriter.String())
 
+			var partition, namespace string
 			if testutil.EnterpriseFlag() {
 				// TODO add enterprise tests
-				c.expServiceName.Partition = "default"
-				c.expServiceName.Namespace = "default"
+				partition = "default"
+				namespace = "default"
 			}
 
 			expectedServiceRegistration := &api.AgentService{
 				Kind:            c.config.Gateway.Kind,
 				ID:              c.expServiceID,
-				Service:         c.expServiceName.Name,
+				Service:         c.expServiceName,
 				Proxy:           &api.AgentServiceConnectProxyConfig{},
 				Address:         c.expLanAddress,
 				Port:            c.expPort,
@@ -483,8 +483,8 @@ func TestGateway(t *testing.T) {
 				Tags:            []string{},
 				Datacenter:      "dc1",
 				TaggedAddresses: c.expTaggedAddresses,
-				Partition:       c.expServiceName.Partition,
-				Namespace:       c.expServiceName.Namespace,
+				Partition:       partition,
+				Namespace:       namespace,
 				Weights: api.AgentWeights{
 					Passing: 1,
 					Warning: 1,

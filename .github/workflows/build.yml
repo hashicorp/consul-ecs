@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches:
-      # TODO: Only for initial testing
-      - pglass/crt
+      - main
+      - pglass/crt  # TODO: for testing
 
 
 env:

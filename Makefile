@@ -32,7 +32,10 @@ dev: dist
 .PHONY: dev
 
 # Docker Stuff.
-export DOCKER_BUILDKIT=1
+# TODO: Docker in CircleCI doesn't support buildkit.
+#       So we enable build-kit in the individual targets.
+#       We can set this here one time, once we're off CircleCI.
+# export DOCKER_BUILDKIT=1
 BUILD_ARGS = BIN_NAME=consul-ecs VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) GIT_DIRTY=$(GIT_DIRTY)
 TAG        = $(BIN_NAME)/$(TARGET):$(VERSION)
 BA_FLAGS   = $(addprefix --build-arg=,$(BUILD_ARGS))
@@ -43,12 +46,12 @@ docker/%: OS = linux
 
 docker/dev: TARGET = dev
 docker/dev: dev
-	docker build $(FLAGS) .
+	export DOCKER_BUILDKIT=1; docker build $(FLAGS) .
 .PHONY: docker/dev
 
 docker/release: TARGET = release-default
 docker/release: dev  # TODO
-	docker build $(FLAGS) .
+	export DOCKER_BUILDKIT=1; docker build $(FLAGS) .
 .PHONY: docker/release
 
 # ---------- Old / Non-CRT ----------

@@ -62,7 +62,7 @@ RUN apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils
 
 USER $BIN_NAME
 ENTRYPOINT ["/bin/consul-ecs"]
-COPY ./dist/$TARGETOS/$TARGETARCH/$BIN_NAME /bin/
+COPY dist/$TARGETOS/$TARGETARCH/$BIN_NAME /bin/
 
 # ===================================
 #

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"os"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/consul-ecs/config"
@@ -40,4 +42,16 @@ func SetECSConfigEnvVar(t *testing.T, val interface{}) {
 	require.NoError(t, err)
 
 	t.Logf("%s=%s", config.ConfigEnvironmentVariable, os.Getenv(config.ConfigEnvironmentVariable))
+}
+
+// EnterpriseFlag indicates whether or not the test was invoked with the -enterprise
+// command line argument.
+func EnterpriseFlag() bool {
+	re := regexp.MustCompile("^-+enterprise$")
+	for _, a := range os.Args {
+		if re.Match([]byte(strings.ToLower(a))) {
+			return true
+		}
+	}
+	return false
 }

@@ -7,15 +7,26 @@ import (
 	"github.com/hashicorp/consul/api"
 )
 
-// ServiceTokenFilename is the file in the BootstrapDir where the service token is written by `consul login`.
-const ServiceTokenFilename = "service-token"
+const (
+	// ServiceTokenFilename is the file in the BootstrapDir where the service token is written by `consul login`.
+	ServiceTokenFilename = "service-token"
 
-// ClientTokenFilename is the file in the BootstrapDir where the Consul client token is expected.
-// The consul-ecs binary does not write this file, but health-sync will attempt to do a `consul logout` for this token.
-const ClientTokenFilename = "client-token"
+	// ClientTokenFilename is the file in the BootstrapDir where the Consul client token is expected.
+	// The consul-ecs binary does not write this file, but health-sync will attempt to do a `consul logout` for this token.
+	ClientTokenFilename = "client-token"
 
-// DefaultAuthMethodName is the default name of the Consul IAM auth method used for `consul login`.
-const DefaultAuthMethodName = "iam-ecs-service-token"
+	// DefaultAuthMethodName is the default name of the Consul IAM auth method used for `consul login`.
+	DefaultAuthMethodName = "iam-ecs-service-token"
+
+	// DefaultGatewayPort (8443) is the default gateway registration port used by 'consul connect envoy -register'.
+	DefaultGatewayPort = 8443
+
+	// TaggedAddressLAN is the map key for LAN tagged addresses.
+	TaggedAddressLAN = "lan"
+
+	// TaggedAddressWAN is the map key for WAN tagged addresses.
+	TaggedAddressWAN = "wan"
+)
 
 // Config is the top-level config object.
 type Config struct {
@@ -26,6 +37,7 @@ type Config struct {
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	LogLevel             string                          `json:"logLevel,omitempty"`
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
+	Gateway              *GatewayRegistration            `json:"gateway,omitempty"`
 	Service              ServiceRegistration             `json:"service"`
 }
 
@@ -165,18 +177,6 @@ func (c *AgentServiceCheck) ToConsulType() *api.AgentServiceCheck {
 	}
 }
 
-type ServiceAddress struct {
-	Address string `json:"address"`
-	Port    int    `json:"port"`
-}
-
-func (a *ServiceAddress) ToConsulType() api.ServiceAddress {
-	return api.ServiceAddress{
-		Address: a.Address,
-		Port:    a.Port,
-	}
-}
-
 type AgentWeights struct {
 	Passing int `json:"passing"`
 	Warning int `json:"warning"`
@@ -308,4 +308,81 @@ func (e *ExposePath) ToConsulType() api.ExposePath {
 		LocalPathPort: e.LocalPathPort,
 		Protocol:      e.Protocol,
 	}
+}
+
+type GatewayRegistration struct {
+	Kind       api.ServiceKind     `json:"kind"`
+	LanAddress *GatewayAddress     `json:"lanAddress,omitempty"`
+	WanAddress *GatewayAddress     `json:"wanAddress,omitempty"`
+	Name       string              `json:"name,omitempty"`
+	Tags       []string            `json:"tags,omitempty"`
+	Meta       map[string]string   `json:"meta,omitempty"`
+	Namespace  string              `json:"namespace,omitempty"`
+	Partition  string              `json:"partition,omitempty"`
+	Proxy      *GatewayProxyConfig `json:"proxy,omitempty"`
+}
+
+func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
+	result := &api.AgentServiceRegistration{
+		Kind:      g.Kind,
+		Port:      DefaultGatewayPort,
+		Name:      g.Name,
+		Tags:      g.Tags,
+		Meta:      g.Meta,
+		Namespace: g.Namespace,
+		Partition: g.Partition,
+	}
+
+	if g.Proxy != nil {
+		result.Proxy = g.Proxy.ToConsulType()
+	}
+
+	taggedAddresses := make(map[string]api.ServiceAddress)
+	if g.LanAddress != nil {
+		lanAddr := g.LanAddress.ToConsulType()
+
+		result.Address = lanAddr.Address
+		result.Port = lanAddr.Port
+
+		if lanAddr.Address != "" {
+			taggedAddresses[TaggedAddressLAN] = lanAddr
+		}
+	}
+	if g.WanAddress != nil {
+		wanAddr := g.WanAddress.ToConsulType()
+		// We only set this if the address is passed? That's what 'consul connect envoy -register' does.
+		if wanAddr.Address != "" {
+			taggedAddresses[TaggedAddressWAN] = wanAddr
+		}
+	}
+	if len(taggedAddresses) > 0 {
+		result.TaggedAddresses = taggedAddresses
+	}
+	return result
+}
+
+type GatewayProxyConfig struct {
+	Config map[string]interface{} `json:"config,omitempty"`
+}
+
+func (p *GatewayProxyConfig) ToConsulType() *api.AgentServiceConnectProxyConfig {
+	return &api.AgentServiceConnectProxyConfig{Config: p.Config}
+}
+
+type GatewayAddress struct {
+	// Source is for the WAN address only (enforced by schema).
+	Source  string `json:"source,omitempty"`
+	Address string `json:"address,omitempty"`
+	Port    int    `json:"port,omitempty"`
+}
+
+func (a *GatewayAddress) ToConsulType() api.ServiceAddress {
+	result := api.ServiceAddress{
+		Address: a.Address,
+		Port:    a.Port,
+	}
+	if result.Port == 0 {
+		result.Port = DefaultGatewayPort
+	}
+	return result
 }

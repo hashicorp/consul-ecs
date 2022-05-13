@@ -46,8 +46,8 @@ docker/dev: dev
 	docker build $(FLAGS) .
 .PHONY: docker/dev
 
-docker/release: TARGET = release
-docker/release:
+docker/release: TARGET = release-default
+docker/release: dev  # TODO
 	docker build $(FLAGS) .
 .PHONY: docker/release
 

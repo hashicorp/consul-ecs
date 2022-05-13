@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [freebsd, windows, netbsd, openbsd, solaris]
+        goos: [freebsd, windows, solaris]
         goarch: ["386", "amd64", "arm"]
         exclude:
           - goos: solaris
@@ -232,8 +232,8 @@ jobs:
           # will fail to any other DockerHub org or registry. You can optionally
           # prepend docker.io
           dev_tags: |
-            hashicorppreview/${{ env.repo }}:${{ env.version }}-dev
-            docker.io/hashicorppreview/${{ env.repo }}:${{ env.version }}-${{ github.sha }}
+            hashicorppreview/${{ env.repo }}:${{ env.version }}
+            hashicorppreview/${{ env.repo }}:${{ env.version }}-${{ github.sha }}
 
   #build-docker-alternate:
   #  name: Docker ${{ matrix.arch }} alternate release build

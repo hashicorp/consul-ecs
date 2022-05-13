@@ -13,7 +13,7 @@
 
 # default release image
 # -----------------------------------
-FROM docker.mirror.hashicorp.services/alpine:latest AS release
+FROM docker.mirror.hashicorp.services/alpine:latest AS release-default
 
 ARG BIN_NAME=consul-ecs
 ARG VERSION
@@ -62,7 +62,7 @@ RUN apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils
 
 USER $BIN_NAME
 ENTRYPOINT ["/bin/consul-ecs"]
-COPY dist/$TARGETOS/$TARGETARCH/$BIN_NAME /bin/
+COPY ./dist/$TARGETOS/$TARGETARCH/$BIN_NAME /bin/
 
 # ===================================
 #
@@ -70,7 +70,7 @@ COPY dist/$TARGETOS/$TARGETARCH/$BIN_NAME /bin/
 #
 # ===================================
 
-FROM release as dev
+FROM release-default as dev
 # TODO
 
 # ===================================

@@ -58,7 +58,7 @@ ENV PATH="/bin/consul-inject:${PATH}"
 VOLUME [ "/consul" ]
 
 # Set up certificates, base tools, and software.
-RUN apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils iptables
+RUN apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils iptables libc6-compat
 
 USER $BIN_NAME
 ENTRYPOINT ["/bin/consul-ecs"]

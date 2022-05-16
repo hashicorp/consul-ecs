@@ -9,7 +9,7 @@ project "consul-ecs" {
   github {
     organization = "hashicorp"
     repository = "consul-ecs"
-    release_branches = ["main"]
+    release_branches = ["main", "pglass/crt"]  # TODO
   }
 }
 
@@ -130,7 +130,7 @@ event "verify" {
   }
 
   notification {
-    on = "always"
+    on = "fail"
   }
 }
 

@@ -4,15 +4,6 @@
 # Every target has a BIN_NAME argument that must be provided via --build-arg=BIN_NAME=<name>
 # when building.
 
-# ===================================
-#
-#   Release images.
-#
-# ===================================
-
-
-# default release image
-# -----------------------------------
 FROM docker.mirror.hashicorp.services/alpine:latest AS release-default
 
 ARG BIN_NAME=consul-ecs
@@ -22,8 +13,6 @@ ARG TARGETOS TARGETARCH
 # Export BIN_NAME for the CMD below, it can't see ARGs directly.
 ENV BIN_NAME=$BIN_NAME
 ENV VERSION=$VERSION
-# This is the location of the releases.
-ENV HASHICORP_RELEASES=https://releases.hashicorp.com
 
 LABEL description="consul-ecs provides first-class integration between Consul and AWS ECS." \
       maintainer="Consul Team <consul@hashicorp.com>" \
@@ -64,18 +53,5 @@ USER $BIN_NAME
 ENTRYPOINT ["/bin/consul-ecs"]
 COPY dist/$TARGETOS/$TARGETARCH/$BIN_NAME /bin/
 
-# ===================================
-#
-#   Non-release images.
-#
-# ===================================
-
-FROM release-default as dev
-# TODO
-
-# ===================================
-#
-#   Set default target to 'dev'.
-#
-# ===================================
-FROM dev
+# Set default target
+FROM release-default

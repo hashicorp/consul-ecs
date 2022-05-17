@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-      - pglass/crt  # TODO: for testing
 
 
 env:
@@ -31,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       product-version: ${{ steps.get-product-version.outputs.product-version }}
+      ldflags: ${{ steps.get-product-version.outputs.ldflags }}
     steps:
       - uses: actions/checkout@v2
       - name: get product version
@@ -38,6 +38,7 @@ jobs:
         run: |
           make version
           echo "::set-output name=product-version::$(make version)"
+          echo "::set-output name=ldflags::-s -w -X github.com/hashicorp/consul-ecs/version.GitCommit=$(git rev-parse --short HEAD)"
 
   generate-metadata-file:
     needs: get-product-version
@@ -92,9 +93,10 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          LDFLAGS: ${{ needs.get-product-version.outputs.ldflags }}
         run: |
           mkdir dist out
-          go build -o dist/ .
+          go build -ldflags="$LDFLAGS" -o dist/ .
           zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/
 
       - uses: actions/upload-artifact@v2
@@ -128,10 +130,15 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          LDFLAGS: ${{ needs.get-product-version.outputs.ldflags }}
         run: |
           mkdir dist out
-          go build -o dist/ .
+          go build -ldflags="$LDFLAGS" -o dist/ .
           zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/
+          if [ "${{ matrix.goarch }}" = "amd64" ]; then
+            bin=$(find dist -name consul-ecs)
+            $bin version
+          fi
 
       - uses: actions/upload-artifact@v2
         with:
@@ -165,9 +172,11 @@ jobs:
           go-version: ${{ needs.get-go-version.outputs.go-version }}
 
       - name: Build
+        env:
+          LDFLAGS: ${{ needs.get-product-version.outputs.ldflags }}
         run: |
           mkdir dist out
-          go build -tags netcgo -o dist/
+          go build -ldflags="$LDFLAGS" -tags netcgo -o dist/
           zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/
 
       - uses: actions/upload-artifact@v2
@@ -197,7 +206,9 @@ jobs:
           # and validates the version.
           smoke_test: |
             TEST_VERSION="$(docker run "${IMAGE_NAME}" version | awk '{print $2}')"
-            if [ "${TEST_VERSION}" != "${version}" ]; then
+            echo "TEST_VERSION=${TEST_VERSION}"
+            echo "version=${version}"
+            if [ "${TEST_VERSION}" != "v${version}" ]; then
               echo "Test FAILED"
               exit 1
             fi
@@ -234,61 +245,3 @@ jobs:
           dev_tags: |
             hashicorppreview/${{ env.repo }}:${{ env.version }}
             hashicorppreview/${{ env.repo }}:${{ env.version }}-${{ github.sha }}
-
-  #build-docker-alternate:
-  #  name: Docker ${{ matrix.arch }} alternate release build
-  #  needs:
-  #    - get-product-version
-  #    - build-linux
-  #  runs-on: ubuntu-latest
-  #  strategy:
-  #    matrix:
-  #      arch: ["arm", "arm64", "386", "amd64"]
-  #  env:
-  #    repo: ${{ github.event.repository.name }}
-  #    version: ${{ needs.get-product-version.outputs.product-version }}
-
-  #  steps:
-  #    - uses: actions/checkout@v2
-  #    - uses: hashicorp/actions-docker-build@v1
-  #      with:
-  #        version: ${{ env.version }}
-  #        target: release-alternate
-  #        arch: ${{ matrix.arch }}
-  #        tags: |
-  #          docker.io/hashicorp/${{ env.repo }}-alternate:${{ env.version }}
-  #          986891699432.dkr.ecr.us-east-1.amazonaws.com/hashicorp/${{ env.repo }}-alternate:${{ env.version }}
-  #        dev_tags: |
-  #          hashicorppreview/${{ env.repo }}-alternate:${{ env.version }}-dev
-  #          docker.io/hashicorppreview/${{ env.repo }}-alternate:${{ env.version }}-${{ github.sha }}
-
-  # build-docker-redhat is an example of how to build a Red Hat Certified Container (RHCC) Image.
-  # This means it uses the 'redhat_tag' input, instead of 'tags' and 'dev_tags'.
-  #
-  # It's important to note that there are other important differences with RHCC images, compared
-  # with calls using the 'tags' and optionally 'dev_tags' inputs:
-  #
-  #   - They can only be built for a single architecture,
-  #     so the 'arch' input is hard-coded to 'amd64' in this case.
-  #   - Therefore, we don't use a matrix to expand over architectures,
-  #     when using the 'redhat_tag' input.
-  #   - We can only specify a single 'redhat_tag' not multiple tags,
-  #     as with the 'tags' and 'dev_tags' inputs.
-  #build-docker-redhat:
-  #  name: Docker ${{ matrix.arch }} alternate release build
-  #  needs:
-  #    - get-product-version
-  #    - build-linux
-  #  runs-on: ubuntu-latest
-  #  env:
-  #    repo: ${{github.event.repository.name}}
-  #    version: ${{needs.get-product-version.outputs.product-version}}
-
-  #  steps:
-  #    - uses: actions/checkout@v2
-  #    - uses: hashicorp/actions-docker-build@v1
-  #      with:
-  #        version: ${{env.version}}
-  #        target: release-default
-  #        arch: amd64
-  #        redhat_tag: scan.connect.redhat.com/ospid-62211e0d8bf2cabc69a39c7d/${{env.repo}}:${{env.version}}-ubi

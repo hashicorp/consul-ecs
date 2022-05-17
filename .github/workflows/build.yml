@@ -31,6 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       product-version: ${{ steps.get-product-version.outputs.product-version }}
+      ldflags: ${{ steps.get-product-version.outputs.ldflags }}
     steps:
       - uses: actions/checkout@v2
       - name: get product version
@@ -38,6 +39,7 @@ jobs:
         run: |
           make version
           echo "::set-output name=product-version::$(make version)"
+          echo "::set-output name=ldflags::-s -w -X github.com/hashicorp/consul-ecs/version.GitCommit=$(git rev-parse --short HEAD)"
 
   generate-metadata-file:
     needs: get-product-version
@@ -92,9 +94,10 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          LDFLAGS: ${{ needs.get-product-version.outputs.ldflags }}
         run: |
           mkdir dist out
-          go build -o dist/ .
+          go build -ldflags="$LDFLAGS" -o dist/ .
           zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/
 
       - uses: actions/upload-artifact@v2
@@ -128,10 +131,15 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          LDFLAGS: ${{ needs.get-product-version.outputs.ldflags }}
         run: |
           mkdir dist out
-          go build -o dist/ .
+          go build -ldflags="$LDFLAGS" -o dist/ .
           zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/
+          if [ "${{ matrix.goarch }}" = "amd64" ]; then
+            bin=$(find dist -name consul-ecs)
+            $bin version
+          fi
 
       - uses: actions/upload-artifact@v2
         with:
@@ -165,9 +173,11 @@ jobs:
           go-version: ${{ needs.get-go-version.outputs.go-version }}
 
       - name: Build
+        env:
+          LDFLAGS: ${{ needs.get-product-version.outputs.ldflags }}
         run: |
           mkdir dist out
-          go build -tags netcgo -o dist/
+          go build -ldflags="$LDFLAGS" -tags netcgo -o dist/
           zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/
 
       - uses: actions/upload-artifact@v2
@@ -197,7 +207,9 @@ jobs:
           # and validates the version.
           smoke_test: |
             TEST_VERSION="$(docker run "${IMAGE_NAME}" version | awk '{print $2}')"
-            if [ "${TEST_VERSION}" != "${version}" ]; then
+            echo "TEST_VERSION=${TEST_VERSION}"
+            echo "version=${version}"
+            if [ "${TEST_VERSION}" != "v${version}" ]; then
               echo "Test FAILED"
               exit 1
             fi

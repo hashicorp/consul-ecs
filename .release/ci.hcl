@@ -130,7 +130,7 @@ event "verify" {
   }
 
   notification {
-    on = "always"
+    on = "fail"
   }
 }
 

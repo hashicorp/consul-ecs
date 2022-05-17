@@ -25,6 +25,10 @@ FEATURES
   Add `-iam-role-path` flag to specify the path of IAM roles permitted to login.
   [[GH-71](https://github.com/hashicorp/consul-ecs/pull/71)]
 
+IMPROVEMENTS
+* `consul-ecs version` now includes the git commit sha.
+  [[GH-85](https://github.com/hashicorp/consul-ecs/pull/85)]
+
 ## 0.4.1 (April 08, 2022)
 
 This is a patch release that keeps the consul-ecs project in sync with the

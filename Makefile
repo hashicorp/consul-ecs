@@ -14,11 +14,8 @@ VERSION ?= $(shell ./build-scripts/version.sh version/version.go)
 
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD)
 GIT_DIRTY ?= $(shell test -n "`git status --porcelain`" && echo "+CHANGES" || true)
-GIT_DESCRIBE=$(shell git describe --tags --always)
 PROJECT = $(shell go list -m)
-LD_FLAGS ?= -s -w \
-	-X "$(PROJECT)/version.GitCommit=$(GIT_COMMIT)$(GIT_DIRTY)" \
-	-X "$(PROJECT)/version.GitDescribe=$(GIT_DESCRIBE)"
+LD_FLAGS ?= -X "$(PROJECT)/version.GitCommit=$(GIT_COMMIT)$(GIT_DIRTY)"
 
 version:
 	@echo $(VERSION)
@@ -41,18 +38,12 @@ TAG        = $(BIN_NAME)/$(TARGET):$(VERSION)
 BA_FLAGS   = $(addprefix --build-arg=,$(BUILD_ARGS))
 FLAGS      = --target $(TARGET) --platform $(PLATFORM) --tag $(TAG) $(BA_FLAGS)
 
-# Set OS to linux for all docker/* targets.
-docker/%: OS = linux
-
-docker/dev: TARGET = dev
-docker/dev: dev
+# Set OS to linux for all docker targets.
+docker: OS = linux
+docker: TARGET = release-default
+docker: dev
 	export DOCKER_BUILDKIT=1; docker build $(FLAGS) .
-.PHONY: docker/dev
-
-docker/release: TARGET = release-default
-docker/release: dev  # TODO
-	export DOCKER_BUILDKIT=1; docker build $(FLAGS) .
-.PHONY: docker/release
+.PHONY: docker
 
 # ---------- Old / Non-CRT ----------
 GIT_COMMIT?=$(shell git rev-parse --short HEAD)
@@ -125,4 +116,4 @@ reference-configuration:
 	cd $(CURDIR)/hack/generate-config-reference; go run . > "$(consul)/website/content/docs/ecs/configuration-reference.mdx"
 
 
-.PHONY: build-image ci.dev-docker dev-docker build-dev-dockerfile reference-configuration version
+.PHONY: build-image ci.dev-docker dev-docker build-dev-dockerfile reference-configuration

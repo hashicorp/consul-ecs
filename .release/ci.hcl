@@ -9,7 +9,7 @@ project "consul-ecs" {
   github {
     organization = "hashicorp"
     repository = "consul-ecs"
-    release_branches = ["main", "pglass/crt"]  # TODO
+    release_branches = ["main"]
   }
 }
 

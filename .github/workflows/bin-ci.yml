@@ -44,6 +44,14 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
 
+    - uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
 
     # This is broken I guess:
     #   Error: Failed to fetch version metadata file HttpClientError: unsupported media type
@@ -74,7 +82,7 @@ jobs:
     - name: Test
       run: |
         mkdir -p $TEST_RESULTS_DIR/${{ matrix.consul-version }}/json
-        PACKAGE_NAMES=$(go list ./... | grep -v 'mocks' | grep -v 'testing' | tr '\n' ' ')
+        PACKAGE_NAMES=$(go list ./... | grep -v 'mocks\|hack\|testing' | tr '\n' ' ')
         echo "Testing $(echo $PACKAGE_NAMES | wc -w) packages"
         if [[ "${{ matrix.consul-version }}" == *ent ]]; then
           FLAG=-enterprise
@@ -82,9 +90,8 @@ jobs:
         gotestsum \
           --format=short-verbose \
           --jsonfile $TEST_RESULTS_DIR/${{ matrix.consul-version }}/json/go-test-race.log \
-          --junitfile $TEST_RESULTS_DIR/${{ matrix.consul-version }}/gotestsum-report.xml -- \
-          $PACKAGE_NAMES \
-          -- $FLAG
+          --junitfile $TEST_RESULTS_DIR/${{ matrix.consul-version }}/gotestsum-report.xml \
+          -- $PACKAGE_NAMES -- $FLAG
     - uses: actions/upload-artifact@v3
       with:
         name: test-results

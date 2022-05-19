@@ -25,6 +25,10 @@ jobs:
         only-new-issues: false
         skip-pkg-cache: true
         skip-build-cache: true
+    - name: lint-consul-retry
+      shell: bash
+      run: |
+        go install github.com/hashicorp/lint-consul-retry@master && lint-consul-retry
 
   test:
     name: unit test (consul-version=${{ matrix.consul-version }})

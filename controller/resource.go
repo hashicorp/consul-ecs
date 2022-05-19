@@ -314,7 +314,7 @@ func (s TaskStateLister) newTaskState(taskId TaskID, clusterArn string) *TaskSta
 	return &TaskState{
 		ConsulClient: s.ConsulClient,
 		Log:          s.Log,
-		TaskID:       TaskID(taskId),
+		TaskID:       taskId,
 		ClusterARN:   clusterArn,
 	}
 }

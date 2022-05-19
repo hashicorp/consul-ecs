@@ -1,0 +1,14 @@
+linters:
+  disable-all: true
+  enable:
+    - gofmt
+    - govet
+    - unconvert
+    - staticcheck
+    - ineffassign
+    - unparam
+    - goimports
+
+run:
+  concurrency: 2
+  timeout: 1m

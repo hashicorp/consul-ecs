@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// fakeCommand is a command/script to be run by tests for "entrypoint" commands. Each command touches
-// a "ready file" when the command has started and done any setup. This is important for the tests
-// to ensure the command subcommand has started to avoid races. For example, certain tests should not
-// proceed until traps for sigint and sigterm have been setup.
+// FakeCommand is a command/script to be run by tests for "entrypoint" commands. Each command touches
+// a "ready file" after the command has started and completed setup. This enables the tests to ensure
+// the command has started in order to avoid race conditions. For example, certain tests should not
+// proceed until signal handling has been set up.
 type FakeCommand struct {
 	// The command to run.
 	Command string
@@ -17,7 +17,8 @@ type FakeCommand struct {
 	ReadyFile string
 }
 
-// FakeCommandWithTraps a script used to validate our "entrypoint" commands:
+// FakeCommandWithTraps is a script used to validate our "entrypoint" commands.
+// This script does the following:
 // * When a sigint is received, it exits with code 42
 // * When a sigterm is received, it exits with code 55
 // * It sleeps for 120 seconds (long enough for tests, but not so long that it holds up CI)

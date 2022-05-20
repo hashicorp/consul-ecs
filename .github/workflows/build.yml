@@ -3,9 +3,6 @@ name: build
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - pglass/gha-dev-image # TODO
 
 env:
   PKG_NAME: "consul-ecs"

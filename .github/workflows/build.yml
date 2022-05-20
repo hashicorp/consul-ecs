@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+      - pglass/gha-dev-image # TODO
+
 
 
 env:
@@ -31,6 +33,7 @@ jobs:
     outputs:
       product-version: ${{ steps.get-product-version.outputs.product-version }}
       ldflags: ${{ steps.get-product-version.outputs.ldflags }}
+      git-short-sha: ${{ steps.get-product-version.outputs.git-short-sha }}
     steps:
       - uses: actions/checkout@v2
       - name: get product version
@@ -38,6 +41,7 @@ jobs:
         run: |
           make version
           echo "::set-output name=product-version::$(make version)"
+          echo "::set-output name=git-short-sha::$(git rev-parse --short HEAD)"
           echo "::set-output name=ldflags::-s -w -X github.com/hashicorp/consul-ecs/version.GitCommit=$(git rev-parse --short HEAD)"
 
   generate-metadata-file:
@@ -246,3 +250,34 @@ jobs:
           dev_tags: |
             hashicorppreview/${{ env.repo }}:${{ env.version }}
             hashicorppreview/${{ env.repo }}:${{ env.version }}-${{ github.sha }}
+
+  upload-dev-docker:
+    name: Upload dev image
+    environment: dockerhub/hashicorpdev
+    needs:
+      - get-product-version
+      - build-docker-default
+    runs-on: ubuntu-latest
+    # consul-ecs_release-default_linux_arm64_0.4.1-dev_73746fe7b0b0463694ef1bab1f3fe7f76c172bee.docker.dev.tar
+    strategy:
+      matrix:
+        arch: ["amd64"]
+    env:
+      repo: ${{ github.event.repository.name }}
+      version: ${{ needs.get-product-version.outputs.product-version }}
+      target: release-default
+      git-short-sha: ${{ needs.get-product-version.outputs.git-short-sha }}
+    steps:
+      - name: download image artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ env.repo }}_${{ env.target }}_linux_${{ matrix.arch }}_${{ env.version }}_${{ github.sha }}.docker.dev.tar
+      - name: Load image from artifact
+        shell: bash
+        run: |
+          TAG=hashicorpdev/${{ env.repo }}:${{ env.git-short-sha }}
+          docker load -i "${{ env.repo }}_${{ env.target }}_linux_${{ matrix.arch }}_${{ env.version }}_${{ github.sha }}.docker.dev.tar"
+          docker tag "hashicorppreview/${{ env.repo }}:${{ env.version }}-${{ github.sha }}" "$TAG"
+          docker images
+          echo ${{ secrets.DOCKER_PASS }} | docker login -u=${{ secrets.DOCKER_USER }} --password-stdin
+          docker push "$TAG"

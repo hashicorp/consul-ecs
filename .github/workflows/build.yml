@@ -281,3 +281,14 @@ jobs:
 
           echo "==> Push docker image $TAG"
           docker push "$TAG"
+
+      - name: docker push (latest)
+        shell: bash
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          TAG=hashicorpdev/${{ env.repo }}:latest
+          echo "==> Tag docker image $TAG as :latest"
+          docker tag "hashicorpdev/${{ env.repo }}:${{ env.git-short-sha }}" "$TAG"
+
+          echo "==> Push docker image $TAG"
+          docker push "$TAG"

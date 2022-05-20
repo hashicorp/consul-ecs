@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - pglass/gha-dev-image # TODO
+      - gha-test-fork
 
 
 
@@ -275,9 +276,11 @@ jobs:
       - name: Load image from artifact
         shell: bash
         run: |
+          echo "hack the planet"
           TAG=hashicorpdev/${{ env.repo }}:${{ env.git-short-sha }}
           docker load -i "${{ env.repo }}_${{ env.target }}_linux_${{ matrix.arch }}_${{ env.version }}_${{ github.sha }}.docker.dev.tar"
           docker tag "hashicorppreview/${{ env.repo }}:${{ env.version }}-${{ github.sha }}" "$TAG"
           docker images
           echo ${{ secrets.DOCKER_PASS }} | docker login -u=${{ secrets.DOCKER_USER }} --password-stdin
           docker push "$TAG"
+

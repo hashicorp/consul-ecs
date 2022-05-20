@@ -31,11 +31,18 @@ type Command struct {
 
 	flagSet *flag.FlagSet
 	logging.LogOpts
+
+	// for unit tests to wait for start
+	started chan struct{}
 }
 
 func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
 	logging.Merge(c.flagSet, c.LogOpts.Flags())
+
+	c.started = make(chan struct{}, 1)
+	c.sigs = make(chan os.Signal, 1)
+	c.ctx, c.cancel = context.WithCancel(context.Background())
 }
 
 func (c *Command) Run(args []string) int {
@@ -55,8 +62,6 @@ func (c *Command) Run(args []string) int {
 		return 1
 	}
 
-	c.sigs = make(chan os.Signal, 1)
-	c.ctx, c.cancel = context.WithCancel(context.Background())
 	c.envoyCmd = entrypoint.NewCmd(c.log, args)
 	c.appMonitor = NewAppContainerMonitor(c.log, c.ctx)
 
@@ -78,6 +83,7 @@ func (c *Command) realRun() int {
 		c.log.Error("Envoy failed to start")
 		return 1
 	}
+	c.started <- struct{}{}
 
 	for {
 		select {
@@ -111,6 +117,7 @@ func (c *Command) handleSignal(sig os.Signal) {
 }
 
 func (c *Command) cleanup() {
+	defer close(c.started)
 	signal.Stop(c.sigs)
 	// Cancel background goroutines
 	c.cancel()

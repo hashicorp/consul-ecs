@@ -277,6 +277,7 @@ jobs:
         shell: bash
         run: |
           echo "hack the planet"
+          echo "hack the planet 2"
           TAG=hashicorpdev/${{ env.repo }}:${{ env.git-short-sha }}
           docker load -i "${{ env.repo }}_${{ env.target }}_linux_${{ matrix.arch }}_${{ env.version }}_${{ github.sha }}.docker.dev.tar"
           docker tag "hashicorppreview/${{ env.repo }}:${{ env.version }}-${{ github.sha }}" "$TAG"

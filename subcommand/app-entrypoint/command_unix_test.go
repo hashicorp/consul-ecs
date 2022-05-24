@@ -4,26 +4,17 @@
 package appentrypoint
 
 import (
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
 )
-
-func fakeAppScript(sleepSeconds int) string {
-	return fmt.Sprintf(`sleep %d &
-export SLEEP_PID=$!
-trap "{ echo 'target command was interrupted'; kill $SLEEP_PID; exit 42; }" INT
-trap "{ echo 'target command was terminated'; kill $SLEEP_PID; exit 55; }" TERM
-wait $SLEEP_PID
-`, sleepSeconds)
-}
 
 func TestFlagValidation(t *testing.T) {
 	cases := map[string]struct {
@@ -79,28 +70,28 @@ func TestFlagValidation(t *testing.T) {
 
 func TestRun(t *testing.T) {
 	cases := map[string]struct {
-		targetCommand string
+		fakeApp       testutil.FakeCommand
 		sendSigterm   bool
 		sendSigint    bool
 		shutdownDelay time.Duration
 		exitCode      int
 	}{
 		"app-exit-before-sigterm": {
-			targetCommand: "exit 0",
+			fakeApp: testutil.SimpleFakeCommand(t, 0),
 		},
 		"app-exit-after-sigterm": {
 			// T0 : app start
 			// T1 : entrypoint receives sigterm (ignored)
 			// T2 : app exits on its own
-			targetCommand: fakeAppScript(2),
-			sendSigterm:   true,
+			fakeApp:     testutil.FakeCommandWithTraps(t, 2),
+			sendSigterm: true,
 		},
 		"app-exit-before-shutdown-delay": {
 			// T0 : app start
 			// T1 : entrypoint receives sigterm (ignored)
 			// T2 : entrypoint waits for the shutdown delay
 			// T3 : app exits on its own
-			targetCommand: fakeAppScript(2),
+			fakeApp:       testutil.FakeCommandWithTraps(t, 2),
 			sendSigterm:   true,
 			shutdownDelay: 10 * time.Second,
 		},
@@ -110,25 +101,25 @@ func TestRun(t *testing.T) {
 			// T2 : entrypoint waits for the shutdown delay
 			// T3 : entrypoint sends sigterm to app after shutdown delay
 			// T4 : app exits due to sigterm
-			targetCommand: fakeAppScript(10),
+			fakeApp:       testutil.FakeCommandWithTraps(t, 10),
 			sendSigterm:   true,
 			shutdownDelay: 1 * time.Second,
 			// Our test script exits with 55 when receiving sigterm.
 			exitCode: 55,
 		},
 		"sigint-is-forwarded": {
-			targetCommand: fakeAppScript(10),
-			sendSigint:    true,
-			exitCode:      42,
+			fakeApp:    testutil.FakeCommandWithTraps(t, 10),
+			sendSigint: true,
+			exitCode:   42,
 		},
 		"sigint-is-forwarded-after-sigterm": {
-			targetCommand: fakeAppScript(10),
-			sendSigterm:   true,
-			sendSigint:    true,
-			exitCode:      42,
+			fakeApp:     testutil.FakeCommandWithTraps(t, 10),
+			sendSigterm: true,
+			sendSigint:  true,
+			exitCode:    42,
 		},
 		"sigint-is-forwarded-during-shutdown-delay": {
-			targetCommand: fakeAppScript(10),
+			fakeApp:       testutil.FakeCommandWithTraps(t, 10),
 			sendSigterm:   true,
 			sendSigint:    true,
 			shutdownDelay: 10 * time.Second,
@@ -140,6 +131,8 @@ func TestRun(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}
+			// Necessary to avoid a race with initializing the `started` channel
+			cmd.once.Do(cmd.init)
 
 			// Start the target command asynchronously.
 			exitCodeChan := make(chan int, 1)
@@ -149,16 +142,20 @@ func TestRun(t *testing.T) {
 				if c.shutdownDelay > 0 {
 					args = append(args, "-shutdown-delay", c.shutdownDelay.String())
 				}
-				args = append(args, "/bin/sh", "-c", c.targetCommand)
+				args = append(args, "/bin/sh", "-c", c.fakeApp.Command)
 				exitCodeChan <- cmd.Run(args)
 			}()
 
 			t.Logf("Wait for fake app process to start")
 			retry.RunWith(&retry.Timer{Timeout: 1 * time.Second, Wait: 100 * time.Millisecond}, t, func(r *retry.R) {
-				require.NotNil(r, cmd.appCmd)
-				require.NotNil(r, cmd.appCmd.Process)
-				require.Greater(r, cmd.appCmd.Process.Pid, 0)
+				require.FileExists(r, c.fakeApp.ReadyFile)
 			})
+
+			// Necessary to avoid concurrent accesses that trigger the race detector.
+			t.Logf("Wait for app-entrypoint to see the app has started")
+			_, ok := <-cmd.started
+			require.True(t, ok)
+
 			appPid := cmd.appCmd.Process.Pid
 			t.Logf("Fake app process started pid=%v", appPid)
 

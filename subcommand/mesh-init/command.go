@@ -84,10 +84,7 @@ func (c *Command) realRun() error {
 
 	var serviceRegistration, proxyRegistration *api.AgentServiceRegistration
 	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
-		proxyRegistration, err = c.constructGatewayProxyRegistration(taskMeta)
-		if err != nil {
-			return err
-		}
+		proxyRegistration = c.constructGatewayProxyRegistration(taskMeta)
 	} else {
 		serviceRegistration, err = c.constructServiceRegistration(taskMeta)
 		if err != nil {
@@ -409,7 +406,7 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServi
 	return proxyRegistration
 }
 
-func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta) (*api.AgentServiceRegistration, error) {
+func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta) *api.AgentServiceRegistration {
 	serviceName := c.config.Gateway.Name
 	if serviceName == "" {
 		serviceName = taskMeta.Family
@@ -445,5 +442,5 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 			DeregisterCriticalServiceAfter: "10m",
 		},
 	}
-	return gwRegistration, nil
+	return gwRegistration
 }

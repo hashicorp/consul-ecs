@@ -220,6 +220,8 @@ func TestTaskStateListerList(t *testing.T) {
 
 	for name, c := range cases {
 		c := c
+		sortTaskStates(c.expResources)
+
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			consulClient := initConsul(t)
@@ -243,7 +245,6 @@ func TestTaskStateListerList(t *testing.T) {
 			resources, err := lister.List()
 			require.NoError(t, err)
 
-			sortTaskStates(c.expResources)
 			sortTaskStates(resources)
 
 			require.Empty(t, cmp.Diff(c.expResources, resources, tokenIgnoreFields, taskStateIgnoreFields))

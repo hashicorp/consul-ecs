@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -18,20 +19,6 @@ import (
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
 )
-
-// fakeEnvoyScript is a script used to validate our `entrypoint` command.
-//
-// Why not just a simple 'sleep 120'?
-// * Bash actually ignores SIGINT by default (note: CTRL-C sends SIGINT to the process group, not just the parent)
-// * Tests can be run in different places, so /bin/sh could be any shell with different behavior.
-// Why a background process + wait? Why not just a trap + sleep?
-// * The sleep blocks the trap. Traps are not executed until the current command completes, except for `wait`.
-const fakeEnvoyScript = `sleep 120 &
-export SLEEP_PID=$!
-trap "{ echo 'target command was interrupted'; kill $SLEEP_PID; exit 42; }" INT
-trap "{ echo 'target command was terminated'; kill $SLEEP_PID; exit 55; }" TERM
-wait $SLEEP_PID
-`
 
 func TestFlagValidation(t *testing.T) {
 	ui := cli.NewMockUi()
@@ -45,34 +32,34 @@ func TestFlagValidation(t *testing.T) {
 
 func TestRun(t *testing.T) {
 	cases := map[string]struct {
-		targetCommand    string
+		fakeEnvoy        testutil.FakeCommand
 		sendSigterm      bool
 		sendSigint       bool
 		mockTaskMetadata bool
 		exitCode         int
 	}{
 		"short lived process": {
-			targetCommand: "sleep 0",
-			exitCode:      0,
+			fakeEnvoy: testutil.SimpleFakeCommand(t, 0),
+			exitCode:  0,
 		},
 		"sigterm is ignored": {
-			targetCommand: "sleep 3",
-			sendSigterm:   true,
-			exitCode:      0,
+			fakeEnvoy:   testutil.SimpleFakeCommand(t, 3),
+			sendSigterm: true,
+			exitCode:    0,
 		},
 		"sigint is forwarded": {
-			targetCommand: fakeEnvoyScript,
-			sendSigint:    true,
-			exitCode:      42,
+			fakeEnvoy:  testutil.FakeCommandWithTraps(t, 120),
+			sendSigint: true,
+			exitCode:   42,
 		},
 		"sigterm is ignored and then sigint is forwarded": {
-			targetCommand: fakeEnvoyScript,
-			sendSigterm:   true,
-			sendSigint:    true,
-			exitCode:      42,
+			fakeEnvoy:   testutil.FakeCommandWithTraps(t, 120),
+			sendSigterm: true,
+			sendSigint:  true,
+			exitCode:    42,
 		},
 		"sigterm is ignored and envoy terminates after the app container": {
-			targetCommand:    fakeEnvoyScript,
+			fakeEnvoy:        testutil.FakeCommandWithTraps(t, 120),
 			sendSigterm:      true,
 			mockTaskMetadata: true,
 			exitCode:         55,
@@ -80,24 +67,32 @@ func TestRun(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			cliCmd := Command{
 				UI: cli.NewMockUi(),
 			}
+			// Necessary to avoid a race with initializing the `started` channel
+			cliCmd.once.Do(cliCmd.init)
 
 			// Start the target command asynchronously.
 			exitCodeChan := make(chan int, 1)
 			go func() {
 				defer close(exitCodeChan)
-				exitCodeChan <- cliCmd.Run([]string{"/bin/sh", "-c", c.targetCommand})
+				code := cliCmd.Run([]string{"-log-level", "debug", "/bin/sh", "-c", c.fakeEnvoy.Command})
+				exitCodeChan <- code
 			}()
 
 			t.Logf("Wait for fake Envoy process to start")
 			retry.RunWith(&retry.Timer{Timeout: 1 * time.Second, Wait: 100 * time.Millisecond}, t, func(r *retry.R) {
-				require.NotNil(r, cliCmd.envoyCmd)
-				require.NotNil(r, cliCmd.envoyCmd.Process)
-				require.Greater(r, cliCmd.envoyCmd.Process.Pid, 0)
+				require.FileExists(r, c.fakeEnvoy.ReadyFile)
 			})
+
+			// Necessary to avoid concurrent accesses that trigger the race detector.
+			t.Logf("Wait for envoy-entrypoint to see Envoy has started")
+			_, ok := <-cliCmd.started
+			require.True(t, ok)
+
 			envoyPid := cliCmd.envoyCmd.Process.Pid
 			t.Logf("Fake Envoy process started (pid=%v)", envoyPid)
 
@@ -111,7 +106,7 @@ func TestRun(t *testing.T) {
 				signal.Stop(sigs)
 			})
 
-			ecsMetaRequestCount := 0
+			var ecsMetaRequestCount int64 // atomic, to pass race detector
 			if c.mockTaskMetadata {
 				// Simulate two requests with the app container running, and the rest with it stopped.
 				testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
@@ -122,12 +117,13 @@ func TestRun(t *testing.T) {
 						"consul-ecs-mesh-init",
 						"sidecar-proxy",
 					)
-					if ecsMetaRequestCount < 2 {
+
+					if atomic.LoadInt64(&ecsMetaRequestCount) < 2 {
 						meta.Containers[0].KnownStatus = "RUNNING"
 					} else {
 						meta.Containers[0].KnownStatus = "STOPPED"
 					}
-					ecsMetaRequestCount++
+					atomic.AddInt64(&ecsMetaRequestCount, 1)
 					respData, err := json.Marshal(meta)
 					require.NoError(t, err)
 					return string(respData)
@@ -154,15 +150,16 @@ func TestRun(t *testing.T) {
 			if c.mockTaskMetadata {
 				retry.RunWith(&retry.Timer{Timeout: 4 * time.Second, Wait: 500 * time.Millisecond}, t, func(r *retry.R) {
 					// Sanity check. We mock two requests with app container running, and the rest with the app container stopped.
-					require.GreaterOrEqual(r, ecsMetaRequestCount, 3)
+					require.GreaterOrEqual(r, atomic.LoadInt64(&ecsMetaRequestCount), int64(3))
 
 					t.Logf("Check the fake Envoy process exits")
 					proc, err := os.FindProcess(envoyPid)
 					require.NoError(r, err, "Failed to find fake Envoy process")
 					// A zero-signal checks the validity of the process id.
 					err = proc.Signal(syscall.Signal(0))
-					require.Error(r, err, "Application exited, but entrypoint did not terminate fake Envoy")
-					require.Equal(r, os.ErrProcessDone, err)
+					msg := "Application exited, but entrypoint did not terminate fake Envoy"
+					require.Error(r, err, msg)
+					require.Equal(r, os.ErrProcessDone, err, msg)
 				})
 			}
 

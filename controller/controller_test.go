@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -9,6 +10,9 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/require"
 )
+
+// global mutex for these tests to pass the race detector
+var mutex sync.Mutex
 
 func TestRun(t *testing.T) {
 	t.Parallel()
@@ -36,6 +40,8 @@ func TestRun(t *testing.T) {
 	go ctrl.Run(ctx)
 
 	retry.Run(t, func(r *retry.R) {
+		mutex.Lock()
+		defer mutex.Unlock()
 		require.True(r, lister.nsReconciled)
 		for _, resource := range lister.resources {
 			require.True(r, resource.reconciled)
@@ -54,6 +60,9 @@ type testResource struct {
 }
 
 func (t *testResourceLister) List() ([]Resource, error) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	var resources []Resource
 	for _, resource := range t.resources {
 		resources = append(resources, resource)
@@ -62,13 +71,18 @@ func (t *testResourceLister) List() ([]Resource, error) {
 }
 
 func (t *testResourceLister) ReconcileNamespaces([]Resource) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	t.nsReconciled = true
 	return nil
 }
 
 func (t *testResource) Reconcile() error {
-	t.reconciled = true
+	mutex.Lock()
+	defer mutex.Unlock()
 
+	t.reconciled = true
 	return nil
 }
 

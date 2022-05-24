@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
@@ -192,12 +193,15 @@ func TestRunWithContainerNames(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			expectedServiceName := family
 			if c.serviceName != "" {
 				expectedServiceName = c.serviceName
 			}
-			initialStage := true
+			// atomic to satisfy race detector
+			var initialStage atomic.Value
+			initialStage.Store(true)
 
 			cfg := testutil.ConsulServer(t, nil)
 			consulClient, err := api.NewClient(cfg)
@@ -213,7 +217,7 @@ func TestRunWithContainerNames(t *testing.T) {
 			}
 
 			testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
-				if initialStage {
+				if initialStage.Load().(bool) {
 					return metadataResponse(t, ecsServiceMetadata, c.initialContainers)
 				} else {
 					return metadataResponse(t, ecsServiceMetadata, c.updatedContainers)
@@ -258,7 +262,7 @@ func TestRunWithContainerNames(t *testing.T) {
 			// If we're also testing updates make the updates.
 			if len(c.updatedContainers) > 0 {
 				// Trigger the AWS metadata API to return the updated statuses.
-				initialStage = false
+				initialStage.Store(false)
 				assertHealthChecks(t, expectedServiceName, ecsServiceMetadata, consulClient, c.updatedContainers, c.updatedExpChecks)
 			}
 

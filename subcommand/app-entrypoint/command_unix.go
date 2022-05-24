@@ -33,6 +33,9 @@ type Command struct {
 	shutdownDelay time.Duration
 
 	logging.LogOpts
+
+	// for unit tests to wait for start
+	started chan struct{}
 }
 
 func (c *Command) init() {
@@ -40,6 +43,9 @@ func (c *Command) init() {
 	c.flagSet.DurationVar(&c.shutdownDelay, flagShutdownDelay, 0,
 		`Continue running for this long after receiving SIGTERM. Must be a duration (e.g. "10s").`)
 	logging.Merge(c.flagSet, c.LogOpts.Flags())
+
+	c.started = make(chan struct{}, 1)
+	c.sigs = make(chan os.Signal, 1)
 }
 
 func (c *Command) Run(args []string) int {
@@ -62,7 +68,6 @@ func (c *Command) Run(args []string) int {
 		return 1
 	}
 
-	c.sigs = make(chan os.Signal, 1)
 	c.appCmd = entrypoint.NewCmd(c.log, args)
 
 	return c.realRun()
@@ -76,6 +81,7 @@ func (c *Command) realRun() int {
 	if _, ok := <-c.appCmd.Started(); !ok {
 		return 1
 	}
+	c.started <- struct{}{}
 
 	if exitCode, exited := c.waitForSigterm(); exited {
 		return exitCode
@@ -150,6 +156,7 @@ func (c *Command) forwardSignal(sig os.Signal) {
 }
 
 func (c *Command) cleanup() {
+	defer close(c.started)
 	signal.Stop(c.sigs)
 	<-c.appCmd.Done()
 }

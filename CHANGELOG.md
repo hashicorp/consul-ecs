@@ -5,11 +5,6 @@ BREAKING CHANGES
   `-secret-name-prefix` and `-consul-client-secret-arn` flags. The controller no longer creates ACL
   tokens. [[GH-82](https://github.com/hashicorp/consul-ecs/pull/82)]
 
-BUG FIXES:
-* Fix issue in the `acl-controller` command where namespaces are not created in the correct
-  partition when using Consul 1.12. [[GH-72](https://github.com/hashicorp/consul-ecs/pull/72)]
-* Fix note text for synced Consul health checks. [[GH-80](https://github.com/hashicorp/consul-ecs/pull/80)]
-
 FEATURES
 * Add `-log-level` flag to `acl-controller`, `envoy-entrypoint`, and `app-entrypoint`
   commands. Add `logLevel` field to config JSON for `mesh-init` and `health-sync` commands.
@@ -24,6 +19,21 @@ FEATURES
 * Update `acl-controller` to configure Consul's AWS IAM auth method at startup.
   Add `-iam-role-path` flag to specify the path of IAM roles permitted to login.
   [[GH-71](https://github.com/hashicorp/consul-ecs/pull/71)]
+
+IMPROVEMENTS
+* `consul-ecs version` now includes the git commit sha.
+  [[GH-85](https://github.com/hashicorp/consul-ecs/pull/85)]
+
+DEPRECATIONS
+* Only release Linux builds since this binary is only used in Linux containers.
+  Windows, Darwin, FreeBSD, and Solaris builds are no longer published to releases.hashicorp.com.
+  [[GH-91](https://github.com/hashicorp/consul-ecs/pull/91)]
+
+BUG FIXES:
+* Fix issue in the `acl-controller` command where namespaces are not created in the correct
+  partition when using Consul 1.12. [[GH-72](https://github.com/hashicorp/consul-ecs/pull/72)]
+* Fix note text for synced Consul health checks. [[GH-80](https://github.com/hashicorp/consul-ecs/pull/80)]
+
 
 ## 0.4.1 (April 08, 2022)
 

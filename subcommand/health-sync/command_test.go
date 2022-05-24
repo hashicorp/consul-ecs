@@ -193,6 +193,7 @@ func TestRunWithContainerNames(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			expectedServiceName := family
 			if c.serviceName != "" {

@@ -337,7 +337,10 @@ func TestGateway(t *testing.T) {
 		family               = "family-name-mesh-gateway"
 		serviceName          = "service-name-mesh-gateway"
 		taskARN              = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
-		taskMetadataResponse = fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s"}`, taskARN, family)
+		taskIP               = "10.1.2.3"
+		publicIP             = "255.1.2.3"
+		taskDNSName          = "test-dns-name"
+		taskMetadataResponse = fmt.Sprintf(`{"Cluster": "test","TaskARN": "%s","Family": "%s","Containers":[{"Networks":[{"IPv4Addresses":["%s"],"PrivateDNSName":"%s"}]}]}`, taskARN, family, taskIP, taskDNSName)
 		expectedTaskMeta     = map[string]string{
 			"task-id":  "abcdef",
 			"task-arn": taskARN,
@@ -353,8 +356,9 @@ func TestGateway(t *testing.T) {
 		expServiceID       string
 		expServiceName     string
 		expLanAddress      string
+		expWanAddress      string
 		expTaggedAddresses map[string]api.ServiceAddress
-		expPort            int
+		expLanPort         int
 	}{
 		"mesh gateway default port": {
 			config: &config.Config{
@@ -364,7 +368,7 @@ func TestGateway(t *testing.T) {
 			},
 			expServiceID:   family + "-abcdef",
 			expServiceName: family,
-			expPort:        8443, // default gateway port if unspecified
+			expLanPort:     8443, // default gateway port if unspecified
 		},
 		"mesh gateway with port": {
 			config: &config.Config{
@@ -377,7 +381,7 @@ func TestGateway(t *testing.T) {
 			},
 			expServiceID:   family + "-abcdef",
 			expServiceName: family,
-			expPort:        12345,
+			expLanPort:     12345,
 		},
 		"mesh gateway with service name": {
 			config: &config.Config{
@@ -391,14 +395,14 @@ func TestGateway(t *testing.T) {
 			},
 			expServiceID:   serviceName + "-abcdef",
 			expServiceName: serviceName,
-			expPort:        12345,
+			expLanPort:     12345,
 		},
 		"mesh gateway with lan address": {
 			config: &config.Config{
 				Gateway: &config.GatewayRegistration{
 					Kind: api.ServiceKindMeshGateway,
 					LanAddress: &config.GatewayAddress{
-						Address: "10.1.2.3",
+						Address: taskIP,
 						Port:    12345,
 					},
 					Name: serviceName,
@@ -406,19 +410,19 @@ func TestGateway(t *testing.T) {
 			},
 			expServiceID:   serviceName + "-abcdef",
 			expServiceName: serviceName,
-			expLanAddress:  "10.1.2.3",
-			expPort:        12345,
+			expLanAddress:  taskIP,
+			expLanPort:     12345,
 			expTaggedAddresses: map[string]api.ServiceAddress{
 				"lan": {
-					Address: "10.1.2.3",
+					Address: taskIP,
 					Port:    12345,
 				},
 				"lan_ipv4": {
-					Address: "10.1.2.3",
+					Address: taskIP,
 					Port:    12345,
 				},
 				"wan_ipv4": {
-					Address: "10.1.2.3",
+					Address: taskIP,
 					Port:    12345,
 				},
 			},
@@ -428,7 +432,7 @@ func TestGateway(t *testing.T) {
 				Gateway: &config.GatewayRegistration{
 					Kind: api.ServiceKindMeshGateway,
 					WanAddress: &config.GatewayAddress{
-						Address: "255.1.2.3",
+						Address: publicIP,
 						Port:    12345,
 					},
 				},
@@ -436,11 +440,11 @@ func TestGateway(t *testing.T) {
 			},
 			expServiceID:   family + "-abcdef",
 			expServiceName: family,
-			expPort:        8443, // default gateway port
+			expLanPort:     8443, // default gateway port
 			expLanAddress:  "",
 			expTaggedAddresses: map[string]api.ServiceAddress{
 				"wan": {
-					Address: "255.1.2.3",
+					Address: publicIP,
 					Port:    12345,
 				},
 			},
@@ -478,7 +482,7 @@ func TestGateway(t *testing.T) {
 				Service:         c.expServiceName,
 				Proxy:           &api.AgentServiceConnectProxyConfig{},
 				Address:         c.expLanAddress,
-				Port:            c.expPort,
+				Port:            c.expLanPort,
 				Meta:            expectedTaskMeta,
 				Tags:            []string{},
 				Datacenter:      "dc1",

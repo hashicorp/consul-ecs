@@ -3,6 +3,7 @@ package config
 
 import (
 	"encoding/json"
+	"os"
 
 	"github.com/hashicorp/consul/api"
 )
@@ -338,16 +339,27 @@ func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
 	}
 
 	taggedAddresses := make(map[string]api.ServiceAddress)
+
+	// Default the LAN address to the node's hostname and default port.
+	// TODO Node IP address instead of hostname?
+	lanAddr := api.ServiceAddress{
+		Address: os.Getenv("HOSTNAME"),
+		Port:    DefaultGatewayPort,
+	}
 	if g.LanAddress != nil {
-		lanAddr := g.LanAddress.ToConsulType()
-
-		result.Address = lanAddr.Address
-		result.Port = lanAddr.Port
-
-		if lanAddr.Address != "" {
-			taggedAddresses[TaggedAddressLAN] = lanAddr
+		cfgLanAddr := g.LanAddress.ToConsulType()
+		// If a LAN address is provided then use that.
+		if cfgLanAddr.Address != "" {
+			lanAddr = cfgLanAddr
 		}
 	}
+	result.Address = lanAddr.Address
+	result.Port = lanAddr.Port
+	taggedAddresses[TaggedAddressLAN] = lanAddr
+
+	// TODO if assign_public_ip is unset and the WAN address is not provided then
+	// we need to find the Public IP of the task and use that for the WAN address.
+	// This logic probably belongs in mesh-init/command.go
 	if g.WanAddress != nil {
 		wanAddr := g.WanAddress.ToConsulType()
 		// We only set this if the address is passed? That's what 'consul connect envoy -register' does.

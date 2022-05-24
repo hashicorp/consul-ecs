@@ -1,15 +1,18 @@
 package testutil
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/testutil/iamauthtest"
 	"github.com/hashicorp/consul/api"
+	"github.com/hashicorp/consul/sdk/testutil/retry"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,10 +26,18 @@ func TaskMetaHandler(t *testing.T, resp string) http.Handler {
 // respFn should return a response to the 'GET /task' request.
 func TaskMetaHandlerFn(t *testing.T, respFn func() string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r != nil && r.URL.Path == "/task" && r.Method == "GET" {
-			resp := respFn()
-			_, err := w.Write([]byte(resp))
-			require.NoError(t, err)
+		if r != nil && r.Method == "GET" {
+			switch r.URL.Path {
+			case "/task":
+				resp := respFn()
+				_, err := w.Write([]byte(resp))
+				require.NoError(t, err)
+			case "/ok":
+				// A "health" endpoint to make sure the server has started for tests.
+				// We don't use /task to avoid affecting state used by respFn.
+				_, err := w.Write([]byte("ok"))
+				require.NoError(t, err)
+			}
 		}
 	})
 }
@@ -36,12 +47,29 @@ func TaskMetaHandlerFn(t *testing.T, respFn func() string) http.Handler {
 // Because of the environment variable, this is unsafe for running tests in parallel.
 func TaskMetaServer(t *testing.T, handler http.Handler) {
 	ecsMetadataServer := httptest.NewServer(handler)
+
+	// Help detect invalid concurrent servers since this relies on an environment variable.
+	require.Empty(t, os.Getenv(awsutil.ECSMetadataURIEnvVar),
+		"%s already set. TaskMetaServer cannot be used concurrently.", awsutil.ECSMetadataURIEnvVar,
+	)
+
 	t.Cleanup(func() {
 		_ = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
 		ecsMetadataServer.Close()
 	})
 	err := os.Setenv(awsutil.ECSMetadataURIEnvVar, ecsMetadataServer.URL)
+
 	require.NoError(t, err)
+
+	// Wait for a successful response before proceeding.
+	retry.RunWith(&retry.Timer{Timeout: 3 * time.Second, Wait: 250 * time.Millisecond}, t, func(r *retry.R) {
+		resp, err := ecsMetadataServer.Client().Get(ecsMetadataServer.URL + "/ok")
+		require.NoError(r, err)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(r, err)
+		require.Equal(r, string(body), "ok")
+	})
+
 }
 
 // AuthMethodInit sets up necessary pieces for the IAM auth method:

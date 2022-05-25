@@ -86,7 +86,9 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           LDFLAGS: ${{ needs.get-product-version.outputs.ldflags }}
+          CGO_ENABLED: "0"
         run: |
+          go env
           mkdir dist out
           go build -ldflags="$LDFLAGS" -o dist/ .
           zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/

@@ -24,6 +24,7 @@
       "type": ["string", "null"]
     },
     "consulLogin": {
+      "description": "Configuration for login to the AWS IAM auth method.",
       "type": ["object", "null"],
       "properties": {
         "enabled": {
@@ -423,9 +424,9 @@
           }
         }
       },
-      "required": ["kind"]
-    },
-    "additionalProperties": false
+      "required": ["kind"],
+      "additionalProperties": false
+    }
   },
   "required": ["bootstrapDir"],
   "additionalProperties": false

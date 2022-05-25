@@ -26,6 +26,16 @@ type Schema struct {
 	Path string `json:"-"`
 }
 
+// DescriptionStr returns the description modified for consul.io docs:
+// - Remove "[Consul Enterprise]" and prefix a "<EnterpriseAlert inline />".
+func (s *Schema) DescriptionStr() string {
+	modified := strings.ReplaceAll(s.Description, "[Consul Enterprise]", "")
+	if modified != s.Description {
+		modified = "<EnterpriseAlert inline /> " + modified
+	}
+	return modified
+}
+
 // RequiredStr returns "required" or "optional" if the given
 // field is in the list of required fields for this schema.
 func (s *Schema) RequiredStr(field string) string {
@@ -52,6 +62,8 @@ func (s *Schema) EnumStr() string {
 
 		if val == nil {
 			result += "`null`"
+		} else if *val == "" {
+			result += "`\"\"`"
 		} else {
 			result += "`" + *val + "`"
 		}

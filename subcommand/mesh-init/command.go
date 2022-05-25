@@ -324,10 +324,17 @@ func constructChecks(serviceID string, checks []config.AgentServiceCheck, health
 	return checks, nil
 }
 
+// constructServiceName returns the service name for registration with Consul.
+// This will use the config-provided name or, if not specified, default to the task family name.
+// A lower case service name is required since the auth method relies on tokens with a service identity,
+// and Consul service identities must be lower case:
+//
+// - The config-provided is validated by jsonschema to be lower case
+// - When defaulting to the task family, this automatically lowercases the task family name
 func (c *Command) constructServiceName(family string) string {
 	configName := c.config.Service.Name
 	if configName == "" {
-		return family
+		return strings.ToLower(family)
 	}
 	return configName
 }

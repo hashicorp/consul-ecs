@@ -43,6 +43,26 @@
     ],
     "namespace": null
   },
+  "gateway": {
+    "kind": "mesh-gateway",
+    "lanAddress": {
+      "address": null,
+      "port": null
+    },
+    "wanAddress": {
+      "source": null,
+      "address": null,
+      "port": null
+    },
+    "name": null,
+    "tags": null,
+    "meta": null,
+    "namespace": null,
+    "partition": null,
+    "proxy": {
+      "config": null
+    }
+  },
   "proxy": {
     "config": null,
     "upstreams": [

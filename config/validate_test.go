@@ -57,16 +57,41 @@ func TestMetaSchemaValidation(t *testing.T) {
 }
 
 func TestParseErrors(t *testing.T) {
-	rawConfig := OpenFile(t, "resources/test_config_missing_fields.json")
-	_, err := parse(rawConfig)
-	require.Error(t, err)
-
-	expectedErrors := []string{
-		"bootstrapDir: String length must be greater than or equal to 1",
+	cases := map[string]struct {
+		filename       string
+		expectedErrors []string
+	}{
+		"missing_fields": {
+			filename: "resources/test_config_missing_fields.json",
+			expectedErrors: []string{
+				"bootstrapDir: String length must be greater than or equal to 1",
+			},
+		},
+		"uppercase_service_names": {
+			filename: "resources/test_config_uppercase_service_names.json",
+			expectedErrors: []string{
+				"gateway.name: Does not match pattern",
+				"service.name: Does not match pattern",
+			},
+		},
 	}
-	require.Contains(t, err.Error(), fmt.Sprintf("%d error occurred:", len(expectedErrors)))
-	for _, expError := range expectedErrors {
-		require.Contains(t, err.Error(), expError)
+	for name, c := range cases {
+		c := c
+		t.Run(name, func(t *testing.T) {
+			rawConfig := OpenFile(t, c.filename)
+			_, err := parse(rawConfig)
+			require.Error(t, err)
+
+			msg := "%d errors occurred:"
+			if len(c.expectedErrors) == 1 {
+				msg = "%d error occurred:"
+			}
+
+			require.Contains(t, err.Error(), fmt.Sprintf(msg, len(c.expectedErrors)))
+			for _, expError := range c.expectedErrors {
+				require.Contains(t, err.Error(), expError)
+			}
+		})
 	}
 }
 
@@ -200,6 +225,31 @@ var (
 			Namespace: "test-ns",
 			Partition: "test-partition",
 		},
+		Gateway: &GatewayRegistration{
+			Kind: "mesh-gateway",
+			LanAddress: &GatewayAddress{
+				Address: "10.0.0.1",
+				Port:    8443,
+			},
+			WanAddress: &GatewayAddress{
+				Source:  "publicIP",
+				Address: "172.16.0.0",
+				Port:    443,
+			},
+			Name: "ecs-mesh-gateway",
+			Tags: []string{"a", "b"},
+			Meta: map[string]string{
+				"env":     "test",
+				"version": "x.y.z",
+			},
+			Namespace: "ns1",
+			Partition: "ptn1",
+			Proxy: &GatewayProxyConfig{
+				Config: map[string]interface{}{
+					"data": "some-config-data",
+				},
+			},
+		},
 		Proxy: &AgentServiceConnectProxyConfig{
 			Config: map[string]interface{}{
 				"data": "some-config-data",
@@ -250,6 +300,17 @@ var (
 			IncludeEntity:   true, // default true
 			ExtraLoginFlags: nil,
 		},
+		Gateway: &GatewayRegistration{
+			Kind:       "mesh-gateway",
+			LanAddress: nil,
+			WanAddress: nil,
+			Name:       "",
+			Tags:       nil,
+			Meta:       nil,
+			Namespace:  "",
+			Partition:  "",
+			Proxy:      nil,
+		},
 		Service: ServiceRegistration{
 			Name:              "",
 			Tags:              nil,
@@ -274,6 +335,27 @@ var (
 			Method:          "",
 			IncludeEntity:   true, // default true
 			ExtraLoginFlags: nil,
+		},
+		Gateway: &GatewayRegistration{
+			Kind: "mesh-gateway",
+			LanAddress: &GatewayAddress{
+				Source:  "",
+				Address: "",
+				Port:    0,
+			},
+			WanAddress: &GatewayAddress{
+				Source:  "",
+				Address: "",
+				Port:    0,
+			},
+			Name:      "",
+			Tags:      nil,
+			Meta:      nil,
+			Namespace: "",
+			Partition: "",
+			Proxy: &GatewayProxyConfig{
+				Config: nil,
+			},
 		},
 		Service: ServiceRegistration{
 			Name:              "",
@@ -340,6 +422,17 @@ var (
 			Method:          "",
 			IncludeEntity:   true, // default true
 			ExtraLoginFlags: nil,
+		},
+		Gateway: &GatewayRegistration{
+			Kind:       "mesh-gateway",
+			LanAddress: &GatewayAddress{},
+			WanAddress: &GatewayAddress{},
+			Name:       "",
+			Tags:       []string{},
+			Meta:       map[string]string{},
+			Namespace:  "",
+			Partition:  "",
+			Proxy:      &GatewayProxyConfig{},
 		},
 		Service: ServiceRegistration{
 			Name:              "",

@@ -442,7 +442,7 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 	}
 
 	// TODO if assign_public_ip is set and the WAN address is not provided then
-	// we need to find the Public IP of the task and use that for the WAN address.
+	// we need to find the Public IP of the task (or LB) and use that for the WAN address.
 	if c.config.Gateway.WanAddress != nil {
 		wanAddr := c.config.Gateway.WanAddress.ToConsulType()
 		if wanAddr.Address != "" {
@@ -456,7 +456,7 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 		gwRegistration.TaggedAddresses = taggedAddresses
 	}
 
-	// Health check localhost (default) or the LAN address if specified.
+	// Health check the task's IP, or the LAN address if specified.
 	healthCheckAddr := api.ServiceAddress{
 		Address: taskMeta.NodeIP(),
 		Port:    gwRegistration.Port,
@@ -465,7 +465,6 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 		healthCheckAddr.Address = gwRegistration.Address
 	}
 
-	// TODO if the WAN address is provided, should add a health check for the WAN addr as well?
 	gwRegistration.Checks = []*api.AgentServiceCheck{
 		{
 			Name:                           fmt.Sprintf("%s listener", gwRegistration.Kind),

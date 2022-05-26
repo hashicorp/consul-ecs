@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -56,7 +57,7 @@ func TestRunWithContainerNames(t *testing.T) {
 	taskID := "TaskID"
 	ecsServiceMetadata := ecsServiceMetadata{
 		family:    family,
-		serviceID: fmt.Sprintf("%s-%s", family, taskID),
+		serviceID: fmt.Sprintf("%s-%s", strings.ToLower(family), taskID),
 		taskID:    taskID,
 		taskARN:   fmt.Sprintf("asdf/%s", taskID),
 	}
@@ -195,7 +196,7 @@ func TestRunWithContainerNames(t *testing.T) {
 	for name, c := range cases {
 		c := c
 		t.Run(name, func(t *testing.T) {
-			expectedServiceName := family
+			expectedServiceName := strings.ToLower(family)
 			if c.serviceName != "" {
 				expectedServiceName = c.serviceName
 			}
@@ -499,6 +500,9 @@ func TestConstructServiceName(t *testing.T) {
 	family := "family"
 
 	serviceName := cmd.constructServiceName(family)
+	require.Equal(t, family, serviceName)
+
+	serviceName = cmd.constructServiceName("FAMILY")
 	require.Equal(t, family, serviceName)
 
 	expectedServiceName := "service-name"

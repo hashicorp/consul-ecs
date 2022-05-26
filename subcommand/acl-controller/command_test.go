@@ -179,7 +179,6 @@ func testUpsertConsulResources(t *testing.T, cases map[string]iamAuthTestCase) {
 			checkConsulResources(t, consulClient, c.expPolicyRules, c.partitionsEnabled)
 		})
 	}
-
 }
 
 func checkConsulResources(t *testing.T, consulClient *api.Client, expPolicyRules string, partitionsEnabled bool) {
@@ -297,5 +296,128 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, expPolicyRules
 		require.NoError(t, err)
 		require.Equal(t, rule.BindType, api.BindingRuleBindTypeService)
 		require.Equal(t, rule.BindName, fmt.Sprintf(`${entity_tags.%s}`, authMethodServiceNameTag))
+	}
+}
+
+func TestUpsertAuthMethod(t *testing.T) {
+	t.Parallel()
+	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+	consulClient, err := api.NewClient(cfg)
+	require.NoError(t, err)
+
+	cmd := Command{
+		log: hclog.Default().Named("acl-controller"),
+	}
+
+	// Simulate two ACL controllers adding auth method config.
+	allPrincipals := []interface{}{
+		"arn:aws:iam::123456789:role/path/1/*",
+		"arn:aws:iam::123456789:role/path/2/*",
+		"arn:aws:iam::123456789:role/path/3/*",
+		"arn:aws:iam::123456789:role/path/4/*",
+	}
+
+	methodOne := makeAuthMethod(allPrincipals[0:3])
+	methodTwo := makeAuthMethod(allPrincipals[1:])
+
+	// Upsert once - one controller starting up.
+	{
+		err := cmd.upsertAuthMethod(consulClient, methodOne)
+		require.NoError(t, err)
+
+		upserted, _, err := consulClient.ACL().AuthMethodRead(methodOne.Name, nil)
+		require.NoError(t, err)
+		require.Equal(t, methodOne.Config, upserted.Config)
+	}
+
+	// Upsert again - another controller starting up.
+	{
+		err := cmd.upsertAuthMethod(consulClient, methodTwo)
+		require.NoError(t, err)
+
+		upserted, _, err := consulClient.ACL().AuthMethodRead(methodTwo.Name, nil)
+		require.NoError(t, err)
+
+		// BoundIAMPrincipalARNs should be merged together.
+		expected := makeAuthMethod(allPrincipals)
+		require.Equal(t, expected.Config, upserted.Config)
+	}
+}
+
+func TestForceStringSlice(t *testing.T) {
+	cases := map[string]struct {
+		val    interface{}
+		exp    []string
+		expErr string
+	}{
+		"nil": {},
+		"string slice": {
+			val: []string{"a", "b"},
+			exp: []string{"a", "b"},
+		},
+		"interface slice with strings": {
+			val: []interface{}{"a", "b"},
+			exp: []string{"a", "b"},
+		},
+		"interface slice with mixed values": {
+			val: []interface{}{"a", "b", 1234},
+			// returns the string values if you want them.
+			exp: []string{"a", "b"},
+			// also returns an error, to detect non-strings.
+			expErr: "[]interface{} slice contains non-string values",
+		},
+		"int slice": {
+			val:    []int{123, 456},
+			expErr: "value of type []int is not a []string",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			strs, err := forceStringSlice(c.val)
+			require.Equal(t, strs, c.exp)
+			if c.expErr != "" {
+				require.Error(t, err)
+				require.Equal(t, c.expErr, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestUniqueStrings(t *testing.T) {
+	t.Parallel()
+	cases := map[string]struct {
+		vals []string
+		exp  []string
+	}{
+		"nil": {},
+		"no dupes": {
+			vals: []string{"a", "b"},
+			exp:  []string{"a", "b"},
+		},
+		"dupes": {
+			vals: []string{"c", "b", "a", "c", "a", "b"},
+			exp:  []string{"a", "b", "c"}, // always sorted
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			unique := uniqueStrings(c.vals)
+			require.Equal(t, c.exp, unique)
+		})
+	}
+}
+
+func makeAuthMethod(principals interface{}) *api.ACLAuthMethod {
+	return &api.ACLAuthMethod{
+		Name:        "test-method",
+		Type:        "aws-iam",
+		Description: "AWS IAM auth method for unit test",
+		Config: map[string]interface{}{
+			// This is the only field that matters.
+			"BoundIAMPrincipalARNs":  principals,
+			"EnableIAMEntityDetails": true,
+		},
 	}
 }

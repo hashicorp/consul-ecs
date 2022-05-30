@@ -26,16 +26,22 @@ type ECSTaskMeta struct {
 }
 
 type ECSTaskMetaContainer struct {
-	Name          string            `json:"Name"`
-	Health        ECSTaskMetaHealth `json:"Health"`
-	DesiredStatus string            `json:"DesiredStatus"`
-	KnownStatus   string            `json:"KnownStatus"`
+	Name          string               `json:"Name"`
+	Health        ECSTaskMetaHealth    `json:"Health"`
+	DesiredStatus string               `json:"DesiredStatus"`
+	KnownStatus   string               `json:"KnownStatus"`
+	Networks      []ECSTaskMetaNetwork `json:"Networks"`
 }
 
 type ECSTaskMetaHealth struct {
 	Status      string `json:"status"`
 	StatusSince string `json:"statusSince"`
 	ExitCode    int    `json:"exitCode"`
+}
+
+type ECSTaskMetaNetwork struct {
+	IPv4Addresses  []string `json:"IPv4Addresses"`
+	PrivateDNSName string   `json:"PrivateDNSName"`
 }
 
 func (e ECSTaskMeta) TaskID() string {
@@ -80,6 +86,17 @@ func (e ECSTaskMeta) Region() (string, error) {
 		return "", fmt.Errorf("unable to determine AWS region from Task ARN: %q", e.TaskARN)
 	}
 	return a.Region, nil
+}
+
+// NodeIP returns the IP of the node the task is running on.
+func (e ECSTaskMeta) NodeIP() string {
+	ip := "127.0.0.1" // default to localhost
+	if len(e.Containers) > 0 &&
+		len(e.Containers[0].Networks) > 0 &&
+		len(e.Containers[0].Networks[0].IPv4Addresses) > 0 {
+		ip = e.Containers[0].Networks[0].IPv4Addresses[0]
+	}
+	return ip
 }
 
 func ECSTaskMetadata() (ECSTaskMeta, error) {

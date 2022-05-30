@@ -424,11 +424,42 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 		"source":   "consul-ecs",
 	}, c.config.Gateway.Meta)
 
-	// Health check localhost (default) or the LAN address if specified.
-	// TODO: Use the task address by default?
+	taggedAddresses := make(map[string]api.ServiceAddress)
+
+	// Default the LAN port if it was not provided.
+	gwRegistration.Port = config.DefaultGatewayPort
+
+	if c.config.Gateway.LanAddress != nil {
+		lanAddr := c.config.Gateway.LanAddress.ToConsulType()
+		// If a LAN address is provided then use that and add the LAN address to the tagged addresses.
+		if lanAddr.Port > 0 {
+			gwRegistration.Port = lanAddr.Port
+		}
+		if lanAddr.Address != "" {
+			gwRegistration.Address = lanAddr.Address
+			taggedAddresses[config.TaggedAddressLAN] = lanAddr
+		}
+	}
+
+	// TODO if assign_public_ip is set and the WAN address is not provided then
+	// we need to find the Public IP of the task (or LB) and use that for the WAN address.
+	if c.config.Gateway.WanAddress != nil {
+		wanAddr := c.config.Gateway.WanAddress.ToConsulType()
+		if wanAddr.Address != "" {
+			if wanAddr.Port == 0 {
+				wanAddr.Port = gwRegistration.Port
+			}
+			taggedAddresses[config.TaggedAddressWAN] = wanAddr
+		}
+	}
+	if len(taggedAddresses) > 0 {
+		gwRegistration.TaggedAddresses = taggedAddresses
+	}
+
+	// Health check the task's IP, or the LAN address if specified.
 	healthCheckAddr := api.ServiceAddress{
-		Address: "127.0.0.1",
-		Port:    gwRegistration.Port, // defaulted to 8443
+		Address: taskMeta.NodeIP(),
+		Port:    gwRegistration.Port,
 	}
 	if gwRegistration.Address != "" {
 		healthCheckAddr.Address = gwRegistration.Address

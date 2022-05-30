@@ -111,3 +111,43 @@ func restoreEnv(t *testing.T, env []string) {
 		assert.NoError(t, os.Setenv(pair[0], pair[1]))
 	}
 }
+
+func TestECSTaskMeta_NodeIP(t *testing.T) {
+	cases := map[string]struct {
+		ecsMeta   ECSTaskMeta
+		expNodeIP string
+	}{
+		"no containers": {
+			ecsMeta:   ECSTaskMeta{},
+			expNodeIP: "127.0.0.1",
+		},
+		"no networks": {
+			ecsMeta: ECSTaskMeta{
+				Containers: []ECSTaskMetaContainer{{}},
+			},
+			expNodeIP: "127.0.0.1",
+		},
+		"no addresses": {
+			ecsMeta: ECSTaskMeta{
+				Containers: []ECSTaskMetaContainer{{
+					Networks: []ECSTaskMetaNetwork{{}},
+				}},
+			},
+			expNodeIP: "127.0.0.1",
+		},
+		"node ip": {
+			ecsMeta: ECSTaskMeta{
+				Containers: []ECSTaskMetaContainer{{
+					Networks: []ECSTaskMetaNetwork{{
+						IPv4Addresses: []string{"10.1.2.3"},
+					}},
+				}},
+			},
+			expNodeIP: "10.1.2.3",
+		},
+	}
+	for _, c := range cases {
+		nodeIP := c.ecsMeta.NodeIP()
+		require.Equal(t, c.expNodeIP, nodeIP)
+	}
+}

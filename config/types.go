@@ -337,27 +337,6 @@ func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
 		result.Proxy = g.Proxy.ToConsulType()
 	}
 
-	taggedAddresses := make(map[string]api.ServiceAddress)
-	if g.LanAddress != nil {
-		lanAddr := g.LanAddress.ToConsulType()
-
-		result.Address = lanAddr.Address
-		result.Port = lanAddr.Port
-
-		if lanAddr.Address != "" {
-			taggedAddresses[TaggedAddressLAN] = lanAddr
-		}
-	}
-	if g.WanAddress != nil {
-		wanAddr := g.WanAddress.ToConsulType()
-		// We only set this if the address is passed? That's what 'consul connect envoy -register' does.
-		if wanAddr.Address != "" {
-			taggedAddresses[TaggedAddressWAN] = wanAddr
-		}
-	}
-	if len(taggedAddresses) > 0 {
-		result.TaggedAddresses = taggedAddresses
-	}
 	return result
 }
 

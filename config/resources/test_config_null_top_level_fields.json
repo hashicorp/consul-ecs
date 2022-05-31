@@ -16,5 +16,16 @@
     "namespace": null,
     "partition": null
   },
+  "gateway": {
+    "kind": "mesh-gateway",
+    "lanAddress": null,
+    "wanAddress": null,
+    "name": null,
+    "tags": null,
+    "meta": null,
+    "namespace": null,
+    "partition": null,
+    "proxy": null
+  },
   "proxy": null
 }

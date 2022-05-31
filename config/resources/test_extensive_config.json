@@ -84,6 +84,32 @@
     "namespace": "test-ns",
     "partition": "test-partition"
   },
+  "gateway": {
+    "kind": "mesh-gateway",
+    "lanAddress": {
+      "address": "10.0.0.1",
+      "port": 8443
+    },
+    "wanAddress": {
+      "source": "publicIP",
+      "address": "172.16.0.0",
+      "port": 443
+    },
+    "name": "ecs-mesh-gateway",
+    "tags": ["a", "b"],
+    "meta": {
+      "env": "test",
+      "version": "x.y.z"
+    },
+    "namespace": "ns1",
+    "partition": "ptn1",
+    "proxy": {
+      "config": {
+        "data": "some-config-data"
+      }
+    }
+  },
+
   "proxy": {
     "config": {
       "data": "some-config-data"

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -260,8 +261,7 @@ func (c *Command) constructServiceName(family string) string {
 	if serviceName := c.config.Service.Name; serviceName != "" {
 		return serviceName
 	}
-
-	return family
+	return strings.ToLower(family)
 }
 
 func (c *Command) Synopsis() string {

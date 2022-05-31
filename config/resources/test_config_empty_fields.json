@@ -15,5 +15,16 @@
     "namespace": "",
     "partition": ""
   },
+  "gateway": {
+    "kind": "mesh-gateway",
+    "lanAddress": {},
+    "wanAddress": {},
+    "name": "",
+    "tags": [],
+    "meta": {},
+    "namespace": "",
+    "partition": "",
+    "proxy": {}
+  },
   "proxy": {}
 }

@@ -53,7 +53,7 @@ func TestConfigValidation(t *testing.T) {
 // because it sets environment variables (e.g. ECS metadata URI and Consul's HTTP addr)
 // that could not be shared if another test were to run in parallel.
 func TestRun(t *testing.T) {
-	family := "family-service-name"
+	family := "family-SERVICE-name"
 	serviceName := "service-name"
 
 	cases := map[string]struct {
@@ -161,7 +161,7 @@ func TestRun(t *testing.T) {
 					"task-arn": taskARN,
 					"source":   "consul-ecs",
 				}
-				expectedServiceName = family
+				expectedServiceName = strings.ToLower(family)
 				expectedPartition   = ""
 				expectedNamespace   = ""
 			)
@@ -592,6 +592,9 @@ func TestConstructServiceName(t *testing.T) {
 	family := "family"
 
 	serviceName := cmd.constructServiceName(family)
+	require.Equal(t, family, serviceName)
+
+	serviceName = cmd.constructServiceName("FAMILY")
 	require.Equal(t, family, serviceName)
 
 	expectedServiceName := "service-name"

@@ -94,24 +94,46 @@ type ServiceRegistration struct {
 	Partition         string              `json:"partition,omitempty"`
 }
 
-func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
-	result := &api.AgentServiceRegistration{
-		Name:              r.Name,
-		Tags:              r.Tags,
-		Port:              r.Port,
-		EnableTagOverride: r.EnableTagOverride,
-		Meta:              r.Meta,
-		Weights:           nil,
-		Checks:            nil,
-		Namespace:         r.Namespace,
-		Partition:         r.Partition,
+func (r *ServiceRegistration) ToConsulType() *api.CatalogRegistration {
+	result := &api.CatalogRegistration{
+		ID:              "",
+		Node:            "",
+		Address:         TaggedAddressLAN,
+		TaggedAddresses: map[string]string{},
+		NodeMeta:        map[string]string{},
+		Datacenter:      "",
+		Service: &api.AgentService{
+			Service:           r.Name,
+			Tags:              r.Tags,
+			Meta:              r.Meta,
+			Port:              r.Port,
+			Address:           "",
+			SocketPath:        "",
+			TaggedAddresses:   nil,
+			Weights:           api.AgentWeights{},
+			EnableTagOverride: r.EnableTagOverride,
+			Proxy:             nil,
+			Connect:           nil,
+			Namespace:         r.Namespace,
+			Partition:         r.Partition,
+			// TODO: ensure datacenter is passed?
+			// Pre-agentless this relied on the agent knowing the datacenter.
+			// This was configured with the CONSUL_DATACENTER environment variable for consul-client.
+			// Maybe by not setting this it will use the Consul server's datacenter.
+			Datacenter: "",
+		},
+		Check:          nil,
+		Checks:         nil,
+		SkipNodeUpdate: false,       // Can use this to update checks, I think
+		Partition:      r.Partition, // I guess we specify this for both top-level and within the service?
 	}
 	if r.Weights != nil {
-		result.Weights = r.Weights.ToConsulType()
+		result.Service.Weights = *r.Weights.ToConsulType()
 	}
-	for _, check := range r.Checks {
-		result.Checks = append(result.Checks, check.ToConsulType())
-	}
+	// TODO: figure this out later.
+	//for _, check := range r.Checks {
+	//	result.Checks = append(result.Checks, check.ToConsulType())
+	//}
 	return result
 
 }

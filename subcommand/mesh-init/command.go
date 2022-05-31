@@ -61,6 +61,8 @@ func (c *Command) realRun() error {
 	}
 
 	cfg := api.DefaultConfig()
+	cfg.Address = c.config.ConsulHTTPAddr
+	cfg.TLSConfig.CAFile = c.config.ConsulCACertFile
 
 	if c.config.ConsulLogin.Enabled {
 		// If enabled, login to the auth method to obtain an ACL token.
@@ -82,44 +84,66 @@ func (c *Command) realRun() error {
 		return fmt.Errorf("constructing consul client: %s", err)
 	}
 
-	var serviceRegistration, proxyRegistration *api.AgentServiceRegistration
+	var svcReg, proxyReg *api.CatalogRegistration
 	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
-		proxyRegistration = c.constructGatewayProxyRegistration(taskMeta)
+		// TODO: return api.CatalogRegistration from constructGatewayProxyRegistration
+		// proxyRegistration = c.constructGatewayProxyRegistration(taskMeta)
+		return fmt.Errorf("HACK: mesh gateway not (yet) supported in agentless hack")
 	} else {
-		serviceRegistration, err = c.constructServiceRegistration(taskMeta)
+		svcReg, err = c.constructServiceRegistration(taskMeta)
 		if err != nil {
 			return err
 		}
-		proxyRegistration = c.constructProxyRegistration(serviceRegistration)
+		proxyReg = c.constructProxyRegistration(svcReg)
 	}
 
-	if serviceRegistration != nil {
+	if svcReg != nil {
 		// No need to register the service for gateways.
 		err = backoff.RetryNotify(func() error {
 			c.log.Info("registering service")
-			return consulClient.Agent().ServiceRegister(serviceRegistration)
-		}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
+			_, err := consulClient.Catalog().Register(svcReg, nil)
+			return err
+		}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 		if err != nil {
 			return err
 		}
 
-		c.log.Info("service registered successfully", "name", serviceRegistration.Name, "id", serviceRegistration.ID)
+		c.log.Info("service registered successfully",
+			"node", svcReg.Node,
+			"service", svcReg.Service.Service,
+			"id", svcReg.Service.ID,
+		)
 	}
 
 	// Register the proxy.
 	err = backoff.RetryNotify(func() error {
-		c.log.Info("registering proxy", "kind", proxyRegistration.Kind)
-		return consulClient.Agent().ServiceRegister(proxyRegistration)
+		c.log.Info("registering proxy", "kind", proxyReg.Service.Kind)
+		_, err := consulClient.Catalog().Register(proxyReg, nil)
+		return err
 	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
 
-	c.log.Info("proxy registered successfully", "name", proxyRegistration.Name, "id", proxyRegistration.ID)
+	c.log.Info("proxy registered successfully",
+		"node", proxyReg.Node,
+		"service", proxyReg.Service.Service,
+		"id", proxyReg.Service.ID,
+	)
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
 	cmdArgs := []string{
-		"consul", "connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502",
+		"consul", "connect", "envoy",
+		"-bootstrap",
+		"-proxy-id", proxyReg.Service.ID,
+		"-http-addr", c.config.ConsulHTTPAddr,
+		// TODO: Using the http address here. Need separate config in case the grpc address is different.
+		"-grpc-addr", strings.ReplaceAll(c.config.ConsulHTTPAddr, ":8500", "") + ":8502",
+		"-node-name", proxyReg.Node,
+	}
+	// TODO: Using the https ca cert here. Need separate config in case the grpc cert is different.
+	if c.config.ConsulCACertFile != "" {
+		cmdArgs = append(cmdArgs, "-ca-file", c.config.ConsulCACertFile)
 	}
 	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
 		kind := strings.ReplaceAll(string(c.config.Gateway.Kind), "-gateway", "")
@@ -128,22 +152,31 @@ func (c *Command) realRun() error {
 	if c.config.ConsulLogin.Enabled {
 		cmdArgs = append(cmdArgs, "-token-file", cfg.TokenFile)
 	}
-	if proxyRegistration.Partition != "" {
+	if proxyReg.Partition != "" {
 		// Partition/namespace support is enabled so augment the connect command.
 		cmdArgs = append(cmdArgs,
-			"-partition", proxyRegistration.Partition,
-			"-namespace", proxyRegistration.Namespace)
+			"-partition", proxyReg.Partition,
+			"-namespace", proxyReg.Service.Namespace,
+		)
 	}
 
-	c.log.Info("Running", "cmd", cmdArgs)
-	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
-	out, err := cmd.CombinedOutput()
+	var output []byte
+	err = backoff.RetryNotify(func() error {
+		c.log.Info("Running", "cmd", cmdArgs)
+		cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s: %s", err, string(out))
+		}
+		output = out
+		return nil
+	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 	if err != nil {
-		return fmt.Errorf("%s: %s", err, string(out))
+		return err
 	}
 
 	envoyBootstrapFile := path.Join(c.config.BootstrapDir, envoyBoostrapConfigFilename)
-	err = os.WriteFile(envoyBootstrapFile, out, 0444)
+	err = os.WriteFile(envoyBootstrapFile, output, 0444)
 	if err != nil {
 		return err
 	}
@@ -355,14 +388,14 @@ func mergeMeta(m1, m2 map[string]string) map[string]string {
 
 // constructServiceRegistration returns the service registration request body.
 // May return an error due to invalid inputs from the config file.
-func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*api.AgentServiceRegistration, error) {
+func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*api.CatalogRegistration, error) {
 	serviceName := c.constructServiceName(taskMeta.Family)
 	taskID := taskMeta.TaskID()
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
-	checks, err := constructChecks(serviceID, c.config.Service.Checks, c.config.HealthSyncContainers)
-	if err != nil {
-		return nil, err
-	}
+	//checks, err := constructChecks(serviceID, c.config.Service.Checks, c.config.HealthSyncContainers)
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	fullMeta := mergeMeta(map[string]string{
 		"task-id":  taskID,
@@ -370,47 +403,66 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*a
 		"source":   "consul-ecs",
 	}, c.config.Service.Meta)
 
-	serviceRegistration := c.config.Service.ToConsulType()
-	serviceRegistration.ID = serviceID
-	serviceRegistration.Name = serviceName
-	serviceRegistration.Meta = fullMeta
-	serviceRegistration.Checks = nil
-	for _, check := range checks {
-		serviceRegistration.Checks = append(serviceRegistration.Checks, check.ToConsulType())
+	ipv4, err := taskMeta.IPv4Address()
+	if err != nil {
+		return nil, err
 	}
-	return serviceRegistration, nil
+	hostname, err := taskMeta.PrivateDNSName()
+	if err != nil {
+		return nil, err
+	}
+
+	svcReg := c.config.Service.ToConsulType()
+	svcReg.Node = hostname
+	svcReg.Address = ipv4
+
+	svcReg.Service.ID = serviceID
+	svcReg.Service.Service = serviceName
+	svcReg.Service.Meta = fullMeta
+	svcReg.Checks = nil
+	//for _, check := range checks {
+	//	svcReg.Checks = append(svcReg.Checks, check.ToConsulType())
+	//}
+	return svcReg, nil
 }
 
 // constructProxyRegistration returns the proxy registration request body.
-func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServiceRegistration) *api.AgentServiceRegistration {
-	proxyRegistration := &api.AgentServiceRegistration{}
-	proxyRegistration.ID = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.ID)
-	proxyRegistration.Name = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Name)
-	proxyRegistration.Kind = api.ServiceKindConnectProxy
-	proxyRegistration.Port = 20000
-	proxyRegistration.Meta = serviceRegistration.Meta
-	proxyRegistration.Tags = serviceRegistration.Tags
-	proxyRegistration.Proxy = c.config.Proxy.ToConsulType()
-	proxyRegistration.Proxy.DestinationServiceName = serviceRegistration.Name
-	proxyRegistration.Proxy.DestinationServiceID = serviceRegistration.ID
-	proxyRegistration.Proxy.LocalServicePort = serviceRegistration.Port
-	proxyRegistration.Checks = []*api.AgentServiceCheck{
-		{
-			Name:                           "Proxy Public Listener",
-			TCP:                            "127.0.0.1:20000",
-			Interval:                       "10s",
-			DeregisterCriticalServiceAfter: "10m",
-		},
-		{
-			Name:         "Destination Alias",
-			AliasService: serviceRegistration.ID,
-		},
+func (c *Command) constructProxyRegistration(svcReg *api.CatalogRegistration) *api.CatalogRegistration {
+	svc := svcReg.Service
+
+	proxyReg := &api.CatalogRegistration{
+		Service: &api.AgentService{},
 	}
-	proxyRegistration.Partition = serviceRegistration.Partition
-	proxyRegistration.Namespace = serviceRegistration.Namespace
-	proxyRegistration.Weights = serviceRegistration.Weights
-	proxyRegistration.EnableTagOverride = serviceRegistration.EnableTagOverride
-	return proxyRegistration
+	proxyReg.Node = svcReg.Node
+	proxyReg.Address = svcReg.Address
+	proxyReg.Service.ID = fmt.Sprintf("%s-sidecar-proxy", svc.ID)
+	proxyReg.Service.Service = fmt.Sprintf("%s-sidecar-proxy", svc.Service)
+	proxyReg.Service.Kind = api.ServiceKindConnectProxy
+	proxyReg.Service.Port = 20000
+	proxyReg.Service.Meta = svc.Meta
+	proxyReg.Service.Tags = svc.Tags
+	proxyReg.Service.Proxy = c.config.Proxy.ToConsulType()
+	proxyReg.Service.Proxy.DestinationServiceName = svc.Service
+	proxyReg.Service.Proxy.DestinationServiceID = svc.ID
+	proxyReg.Service.Proxy.LocalServicePort = svc.Port
+	//proxyReg.Checks = []*api.AgentServiceCheck{
+	//	{
+	//		Name:                           "Proxy Public Listener",
+	//		TCP:                            "127.0.0.1:20000",
+	//		Interval:                       "10s",
+	//		DeregisterCriticalServiceAfter: "10m",
+	//	},
+	//	{
+	//		Name:         "Destination Alias",
+	//		AliasService: svcReg.ID,
+	//	},
+	//}
+	proxyReg.Partition = svcReg.Partition
+	proxyReg.Service.Partition = svc.Partition
+	proxyReg.Service.Namespace = svc.Namespace
+	proxyReg.Service.Weights = svc.Weights
+	proxyReg.Service.EnableTagOverride = svc.EnableTagOverride
+	return proxyReg
 }
 
 func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta) *api.AgentServiceRegistration {

@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 
@@ -344,24 +346,99 @@ func (c *Command) upsertClientRole(consulClient *api.Client, roleName, policyNam
 	return nil
 }
 
+// upsertAuthMethod will create the auth method if it does not already exist. If the auth method
+// already exists, it will merge the two lists of BoundIAMPrincipalARNs and update the auth method
+// if necessary.
+//
+// Note: there is a race if two controllers do a simultaneous read-write of the auth method. This
+// should be rare, so there's no mitigation against this for now.
 func (c *Command) upsertAuthMethod(consulClient *api.Client, authMethod *api.ACLAuthMethod) error {
-
 	method, _, err := consulClient.ACL().AuthMethodRead(authMethod.Name, c.queryOptions())
 	if err != nil && !controller.IsACLNotFoundError(err) {
 		return fmt.Errorf("reading ACL auth method: %w", err)
 	} else if err == nil && method != nil { // returns err=nil and method=nil if not found
-		c.log.Info("ACL auth method already exists; skipping creation", "name", authMethod.Name)
+
+		// note: `method.Config` is a map of interface{} values. The BoundIAMPrincipalARNs is always a slice of
+		//       strings, but could be either []interface{} or []string. We convert to []string to merge the
+		//       two slices together. forceStringSlice will ignore any non-string values in those slices (not
+		//       that we should run into that, but with a warning if we ever encounter that).
+		currentPrincipals, err := forceStringSlice(method.Config["BoundIAMPrincipalARNs"])
+		if err != nil {
+			c.log.Warn("incorrect type for BoundIAMPrincipalARNs", "auth-method", method.Name, "msg", err.Error())
+		}
+
+		ourPrincipals, err := forceStringSlice(authMethod.Config["BoundIAMPrincipalARNs"])
+		if err != nil {
+			c.log.Warn("incorrect type for BoundIAMPrincipalARNs", "auth-method", method.Name, "msg", err.Error())
+		}
+
+		// Merge current principals with possibly new/other principals, and dedupe.
+		principals := uniqueStrings(append(currentPrincipals, ourPrincipals...))
+
+		if reflect.DeepEqual(principals, currentPrincipals) {
+			c.log.Info("ACL auth method already exists; skipping upsert", "name", authMethod.Name)
+			return nil
+		}
+
+		c.log.Info("ACL auth method exists; updating BoundIAMPrincipalARNs",
+			"name", authMethod.Name, "current-arns", fmt.Sprint(currentPrincipals), "our-arns", fmt.Sprint(principals))
+		authMethod.Config["BoundIAMPrincipalARNs"] = principals
+
+		method, _, err = consulClient.ACL().AuthMethodUpdate(authMethod, c.writeOptions())
+		if err != nil {
+			return fmt.Errorf("updating ACL auth method: %w", err)
+		}
+		c.log.Info("ACL auth method updated successfully", "name", method.Name)
+	} else {
+		c.log.Info("creating ACL auth method", "name", authMethod.Name)
+		method, _, err = consulClient.ACL().AuthMethodCreate(authMethod, c.writeOptions())
+		if err != nil {
+			return fmt.Errorf("creating ACL auth method: %w", err)
+		}
+		c.log.Info("ACL auth method created successfully", "name", method.Name)
+	}
+	return nil
+}
+
+func uniqueStrings(strs []string) []string {
+	if len(strs) == 0 {
 		return nil
 	}
 
-	c.log.Info("creating ACL auth method", "name", authMethod.Name)
-	method, _, err = consulClient.ACL().AuthMethodCreate(authMethod, c.writeOptions())
-	if err != nil {
-		return fmt.Errorf("creating ACL auth method: %w", err)
+	unique := make(map[string]struct{}, len(strs))
+	for _, s := range strs {
+		unique[s] = struct{}{}
 	}
-	c.log.Info("ACL auth method created successfully", "name", method.Name)
 
-	return nil
+	result := make([]string, 0, len(unique))
+	for s := range unique {
+		result = append(result, s)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func forceStringSlice(val interface{}) ([]string, error) {
+	switch slice := val.(type) {
+	case nil:
+		return nil, nil
+	case []string:
+		return slice, nil
+	case []interface{}:
+		var result []string
+		var err error
+		for _, arnVal := range slice {
+			if arn, ok := arnVal.(string); ok {
+				result = append(result, arn)
+			} else {
+				err = fmt.Errorf("[]interface{} slice contains non-string values")
+				// ignore non-string values! this works for our purposes.
+				// we don't expect to encounter this case, but still return an error message to detect it.
+			}
+		}
+		return result, err
+	}
+	return nil, fmt.Errorf("value of type %T is not a []string", val)
 }
 
 func (c *Command) upsertBindingRule(consulClient *api.Client, bindingRule *api.ACLBindingRule) error {

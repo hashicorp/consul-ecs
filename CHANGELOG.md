@@ -1,4 +1,4 @@
-## UNRELEASED
+## 0.5.0-beta1 (Jun 06, 2022)
 
 BREAKING CHANGES
 * Update `acl-controller` to cleanup ACL tokens created from Consul's AWS IAM auth method. Remove

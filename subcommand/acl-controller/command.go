@@ -1,12 +1,14 @@
 package aclcontroller
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
+	"text/template"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
@@ -15,6 +17,7 @@ import (
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
+	"github.com/mitchellh/mapstructure"
 )
 
 const (
@@ -134,6 +137,8 @@ func (c *Command) Help() string {
 // upsertConsulResources creates the necessary resources in Consul if they do not exist.
 // This includes the partition, client role and policy, client and service token auth methods,
 // and the necessary binding rules.
+// If mesh federation via mesh gateways is enabled the anonymous token will be updated with the
+// necessary read permissions.
 func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsutil.ECSTaskMeta) error {
 	account, err := ecsMeta.AccountID()
 	if err != nil {
@@ -221,6 +226,9 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 		return err
 	}
 	if err := c.upsertBindingRule(consulClient, serviceBindingRule); err != nil {
+		return err
+	}
+	if err := c.upsertAnonymousTokenPolicy(consulClient); err != nil {
 		return err
 	}
 	return nil
@@ -389,6 +397,71 @@ func (c *Command) upsertBindingRule(consulClient *api.Client, bindingRule *api.A
 	return nil
 }
 
+func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client) error {
+	agentCfg, err := consulClient.Agent().Self()
+	if err != nil {
+		return fmt.Errorf("failed to get Consul agent self config: %w", err)
+	}
+	var agentConfig AgentConfig
+	err = mapstructure.Decode(agentCfg, &agentConfig)
+	if err != nil {
+		return fmt.Errorf("failed to decode Consul agent self config: %w", err)
+	}
+
+	consulDC, primaryDC, err := c.consulDatacenterList(agentConfig)
+	if err != nil {
+		return fmt.Errorf("failed to list Consul datacenters: %w", err)
+	}
+
+	if !agentConfig.Config.MeshGatewayWANFederationEnabled || consulDC != primaryDC {
+		return nil
+	}
+
+	// If mesh gateway WAN federation is enabled and the ACL controller is in the primary
+	// datacenter then we need to update the anonymous token with service:read and node:read.
+	// Tokens are stripped from cross DC API calls so cross DC API calls use the anonymous
+	// token. Mesh gateway proxies use the anonymous token to talk cross-DC and they require
+	// service:read and node:read.
+	c.log.Info("Configuring anonymous token", "datacenter", consulDC, "primary-datacenter", primaryDC)
+
+	policyName := "anonymous-token-policy"
+	policy, _, err := consulClient.ACL().PolicyReadByName(policyName, &api.QueryOptions{})
+	if err == nil {
+		c.log.Info("Anonymous token policy already exists, skipping policy creation", "name", policyName)
+	} else if err != nil && controller.IsACLNotFoundError(err) {
+		// the policy is not found, so create it.
+		c.log.Info("creating ACL policy", "name", policyName)
+		rules, err := c.anonymousPolicyRules()
+		if err != nil {
+			return fmt.Errorf("failed to generate anonymous token policy rules: %w", err)
+		}
+		policy, _, err = consulClient.ACL().PolicyCreate(&api.ACLPolicy{
+			Name:        policyName,
+			Description: "Anonymous token policy",
+			Rules:       rules,
+		}, &api.WriteOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create anonymous token policy: %w", err)
+		}
+		c.log.Info("ACL policy created successfully", "name", policyName)
+	} else {
+		return fmt.Errorf("failed to read anonymous token policy: %w", err)
+	}
+
+	// The accessor ID for the anonymous token is well-known so we don't need to find it.
+	token := api.ACLToken{
+		AccessorID: "00000000-0000-0000-0000-000000000002",
+		Policies:   []*api.ACLTokenPolicyLink{{Name: policy.Name}},
+	}
+	_, _, err = consulClient.ACL().TokenUpdate(&token, &api.WriteOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update anonymous token: %w", err)
+	}
+
+	c.log.Info("Successfully configured the anonymous token")
+	return nil
+}
+
 func (c *Command) queryOptions() *api.QueryOptions {
 	if c.flagPartitionsEnabled {
 		return &api.QueryOptions{Partition: c.flagPartition}
@@ -401,4 +474,72 @@ func (c *Command) writeOptions() *api.WriteOptions {
 		return &api.WriteOptions{Partition: c.flagPartition}
 	}
 	return nil
+}
+
+// consulDatacenterList returns the current datacenter name and the primary datacenter using the
+// /agent/self API endpoint.
+func (c *Command) consulDatacenterList(agentConfig AgentConfig) (string, string, error) {
+	if agentConfig.Config.Datacenter == "" {
+		return "", "", fmt.Errorf("agent config does not contain Config.Datacenter key: %+v", agentConfig)
+	}
+	if agentConfig.Config.PrimaryDatacenter == "" && agentConfig.DebugConfig.PrimaryDatacenter == "" {
+		return "", "", fmt.Errorf("both Config.PrimaryDatacenter and DebugConfig.PrimaryDatacenter are empty: %+v", agentConfig)
+	}
+	if agentConfig.Config.PrimaryDatacenter != "" {
+		return agentConfig.Config.Datacenter, agentConfig.Config.PrimaryDatacenter, nil
+	} else {
+		return agentConfig.Config.Datacenter, agentConfig.DebugConfig.PrimaryDatacenter, nil
+	}
+}
+
+type AgentConfig struct {
+	Config      Config
+	DebugConfig Config
+}
+
+type Config struct {
+	Datacenter                      string `mapstructure:"Datacenter"`
+	PrimaryDatacenter               string `mapstructure:"PrimaryDatacenter"`
+	MeshGatewayWANFederationEnabled bool   `mapstructure:"ConnectMeshGatewayWANFederationEnabled"`
+}
+
+type templateData struct {
+	Enterprise bool
+}
+
+func (c *Command) templateData() templateData {
+	return templateData{Enterprise: c.flagPartitionsEnabled}
+}
+
+func (c *Command) anonymousPolicyRules() (string, error) {
+	rules := `
+{{- if .Enterprise }}
+namespace_prefix "" {
+{{- end }}
+  node_prefix "" {
+     policy = "read"
+  }
+  service_prefix "" {
+     policy = "read"
+  }
+{{- if .Enterprise }}
+}
+{{- end }}
+`
+	return RenderTemplate(rules, c.templateData())
+}
+
+// RenderTemplate parses and executes the template t against the given data source.
+func RenderTemplate(t string, data interface{}) (string, error) {
+	parsed, err := template.New("root").Parse(strings.TrimSpace(t))
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	err = parsed.Execute(&buf, data)
+	if err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }

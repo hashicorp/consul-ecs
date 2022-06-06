@@ -299,3 +299,14 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, expPolicyRules
 		require.Equal(t, rule.BindName, fmt.Sprintf(`${entity_tags.%s}`, authMethodServiceNameTag))
 	}
 }
+
+func TestAnonymousTokenRules(t *testing.T) {
+	a := []bool{false, true}
+	cmd := &Command{}
+	for _, e := range a {
+		cmd.flagPartitionsEnabled = e
+		rules, err := cmd.anonymousPolicyRules()
+		require.NoError(t, err)
+		fmt.Println(rules)
+	}
+}

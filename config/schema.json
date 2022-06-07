@@ -62,7 +62,8 @@
       "properties": {
         "name": {
           "description": "The name the service will be registered as in Consul. Defaults to the Task family name if empty or null.",
-          "type": ["string", "null"]
+          "type": ["string", "null"],
+          "pattern": "(^$)|(^[a-z0-9]([a-z0-9-_]*[a-z0-9])?$)"
         },
         "tags": {
           "description": "List of string values that can be used to add service-level labels.",
@@ -357,37 +358,38 @@
         },
         "lanAddress": {
           "description": "LAN address and port for the gateway. If not specified, defaults to the task/node address.",
-          "type": "object",
+          "type": ["object", "null"],
           "properties": {
             "address": {
-              "type": "string"
+              "type": ["string", "null"]
             },
             "port": {
-              "type": "integer"
+              "type": ["integer", "null"]
             }
           },
           "additionalProperties": false
         },
         "wanAddress": {
           "description": "WAN address and port for the gateway. If not specified, defaults to the task/node address.",
-          "type": "object",
+          "type": ["object", "null"],
           "properties": {
             "source": {
-              "type": "string",
-              "enum": ["publicIP", "loadBalancerDNS", ""]
+              "type": ["string", "null"],
+              "enum": ["publicIP", "loadBalancerDNS", "", null]
             },
             "address": {
-              "type": "string"
+              "type": ["string", "null"]
             },
             "port": {
-              "type": "integer"
+              "type": ["integer", "null"]
             }
           },
           "additionalProperties": false
         },
         "name": {
           "description": "The name the gateway will be registered as in Consul. Defaults to the Task family name.",
-          "type": ["string", "null"]
+          "type": ["string", "null"],
+          "pattern": "(^$)|(^[a-z0-9]([a-z0-9-_]*[a-z0-9])?$)"
         },
         "tags": {
           "description": "List of string values that can be used to add labels to the gateway.",

@@ -1,9 +1,13 @@
-## UNRELEASED
+## 0.5.0-beta1 (Jun 06, 2022)
 
 BREAKING CHANGES
 * Update `acl-controller` to cleanup ACL tokens created from Consul's AWS IAM auth method. Remove
   `-secret-name-prefix` and `-consul-client-secret-arn` flags. The controller no longer creates ACL
   tokens. [[GH-82](https://github.com/hashicorp/consul-ecs/pull/82)]
+* A lower case service name is required by `mesh-init` and `health-sync`. When the `service.name` field
+  is specified, it must be a valid name for a Consul service identity. Otherwise, if `service.name` is
+  not specified, the lower-cased task family is used for the Consul service name.
+  [[GH-97](https://github.com/hashicorp/consul-ecs/pull/97)]
 
 FEATURES
 * Add `-log-level` flag to `acl-controller`, `envoy-entrypoint`, and `app-entrypoint`

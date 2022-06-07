@@ -9,7 +9,10 @@ project "consul-ecs" {
   github {
     organization = "hashicorp"
     repository = "consul-ecs"
-    release_branches = ["main"]
+    release_branches = [
+      "main",
+      "release/0.5.x",
+    ]
   }
 }
 
@@ -177,19 +180,6 @@ event "promote-production-docker" {
     organization = "hashicorp"
     repository = "crt-workflows-common"
     workflow = "promote-production-docker"
-  }
-
-  notification {
-    on = "always"
-  }
-}
-
-event "promote-production-packaging" {
-  depends = ["promote-production-docker"]
-  action "promote-production-packaging" {
-    organization = "hashicorp"
-    repository = "crt-workflows-common"
-    workflow = "promote-production-packaging"
   }
 
   notification {

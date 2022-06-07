@@ -299,17 +299,6 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, expPolicyRules
 	}
 }
 
-func TestAnonymousTokenRules(t *testing.T) {
-	a := []bool{false, true}
-	cmd := &Command{}
-	for _, e := range a {
-		cmd.flagPartitionsEnabled = e
-		rules, err := cmd.anonymousPolicyRules()
-		require.NoError(t, err)
-		fmt.Println(rules)
-	}
-}
-
 func TestUpsertAuthMethod(t *testing.T) {
 	t.Parallel()
 	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
@@ -430,5 +419,16 @@ func makeAuthMethod(principals interface{}) *api.ACLAuthMethod {
 			"BoundIAMPrincipalARNs":  principals,
 			"EnableIAMEntityDetails": true,
 		},
+	}
+}
+
+func TestAnonymousTokenRules(t *testing.T) {
+	a := []bool{false, true}
+	cmd := &Command{}
+	for _, e := range a {
+		cmd.flagPartitionsEnabled = e
+		rules, err := cmd.anonymousPolicyRules()
+		require.NoError(t, err)
+		fmt.Println(rules)
 	}
 }

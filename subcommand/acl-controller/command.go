@@ -490,7 +490,7 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client) error {
 		return fmt.Errorf("failed to list Consul datacenters: %w", err)
 	}
 
-	if !agentConfig.Config.MeshGatewayWANFederationEnabled || consulDC != primaryDC {
+	if !agentConfig.DebugConfig.MeshGatewayWANFederationEnabled || consulDC != primaryDC {
 		return nil
 	}
 

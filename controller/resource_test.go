@@ -385,6 +385,8 @@ func TestReconcileNamespaces(t *testing.T) {
 			expNS:     map[string][]string{"default": {"default"}},
 			resources: []Resource{
 				makeTaskStateEnt("some-task-id", true, nil, "default", "default"),
+				// simulate a task state with an empty string for the namespace
+				makeTaskStateEnt("some-task-id", false, nil, "", ""),
 			},
 			expXnsPolicy: true,
 		}

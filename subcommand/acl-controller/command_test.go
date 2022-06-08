@@ -16,7 +16,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testPartitionName = "test-partition"
+const (
+	testPartitionName = "test-partition"
+
+	expEntAnonTokenPolicy = `
+namespace_prefix "" {
+  node_prefix "" {
+    policy = "read"
+  }
+  service_prefix "" {
+    policy = "read"
+  }
+}`
+
+	expOSSAnonTokenPolicy = `
+  node_prefix "" {
+    policy = "read"
+  }
+  service_prefix "" {
+    policy = "read"
+  }`
+)
 
 var (
 	testTaskMetadataResponse = awsutil.ECSTaskMeta{
@@ -422,13 +442,123 @@ func makeAuthMethod(principals interface{}) *api.ACLAuthMethod {
 	}
 }
 
-func TestAnonymousTokenRules(t *testing.T) {
-	a := []bool{false, true}
-	cmd := &Command{}
-	for _, e := range a {
-		cmd.flagPartitionsEnabled = e
-		rules, err := cmd.anonymousPolicyRules()
-		require.NoError(t, err)
-		fmt.Println(rules)
+func TestUpsertAnonymousTokenPolicy(t *testing.T) {
+	t.Parallel()
+	cases := map[string]struct {
+		partitionsEnabled bool
+		agentConfig       AgentConfig
+		existingPolicy    bool
+		expPolicy         string
+		expErr            string
+	}{
+		"list datacenters err, no datacenter": {
+			expErr: "agent config does not contain Config.Datacenter key",
+		},
+		"list datacenters err, no primary": {
+			agentConfig: AgentConfig{Config: Config{Datacenter: "dc1"}},
+			expErr:      "both Config.PrimaryDatacenter and DebugConfig.PrimaryDatacenter are empty",
+		},
+		"mgw WAN fed not enabled": {
+			agentConfig: AgentConfig{Config: Config{Datacenter: "dc1", PrimaryDatacenter: "dc1"}},
+		},
+		"mgw WAN fed enabled, not primary DC": {
+			agentConfig: AgentConfig{Config: Config{Datacenter: "dc2"}, DebugConfig: Config{PrimaryDatacenter: "dc1"}},
+		},
+		"mgw WAN fed enabled, primary DC, policy exists": {
+			agentConfig: AgentConfig{
+				Config: Config{Datacenter: "dc1"},
+				DebugConfig: Config{
+					PrimaryDatacenter:               "dc1",
+					MeshGatewayWANFederationEnabled: true,
+				},
+			},
+			existingPolicy: true,
+			expPolicy:      expOSSAnonTokenPolicy,
+		},
+		"mgw WAN fed enabled, primary DC, create policy OSS": {
+			agentConfig: AgentConfig{
+				Config: Config{Datacenter: "dc1"},
+				DebugConfig: Config{
+					PrimaryDatacenter:               "dc1",
+					MeshGatewayWANFederationEnabled: true,
+				},
+			},
+			expPolicy: expOSSAnonTokenPolicy,
+		},
+		"mgw WAN fed enabled, primary DC, create policy ENT": {
+			agentConfig: AgentConfig{
+				Config: Config{Datacenter: "dc1"},
+				DebugConfig: Config{
+					PrimaryDatacenter:               "dc1",
+					MeshGatewayWANFederationEnabled: true,
+				},
+			},
+			partitionsEnabled: true,
+			expPolicy:         expEntAnonTokenPolicy,
+		},
+	}
+	for name, c := range cases {
+		c := c
+		t.Run(name, func(t *testing.T) {
+			cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+			consulClient, err := api.NewClient(cfg)
+			require.NoError(t, err)
+
+			cmd := Command{
+				log:                   hclog.Default().Named("acl-controller"),
+				flagPartitionsEnabled: c.partitionsEnabled,
+			}
+
+			// if we're simulating that the policy already exists, then create it.
+			var expPolicyID string
+			if c.existingPolicy {
+				policy, _, err := consulClient.ACL().PolicyCreate(&api.ACLPolicy{
+					Name:        anonPolicyName,
+					Description: "Anonymous token policy",
+					Rules:       c.expPolicy,
+				}, &api.WriteOptions{})
+				require.NoError(t, err)
+				expPolicyID = policy.ID
+			}
+
+			expAnonToken, _, err := consulClient.ACL().TokenRead(anonTokenID, &api.QueryOptions{})
+			require.NoError(t, err)
+
+			err = cmd.upsertAnonymousTokenPolicy(consulClient, c.agentConfig)
+
+			if len(c.expErr) == 0 {
+				require.NoError(t, err)
+				obsAnonToken, _, err := consulClient.ACL().TokenRead(anonTokenID, &api.QueryOptions{})
+				require.NoError(t, err)
+
+				if len(c.expPolicy) > 0 {
+					// if we expect the policy to be created then read it back to make sure
+					// it was and that it matches the expected
+					obsAnonTokenPolicy, _, err := consulClient.ACL().PolicyReadByName(anonPolicyName, &api.QueryOptions{})
+					require.NoError(t, err)
+					require.Equal(t, c.expPolicy, obsAnonTokenPolicy.Rules)
+
+					if expPolicyID == "" {
+						// if the policy was created during the upsert then set the ID to the
+						// value that we got back when reading the policy.
+						expPolicyID = obsAnonTokenPolicy.ID
+					}
+
+					// expect that the policy is now attached to the anonymous token.
+					expAnonToken.Policies = append(expAnonToken.Policies, &api.ACLTokenPolicyLink{
+						ID:   expPolicyID,
+						Name: anonPolicyName})
+				}
+				// remove fields that don't compare
+				for _, token := range []*api.ACLToken{expAnonToken, obsAnonToken} {
+					token.ModifyIndex = 0
+					token.Hash = nil
+				}
+				require.Equal(t, expAnonToken, obsAnonToken)
+			} else {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), c.expErr)
+			}
+		})
 	}
 }

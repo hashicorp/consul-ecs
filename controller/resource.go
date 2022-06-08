@@ -249,24 +249,50 @@ func (s TaskStateLister) upsertCrossNSPolicy() error {
 		return fmt.Errorf("reading cross-namespace policy: %w", err)
 	}
 
-	if policy != nil {
-		// the policy already exists so return.
-		return nil
+	if policy == nil {
+		// create the policy in the local partition and default namespace.
+		_, _, err = s.ConsulClient.ACL().PolicyCreate(&api.ACLPolicy{
+			Name:        xnsPolicyName,
+			Description: xnsPolicyDesc,
+			Partition:   s.Partition,
+			Namespace:   DefaultNamespace,
+			Rules:       fmt.Sprintf(xnsPolicyTpl, s.Partition),
+		}, nil)
+		if err != nil {
+			return fmt.Errorf("creating cross-namespace policy: %w", err)
+		}
+		s.Log.Info("created cross-namespace policy", "name", xnsPolicyName)
 	}
 
-	// create the policy in the local partition and default namespace.
-	_, _, err = s.ConsulClient.ACL().PolicyCreate(&api.ACLPolicy{
-		Name:        xnsPolicyName,
-		Description: xnsPolicyDesc,
-		Partition:   s.Partition,
-		Namespace:   DefaultNamespace,
-		Rules:       fmt.Sprintf(xnsPolicyTpl, s.Partition),
-	}, nil)
+	// update the default namespace with the cross-namespace policy, if necessary
+	ns, _, err := s.ConsulClient.Namespaces().Read(
+		DefaultNamespace, &api.QueryOptions{Partition: s.Partition},
+	)
 	if err != nil {
-		return fmt.Errorf("creating cross-namespace policy: %w", err)
+		return fmt.Errorf("fetching default namespace: %w", err)
 	}
 
-	s.Log.Info("created cross-namespace policy", "name", xnsPolicyName)
+	// check if the namespace already has the cross-ns policy
+	if ns.ACLs == nil {
+		ns.ACLs = &api.NamespaceACLConfig{}
+	}
+	for _, link := range ns.ACLs.PolicyDefaults {
+		if link.Name == xnsPolicyName {
+			s.Log.Debug("default namespace contains default policy; skipping update", "policy", link.Name)
+			return nil
+		}
+	}
+
+	// update the default namespace with the cross-namespace policy
+	ns.ACLs.PolicyDefaults = append(ns.ACLs.PolicyDefaults, api.ACLLink{Name: xnsPolicyName})
+	_, _, err = s.ConsulClient.Namespaces().Update(
+		ns, &api.WriteOptions{Partition: s.Partition},
+	)
+	if err != nil {
+		return fmt.Errorf("updating default namespace with cross-namespace policy: %w", err)
+	}
+	s.Log.Info("updated default namespace with default policy", "policy", xnsPolicyName)
+
 	return nil
 }
 

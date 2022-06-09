@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
@@ -20,22 +22,24 @@ const (
 	testPartitionName = "test-partition"
 
 	expEntAnonTokenPolicy = `
-namespace_prefix "" {
-  node_prefix "" {
-    policy = "read"
-  }
-  service_prefix "" {
-    policy = "read"
+partition_prefix "" {
+  namespace_prefix "" {
+    node_prefix "" {
+      policy = "read"
+    }
+    service_prefix "" {
+      policy = "read"
+    }
   }
 }`
 
 	expOSSAnonTokenPolicy = `
-  node_prefix "" {
-    policy = "read"
-  }
-  service_prefix "" {
-    policy = "read"
-  }`
+    node_prefix "" {
+      policy = "read"
+    }
+    service_prefix "" {
+      policy = "read"
+    }`
 )
 
 var (
@@ -448,6 +452,7 @@ func TestUpsertAnonymousTokenPolicy(t *testing.T) {
 		partitionsEnabled bool
 		agentConfig       AgentConfig
 		existingPolicy    bool
+		attachPolicy      bool
 		expPolicy         string
 		expErr            string
 	}{
@@ -463,6 +468,18 @@ func TestUpsertAnonymousTokenPolicy(t *testing.T) {
 		},
 		"mgw WAN fed enabled, not primary DC": {
 			agentConfig: AgentConfig{Config: Config{Datacenter: "dc2"}, DebugConfig: Config{PrimaryDatacenter: "dc1"}},
+		},
+		"mgw WAN fed enabled, primary DC, policy attached": {
+			agentConfig: AgentConfig{
+				Config: Config{Datacenter: "dc1"},
+				DebugConfig: Config{
+					PrimaryDatacenter:               "dc1",
+					MeshGatewayWANFederationEnabled: true,
+				},
+			},
+			existingPolicy: true,
+			attachPolicy:   true,
+			expPolicy:      expOSSAnonTokenPolicy,
 		},
 		"mgw WAN fed enabled, primary DC, policy exists": {
 			agentConfig: AgentConfig{
@@ -510,51 +527,48 @@ func TestUpsertAnonymousTokenPolicy(t *testing.T) {
 			}
 
 			// if we're simulating that the policy already exists, then create it.
-			var expPolicyID string
 			if c.existingPolicy {
-				policy, _, err := consulClient.ACL().PolicyCreate(&api.ACLPolicy{
+				_, _, err := consulClient.ACL().PolicyCreate(&api.ACLPolicy{
 					Name:        anonPolicyName,
 					Description: "Anonymous token policy",
 					Rules:       c.expPolicy,
-				}, &api.WriteOptions{})
+				}, nil)
 				require.NoError(t, err)
-				expPolicyID = policy.ID
 			}
 
-			expAnonToken, _, err := consulClient.ACL().TokenRead(anonTokenID, &api.QueryOptions{})
+			expAnonToken, _, err := consulClient.ACL().TokenRead(anonTokenID, nil)
 			require.NoError(t, err)
+
+			// if we're simulating that the policy is already attached, then attach it.
+			if c.attachPolicy {
+				expAnonToken.Policies = append(expAnonToken.Policies, &api.ACLTokenPolicyLink{Name: anonPolicyName})
+				_, _, err = consulClient.ACL().TokenUpdate(expAnonToken, nil)
+				require.NoError(t, err)
+			}
 
 			err = cmd.upsertAnonymousTokenPolicy(consulClient, c.agentConfig)
 
 			if len(c.expErr) == 0 {
 				require.NoError(t, err)
-				obsAnonToken, _, err := consulClient.ACL().TokenRead(anonTokenID, &api.QueryOptions{})
+				obsAnonToken, _, err := consulClient.ACL().TokenRead(anonTokenID, nil)
 				require.NoError(t, err)
 
 				if len(c.expPolicy) > 0 {
 					// if we expect the policy to be created then read it back to make sure
 					// it was and that it matches the expected
-					obsAnonTokenPolicy, _, err := consulClient.ACL().PolicyReadByName(anonPolicyName, &api.QueryOptions{})
+					obsAnonTokenPolicy, _, err := consulClient.ACL().PolicyReadByName(anonPolicyName, nil)
 					require.NoError(t, err)
 					require.Equal(t, c.expPolicy, obsAnonTokenPolicy.Rules)
 
-					if expPolicyID == "" {
-						// if the policy was created during the upsert then set the ID to the
-						// value that we got back when reading the policy.
-						expPolicyID = obsAnonTokenPolicy.ID
-					}
-
 					// expect that the policy is now attached to the anonymous token.
-					expAnonToken.Policies = append(expAnonToken.Policies, &api.ACLTokenPolicyLink{
-						ID:   expPolicyID,
-						Name: anonPolicyName})
+					if !c.attachPolicy {
+						expAnonToken.Policies = append(expAnonToken.Policies, &api.ACLTokenPolicyLink{
+							Name: anonPolicyName})
+					}
 				}
-				// remove fields that don't compare
-				for _, token := range []*api.ACLToken{expAnonToken, obsAnonToken} {
-					token.ModifyIndex = 0
-					token.Hash = nil
-				}
-				require.Equal(t, expAnonToken, obsAnonToken)
+				tokenIgnoreFields := cmpopts.IgnoreFields(api.ACLToken{}, "ModifyIndex", "Hash")
+				policyIgnoreFields := cmpopts.IgnoreFields(api.ACLTokenPolicyLink{}, "ID")
+				require.Empty(t, cmp.Diff(expAnonToken, obsAnonToken, tokenIgnoreFields, policyIgnoreFields))
 			} else {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), c.expErr)

@@ -509,11 +509,28 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 
 	c.log.Info("Configuring anonymous token", "datacenter", consulDC, "primary-datacenter", primaryDC)
 
-	policy, _, err := consulClient.ACL().PolicyReadByName(anonPolicyName, &api.QueryOptions{})
+	// Read the anonymous token. We don't pass query options here because the token is global.
+	// The token and policy exist in the default partition and namespace.
+	// The accessor ID for the anonymous token is well-known so we don't need to find it.
+	token, _, err := consulClient.ACL().TokenRead(anonTokenID, nil)
+	if err != nil {
+		return fmt.Errorf("failed to read anonymous token: %w", err)
+	}
+
+	// Check to see if the anonymous policy is already attached. If it is then we're done.
+	for _, link := range token.Policies {
+		if link.Name == anonPolicyName {
+			c.log.Info("Anonymous token policy is already attached, skipping token update.")
+			return nil
+		}
+	}
+
+	// Read the policy and create it in the default partition and namespace, if it does not exist.
+	policy, _, err := consulClient.ACL().PolicyReadByName(anonPolicyName, nil)
 	if err == nil {
 		c.log.Info("Anonymous token policy already exists, skipping policy creation", "name", anonPolicyName)
 	} else if err != nil && controller.IsACLNotFoundError(err) {
-		// the policy is not found, so create it.
+		// The policy is not found, so create it.
 		c.log.Info("creating ACL policy", "name", anonPolicyName)
 		rules, err := c.anonymousPolicyRules()
 		if err != nil {
@@ -532,14 +549,9 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 		return fmt.Errorf("failed to read anonymous token policy: %w", err)
 	}
 
-	// The accessor ID for the anonymous token is well-known so we don't need to find it.
-	token, _, err := consulClient.ACL().TokenRead(anonTokenID, &api.QueryOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to read anonymous token: %w", err)
-	}
+	// Attach the anonymous policy and update the token.
 	token.Policies = append(token.Policies, &api.ACLTokenPolicyLink{Name: policy.Name})
-
-	_, _, err = consulClient.ACL().TokenUpdate(token, &api.WriteOptions{})
+	_, _, err = consulClient.ACL().TokenUpdate(token, nil)
 	if err != nil {
 		return fmt.Errorf("failed to update anonymous token: %w", err)
 	}
@@ -600,15 +612,17 @@ func (c *Command) templateData() templateData {
 func (c *Command) anonymousPolicyRules() (string, error) {
 	rules := `
 {{- if .Enterprise }}
-namespace_prefix "" {
+partition_prefix "" {
+  namespace_prefix "" {
 {{- end }}
-  node_prefix "" {
-    policy = "read"
-  }
-  service_prefix "" {
-    policy = "read"
-  }
+    node_prefix "" {
+      policy = "read"
+    }
+    service_prefix "" {
+      policy = "read"
+    }
 {{- if .Enterprise }}
+  }
 }
 {{- end }}
 `

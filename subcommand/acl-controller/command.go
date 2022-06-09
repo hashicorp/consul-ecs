@@ -1,6 +1,7 @@
 package aclcontroller
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"text/template"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
@@ -17,6 +19,7 @@ import (
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
+	"github.com/mitchellh/mapstructure"
 )
 
 const (
@@ -29,6 +32,10 @@ const (
 	// Binding rules don't support a '/' character, so we need compatible IAM role tag names.
 	authMethodServiceNameTag = "consul.hashicorp.com.service-name"
 	authMethodNamespaceTag   = "consul.hashicorp.com.namespace"
+
+	// anonTokenID is the well-known ID for the anonymous ACL token.
+	anonTokenID    = "00000000-0000-0000-0000-000000000002"
+	anonPolicyName = "anonymous-token-policy"
 )
 
 type Command struct {
@@ -136,6 +143,8 @@ func (c *Command) Help() string {
 // upsertConsulResources creates the necessary resources in Consul if they do not exist.
 // This includes the partition, client role and policy, client and service token auth methods,
 // and the necessary binding rules.
+// If mesh federation via mesh gateways is enabled the anonymous token will be updated with the
+// necessary read permissions.
 func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsutil.ECSTaskMeta) error {
 	account, err := ecsMeta.AccountID()
 	if err != nil {
@@ -198,6 +207,16 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 		BindName:    fmt.Sprintf(`${entity_tags.%s}`, authMethodServiceNameTag),
 	}
 
+	agentSelf, err := consulClient.Agent().Self()
+	if err != nil {
+		return fmt.Errorf("failed to get Consul agent self config: %w", err)
+	}
+	var agentConfig AgentConfig
+	err = mapstructure.Decode(agentSelf, &agentConfig)
+	if err != nil {
+		return fmt.Errorf("failed to decode Consul agent self config: %w", err)
+	}
+
 	if c.flagPartitionsEnabled {
 		if c.flagPartition == "" {
 			// if an explicit partition was not provided use the default partition.
@@ -223,6 +242,9 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 		return err
 	}
 	if err := c.upsertBindingRule(consulClient, serviceBindingRule); err != nil {
+		return err
+	}
+	if err := c.upsertAnonymousTokenPolicy(consulClient, agentConfig); err != nil {
 		return err
 	}
 	return nil
@@ -466,6 +488,78 @@ func (c *Command) upsertBindingRule(consulClient *api.Client, bindingRule *api.A
 	return nil
 }
 
+// upsertAnonymousTokenPolicy ensures that the anonymous ACL token has the correct permissions
+// to allow for WAN federation via mesh gateways.
+// If mesh gateway WAN federation is enabled and the ACL controller is in the primary
+// datacenter then we need to update the anonymous token with service:read and node:read.
+// Tokens are stripped from cross DC API calls so cross DC API calls use the anonymous
+// token. Mesh gateway proxies use the anonymous token to talk cross-DC and they require
+// service:read and node:read.
+// The anonymous token is global so it is replicated from the primary DC to all secondary
+// DCs, which is why we only update it if this is the primary datacenter.
+func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConfig AgentConfig) error {
+	consulDC, primaryDC, err := c.consulDatacenterList(agentConfig)
+	if err != nil {
+		return fmt.Errorf("failed to list Consul datacenters: %w", err)
+	}
+
+	if !agentConfig.DebugConfig.MeshGatewayWANFederationEnabled || consulDC != primaryDC {
+		return nil
+	}
+
+	c.log.Info("Configuring anonymous token", "datacenter", consulDC, "primary-datacenter", primaryDC)
+
+	// Read the anonymous token. We don't pass query options here because the token is global.
+	// The token and policy exist in the default partition and namespace.
+	// The accessor ID for the anonymous token is well-known so we don't need to find it.
+	token, _, err := consulClient.ACL().TokenRead(anonTokenID, nil)
+	if err != nil {
+		return fmt.Errorf("failed to read anonymous token: %w", err)
+	}
+
+	// Check to see if the anonymous policy is already attached. If it is then we're done.
+	for _, link := range token.Policies {
+		if link.Name == anonPolicyName {
+			c.log.Info("Anonymous token policy is already attached, skipping token update.")
+			return nil
+		}
+	}
+
+	// Read the policy and create it in the default partition and namespace, if it does not exist.
+	policy, _, err := consulClient.ACL().PolicyReadByName(anonPolicyName, nil)
+	if err == nil {
+		c.log.Info("Anonymous token policy already exists, skipping policy creation", "name", anonPolicyName)
+	} else if err != nil && controller.IsACLNotFoundError(err) {
+		// The policy is not found, so create it.
+		c.log.Info("creating ACL policy", "name", anonPolicyName)
+		rules, err := c.anonymousPolicyRules()
+		if err != nil {
+			return fmt.Errorf("failed to generate anonymous token policy rules: %w", err)
+		}
+		policy, _, err = consulClient.ACL().PolicyCreate(&api.ACLPolicy{
+			Name:        anonPolicyName,
+			Description: "Anonymous token policy",
+			Rules:       rules,
+		}, &api.WriteOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create anonymous token policy: %w", err)
+		}
+		c.log.Info("ACL policy created successfully", "name", anonPolicyName)
+	} else {
+		return fmt.Errorf("failed to read anonymous token policy: %w", err)
+	}
+
+	// Attach the anonymous policy and update the token.
+	token.Policies = append(token.Policies, &api.ACLTokenPolicyLink{Name: policy.Name})
+	_, _, err = consulClient.ACL().TokenUpdate(token, nil)
+	if err != nil {
+		return fmt.Errorf("failed to update anonymous token: %w", err)
+	}
+
+	c.log.Info("Successfully configured the anonymous token")
+	return nil
+}
+
 func (c *Command) queryOptions() *api.QueryOptions {
 	if c.flagPartitionsEnabled {
 		return &api.QueryOptions{Partition: c.flagPartition}
@@ -478,4 +572,74 @@ func (c *Command) writeOptions() *api.WriteOptions {
 		return &api.WriteOptions{Partition: c.flagPartition}
 	}
 	return nil
+}
+
+// consulDatacenterList returns the current datacenter name and the primary datacenter using the
+// /agent/self API endpoint.
+func (c *Command) consulDatacenterList(agentConfig AgentConfig) (string, string, error) {
+	if agentConfig.Config.Datacenter == "" {
+		return "", "", fmt.Errorf("agent config does not contain Config.Datacenter key: %+v", agentConfig)
+	}
+	if agentConfig.Config.PrimaryDatacenter == "" && agentConfig.DebugConfig.PrimaryDatacenter == "" {
+		return "", "", fmt.Errorf("both Config.PrimaryDatacenter and DebugConfig.PrimaryDatacenter are empty: %+v", agentConfig)
+	}
+	if agentConfig.Config.PrimaryDatacenter != "" {
+		return agentConfig.Config.Datacenter, agentConfig.Config.PrimaryDatacenter, nil
+	} else {
+		return agentConfig.Config.Datacenter, agentConfig.DebugConfig.PrimaryDatacenter, nil
+	}
+}
+
+type AgentConfig struct {
+	Config      Config
+	DebugConfig Config
+}
+
+type Config struct {
+	Datacenter                      string `mapstructure:"Datacenter"`
+	PrimaryDatacenter               string `mapstructure:"PrimaryDatacenter"`
+	MeshGatewayWANFederationEnabled bool   `mapstructure:"ConnectMeshGatewayWANFederationEnabled"`
+}
+
+type templateData struct {
+	Enterprise bool
+}
+
+func (c *Command) templateData() templateData {
+	return templateData{Enterprise: c.flagPartitionsEnabled}
+}
+
+func (c *Command) anonymousPolicyRules() (string, error) {
+	rules := `
+{{- if .Enterprise }}
+partition_prefix "" {
+  namespace_prefix "" {
+{{- end }}
+    node_prefix "" {
+      policy = "read"
+    }
+    service_prefix "" {
+      policy = "read"
+    }
+{{- if .Enterprise }}
+  }
+}
+{{- end }}
+`
+	return RenderTemplate(rules, c.templateData())
+}
+
+// RenderTemplate parses and executes the template t against the given data source.
+func RenderTemplate(t string, data interface{}) (string, error) {
+	parsed, err := template.New("root").Parse(strings.TrimSpace(t))
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	err = parsed.Execute(&buf, data)
+	if err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }

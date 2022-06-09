@@ -306,7 +306,11 @@ func (s TaskStateLister) createNamespaces(resources []Resource) error {
 	// create the set of all namespaces in the list of resources.
 	ns := make(map[string]struct{})
 	for _, r := range resources {
-		ns[r.Namespace()] = struct{}{}
+		// Ignore empty string namespaces. This is the case for a Resource constructed from an ACL
+		// token, since tokens should not affect namespace creation.
+		if name := r.Namespace(); name != "" {
+			ns[name] = struct{}{}
+		}
 	}
 
 	// retrieve the list of existing namespaces

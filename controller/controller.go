@@ -48,14 +48,12 @@ func (c *Controller) reconcile() error {
 
 	var merr error
 	if err = c.Resources.ReconcileNamespaces(resources); err != nil {
-		c.Log.Error("error reconciling namespaces", "err", err)
 		merr = multierror.Append(merr, fmt.Errorf("reconciling namespaces: %w", err))
 	}
 
 	for _, resource := range resources {
 		err = resource.Reconcile()
 		if err != nil {
-			c.Log.Error("error reconciling resource", "err", err)
 			merr = multierror.Append(err, fmt.Errorf("reconciling resource: %w", err))
 		}
 	}

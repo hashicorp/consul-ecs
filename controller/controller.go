@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-multierror"
 )
 
 const DefaultPollingInterval = 10 * time.Second
@@ -45,17 +46,18 @@ func (c *Controller) reconcile() error {
 		return fmt.Errorf("listing resources: %w", err)
 	}
 
+	var merr error
 	if err = c.Resources.ReconcileNamespaces(resources); err != nil {
-		return fmt.Errorf("reconciling namespaces: %w", err)
+		merr = multierror.Append(merr, fmt.Errorf("reconciling namespaces: %w", err))
 	}
 
 	for _, resource := range resources {
 		err = resource.Reconcile()
 		if err != nil {
-			c.Log.Error("error reconciling resource", "err", err)
+			merr = multierror.Append(err, fmt.Errorf("reconciling resource: %w", err))
 		}
 	}
 
-	c.Log.Debug("reconcile finished successfully")
-	return nil
+	c.Log.Debug("reconcile finished")
+	return merr
 }

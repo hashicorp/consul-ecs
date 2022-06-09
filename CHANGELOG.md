@@ -3,6 +3,8 @@
 BUF FIXES
 * Fix issue where the `acl-controller` did not update the default namespace with the cross-namespace policy.
   [[GH-104](https://github.com/hashicorp/consul-ecs/pull/104)]
+* Fix token cleanup in the `acl-controller` when Consul Enterprise admin partitions are enabled.
+  [[GH-105](https://github.com/hashicorp/consul-ecs/pull/105)]
 
 ## 0.5.0-beta1 (Jun 06, 2022)
 

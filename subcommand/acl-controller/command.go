@@ -516,13 +516,17 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 	// the anonymous token won't be configured correctly. In order to ensure that,
 	// we will always configure the anonymous token in the default partition so that
 	// mesh gateways actually work across partitions.
-	qopts := &api.QueryOptions{
-		Namespace: controller.DefaultPartition,
-		Partition: controller.DefaultNamespace,
-	}
-	wopts := &api.WriteOptions{
-		Namespace: controller.DefaultPartition,
-		Partition: controller.DefaultNamespace,
+	var qopts *api.QueryOptions
+	var wopts *api.WriteOptions
+	if c.flagPartitionsEnabled {
+		qopts = &api.QueryOptions{
+			Namespace: controller.DefaultPartition,
+			Partition: controller.DefaultNamespace,
+		}
+		wopts = &api.WriteOptions{
+			Namespace: controller.DefaultPartition,
+			Partition: controller.DefaultNamespace,
+		}
 	}
 
 	// Read the anonymous token. We don't pass query options here because the token is global.

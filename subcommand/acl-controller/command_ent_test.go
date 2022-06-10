@@ -36,3 +36,19 @@ func TestUpsertConsulResourcesEnt(t *testing.T) {
 		},
 	})
 }
+
+func TestUpsertAnonymousTokenPolicyEnt(t *testing.T) {
+	testUpsertAnonymousTokenPolicy(t, map[string]anonTokenTest{
+		"mgw WAN fed enabled, primary DC, create policy": {
+			agentConfig: AgentConfig{
+				Config: Config{Datacenter: "dc1"},
+				DebugConfig: Config{
+					PrimaryDatacenter:               "dc1",
+					MeshGatewayWANFederationEnabled: true,
+				},
+			},
+			partitionsEnabled: true,
+			expPolicy:         expEntAnonTokenPolicy,
+		},
+	})
+}

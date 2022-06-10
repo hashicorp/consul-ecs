@@ -453,16 +453,17 @@ func makeAuthMethod(principals interface{}) *api.ACLAuthMethod {
 	}
 }
 
+type anonTokenTest struct {
+	partitionsEnabled bool
+	agentConfig       AgentConfig
+	existingPolicy    bool
+	attachPolicy      bool
+	expPolicy         string
+	expErr            string
+}
+
 func TestUpsertAnonymousTokenPolicy(t *testing.T) {
-	t.Parallel()
-	cases := map[string]struct {
-		partitionsEnabled bool
-		agentConfig       AgentConfig
-		existingPolicy    bool
-		attachPolicy      bool
-		expPolicy         string
-		expErr            string
-	}{
+	testUpsertAnonymousTokenPolicy(t, map[string]anonTokenTest{
 		"list datacenters err, no datacenter": {
 			expErr: "agent config does not contain Config.Datacenter key",
 		},
@@ -500,7 +501,7 @@ func TestUpsertAnonymousTokenPolicy(t *testing.T) {
 			existingPolicy: true,
 			expPolicy:      expOSSAnonTokenPolicy,
 		},
-		"mgw WAN fed enabled, primary DC, create policy OSS": {
+		"mgw WAN fed enabled, primary DC, create policy": {
 			agentConfig: AgentConfig{
 				Config: Config{Datacenter: "dc1"},
 				DebugConfig: Config{
@@ -510,18 +511,12 @@ func TestUpsertAnonymousTokenPolicy(t *testing.T) {
 			},
 			expPolicy: expOSSAnonTokenPolicy,
 		},
-		"mgw WAN fed enabled, primary DC, create policy ENT": {
-			agentConfig: AgentConfig{
-				Config: Config{Datacenter: "dc1"},
-				DebugConfig: Config{
-					PrimaryDatacenter:               "dc1",
-					MeshGatewayWANFederationEnabled: true,
-				},
-			},
-			partitionsEnabled: true,
-			expPolicy:         expEntAnonTokenPolicy,
-		},
-	}
+	})
+}
+
+func testUpsertAnonymousTokenPolicy(t *testing.T, cases map[string]anonTokenTest) {
+	t.Parallel()
+	t.Helper()
 	for name, c := range cases {
 		c := c
 		t.Run(name, func(t *testing.T) {

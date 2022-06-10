@@ -465,8 +465,9 @@ func TestUpsertAnonymousTokenPolicy(t *testing.T) {
 		},
 		"mgw WAN fed not enabled": {
 			agentConfig: AgentConfig{Config: Config{Datacenter: "dc1", PrimaryDatacenter: "dc1"}},
+			expPolicy:   expOSSAnonTokenPolicy,
 		},
-		"mgw WAN fed enabled, not primary DC": {
+		"mgw WAN fed not enabled, not primary DC": {
 			agentConfig: AgentConfig{Config: Config{Datacenter: "dc2"}, DebugConfig: Config{PrimaryDatacenter: "dc1"}},
 		},
 		"mgw WAN fed enabled, primary DC, policy attached": {

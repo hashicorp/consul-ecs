@@ -489,9 +489,9 @@ func (c *Command) upsertBindingRule(consulClient *api.Client, bindingRule *api.A
 }
 
 // upsertAnonymousTokenPolicy ensures that the anonymous ACL token has the correct permissions
-// to allow for WAN federation via mesh gateways.
-// If mesh gateway WAN federation is enabled and the ACL controller is in the primary
-// datacenter then we need to update the anonymous token with service:read and node:read.
+// to allow cross-DC communication via mesh gateways.
+// If the ACL controller is in the primary datacenter then we need to update the anonymous token
+// with service:read and node:read.
 // Tokens are stripped from cross DC API calls so cross DC API calls use the anonymous
 // token. Mesh gateway proxies use the anonymous token to talk cross-DC and they require
 // service:read and node:read.
@@ -503,7 +503,9 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 		return fmt.Errorf("failed to list Consul datacenters: %w", err)
 	}
 
-	if !agentConfig.DebugConfig.MeshGatewayWANFederationEnabled || consulDC != primaryDC {
+	// Always configure the anonymous token. This is required for mesh-gateway traffic.
+	// For simplicity we configure this even if there are no mesh gateways in the datacenter.
+	if consulDC != primaryDC {
 		return nil
 	}
 

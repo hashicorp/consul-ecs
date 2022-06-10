@@ -223,17 +223,24 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, expPolicyRules
 	// Check the client policy is created.
 	policies, _, err := consulClient.ACL().PolicyList(nil)
 	require.NoError(t, err)
-	sort.Slice(policies, func(i, j int) bool {
-		return policies[i].Name < policies[j].Name
-	})
 
-	require.Equal(t, policies[0].Name, "consul-ecs-client-policy")
+	policyNames := []string{}
+	for _, policy := range policies {
+		policyNames = append(policyNames, policy.Name)
+	}
+
+	require.Contains(t, policyNames, "consul-ecs-client-policy")
 	if partitionsEnabled {
+		// We test with a non-default partition which lacks global-management policies.
+		// The anonymous token policy is only created in the default partition, since that
+		// is where the anonymous token lives.
 		require.Len(t, policies, 1)
 	} else {
-		// The default partition also has the global-management policy
-		require.Len(t, policies, 2)
-		require.Equal(t, policies[1].Name, "global-management")
+		// Otherwise, we expect the global-management policy and anonymous-token-policy
+		// in the default partition, or if partitions are not enabled.
+		require.Len(t, policies, 3)
+		require.Contains(t, policyNames, "anonymous-token-policy")
+		require.Contains(t, policyNames, "global-management")
 	}
 
 	policy, _, err := consulClient.ACL().PolicyReadByName("consul-ecs-client-policy", nil)

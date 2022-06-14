@@ -3,8 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+// entTagRegex matches the '[Consul Enterprise]' text and any leading space.
+var entTagRegex *regexp.Regexp = regexp.MustCompile(`\s+\[Consul Enterprise\]`)
 
 type Schema struct {
 	ID          string             `json:"$id"`
@@ -28,8 +32,10 @@ type Schema struct {
 
 // DescriptionStr returns the description modified for consul.io docs:
 // - Remove "[Consul Enterprise]" and prefix a "<EnterpriseAlert inline />".
+// - Remove leading space as well, so that " [Consul Enterprise]." becomes "."
+//   at the end of a sentence.
 func (s *Schema) DescriptionStr() string {
-	modified := strings.ReplaceAll(s.Description, "[Consul Enterprise]", "")
+	modified := entTagRegex.ReplaceAllString(s.Description, "")
 	if modified != s.Description {
 		modified = "<EnterpriseAlert inline /> " + modified
 	}
@@ -51,25 +57,24 @@ func (s *Schema) RequiredStr(field string) string {
 // "Must be one of `local`, `remote`, or `none`."  If this schema has no enum field,
 // an empty string is returned.
 func (s *Schema) EnumStr() string {
-	result := ""
-	for i, val := range s.Enum {
-		if len(s.Enum) > 2 && i > 0 {
-			result += ", "
-			if i == len(s.Enum)-1 {
-				result += "or "
-			}
-		}
-
+	// Convert []*string to []string
+	strs := make([]string, 0, len(s.Enum))
+	for _, val := range s.Enum {
 		if val == nil {
-			result += "`null`"
+			strs = append(strs, "`null`")
 		} else if *val == "" {
-			result += "`\"\"`"
+			strs = append(strs, "`\"\"`")
 		} else {
-			result += "`" + *val + "`"
+			strs = append(strs, "`"+*val+"`")
 		}
 	}
-	if len(result) > 0 {
-		result = "Must be one of " + result + "."
+
+	var result string
+	if len(strs) > 1 {
+		last := len(strs) - 1
+		result = "Must be one of " + strings.Join(strs[:last], ", ") + ", or " + strs[last] + "."
+	} else if len(strs) == 1 {
+		result = "Must be " + strs[0] + "."
 	}
 	return result
 }

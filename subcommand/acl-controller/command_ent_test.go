@@ -39,7 +39,7 @@ func TestUpsertConsulResourcesEnt(t *testing.T) {
 
 func TestUpsertAnonymousTokenPolicyEnt(t *testing.T) {
 	testUpsertAnonymousTokenPolicy(t, map[string]anonTokenTest{
-		"mgw WAN fed enabled, primary DC, create policy": {
+		"primary datacenter": {
 			agentConfig: AgentConfig{
 				Config: Config{Datacenter: "dc1"},
 				DebugConfig: Config{

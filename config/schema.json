@@ -36,7 +36,6 @@
           "type": ["string", "null"]
         },
         "includeEntity": {
-          "description": "Defaults to true. Set this to false to remove the `-aws-include-entity` flag from the `consul login` command. The `-aws-include-entity` flag should be passed if and only if the Consul AWS IAM auth method is configured with `EnableIAMEntityDetails=true`.",
           "description": "Adds the `-aws-include-entity` flag to the `consul login` command. Defaults to `true`. Set to `false` to remove the flag from the command. The `-aws-include-entity` flag should only be passed if the Consul AWS IAM auth method is configured with `EnableIAMEntityDetails=true`.",
           "type": ["boolean", "null"]
         },
@@ -130,11 +129,11 @@
                 }
               },
               "interval": {
-                "description": "Specifies the frequency at which to run this check. Required for HTTP and TCP checks.",
+                "description": "Specifies the frequency at which to run this check. Required for HTTP, TCP, and UDP checks.",
                 "type": ["string", "null"]
               },
               "timeout": {
-                "description": "Specifies a timeout for outgoing connections in the case of a Script, HTTP, TCP, or gRPC check. Must be a duration string, such as `10s` or `5m`.",
+                "description": "Specifies a timeout for outgoing connections. Applies to script, HTTP, TCP, UDP, and gRPC checks. Must be a duration string, such as `10s` or `5m`.",
                 "type": ["string", "null"]
               },
               "ttl": {
@@ -167,6 +166,10 @@
               },
               "tcp": {
                 "description": "Specifies this is a TCP check. Must be an IP/hostname plus port to which a TCP connection is made every `interval`.",
+                "type": ["string", "null"]
+              },
+              "udp": {
+                "description": "Specifies this is a UDP check. Must be an IP/hostname plus port to which UDP datagrams are sent every `interval`.",
                 "type": ["string", "null"]
               },
               "status": {

@@ -489,9 +489,9 @@ func (c *Command) upsertBindingRule(consulClient *api.Client, bindingRule *api.A
 }
 
 // upsertAnonymousTokenPolicy ensures that the anonymous ACL token has the correct permissions
-// to allow for WAN federation via mesh gateways.
-// If mesh gateway WAN federation is enabled and the ACL controller is in the primary
-// datacenter then we need to update the anonymous token with service:read and node:read.
+// to allow cross-DC communication via mesh gateways.
+// If the ACL controller is in the primary datacenter then we need to update the anonymous token
+// with service:read and node:read.
 // Tokens are stripped from cross DC API calls so cross DC API calls use the anonymous
 // token. Mesh gateway proxies use the anonymous token to talk cross-DC and they require
 // service:read and node:read.
@@ -503,16 +503,36 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 		return fmt.Errorf("failed to list Consul datacenters: %w", err)
 	}
 
-	if !agentConfig.DebugConfig.MeshGatewayWANFederationEnabled || consulDC != primaryDC {
+	// Always configure the anonymous token. This is required for mesh-gateway traffic.
+	// For simplicity we configure this even if there are no mesh gateways in the datacenter.
+	if consulDC != primaryDC {
 		return nil
 	}
 
 	c.log.Info("Configuring anonymous token", "datacenter", consulDC, "primary-datacenter", primaryDC)
 
+	// This controller may not be running in the default partition.
+	// If the default partition is not an ECS cluster (and not a consul-k8s cluster)
+	// the anonymous token won't be configured correctly. In order to ensure that,
+	// we will always configure the anonymous token in the default partition so that
+	// mesh gateways actually work across partitions.
+	var qopts *api.QueryOptions
+	var wopts *api.WriteOptions
+	if c.flagPartitionsEnabled {
+		qopts = &api.QueryOptions{
+			Namespace: controller.DefaultPartition,
+			Partition: controller.DefaultNamespace,
+		}
+		wopts = &api.WriteOptions{
+			Namespace: controller.DefaultPartition,
+			Partition: controller.DefaultNamespace,
+		}
+	}
+
 	// Read the anonymous token. We don't pass query options here because the token is global.
 	// The token and policy exist in the default partition and namespace.
 	// The accessor ID for the anonymous token is well-known so we don't need to find it.
-	token, _, err := consulClient.ACL().TokenRead(anonTokenID, nil)
+	token, _, err := consulClient.ACL().TokenRead(anonTokenID, qopts)
 	if err != nil {
 		return fmt.Errorf("failed to read anonymous token: %w", err)
 	}
@@ -526,7 +546,7 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 	}
 
 	// Read the policy and create it in the default partition and namespace, if it does not exist.
-	policy, _, err := consulClient.ACL().PolicyReadByName(anonPolicyName, nil)
+	policy, _, err := consulClient.ACL().PolicyReadByName(anonPolicyName, qopts)
 	if err == nil {
 		c.log.Info("Anonymous token policy already exists, skipping policy creation", "name", anonPolicyName)
 	} else if err != nil && controller.IsACLNotFoundError(err) {
@@ -540,7 +560,7 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 			Name:        anonPolicyName,
 			Description: "Anonymous token policy",
 			Rules:       rules,
-		}, &api.WriteOptions{})
+		}, wopts)
 		if err != nil {
 			return fmt.Errorf("failed to create anonymous token policy: %w", err)
 		}
@@ -551,7 +571,7 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 
 	// Attach the anonymous policy and update the token.
 	token.Policies = append(token.Policies, &api.ACLTokenPolicyLink{Name: policy.Name})
-	_, _, err = consulClient.ACL().TokenUpdate(token, nil)
+	_, _, err = consulClient.ACL().TokenUpdate(token, wopts)
 	if err != nil {
 		return fmt.Errorf("failed to update anonymous token: %w", err)
 	}
@@ -596,9 +616,8 @@ type AgentConfig struct {
 }
 
 type Config struct {
-	Datacenter                      string `mapstructure:"Datacenter"`
-	PrimaryDatacenter               string `mapstructure:"PrimaryDatacenter"`
-	MeshGatewayWANFederationEnabled bool   `mapstructure:"ConnectMeshGatewayWANFederationEnabled"`
+	Datacenter        string `mapstructure:"Datacenter"`
+	PrimaryDatacenter string `mapstructure:"PrimaryDatacenter"`
 }
 
 type templateData struct {

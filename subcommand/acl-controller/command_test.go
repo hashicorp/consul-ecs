@@ -223,17 +223,25 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, expPolicyRules
 	// Check the client policy is created.
 	policies, _, err := consulClient.ACL().PolicyList(nil)
 	require.NoError(t, err)
-	sort.Slice(policies, func(i, j int) bool {
-		return policies[i].Name < policies[j].Name
-	})
 
-	require.Equal(t, policies[0].Name, "consul-ecs-client-policy")
+	policyNames := []string{}
+	for _, policy := range policies {
+		policyNames = append(policyNames, policy.Name)
+	}
+
+	require.Contains(t, policyNames, "consul-ecs-client-policy")
 	if partitionsEnabled {
+		// We test with a non-default partition which lacks the global-management policy.
+		// The anonymous token policy is only created in the default partition, since that
+		// is where the anonymous token lives, so we expect only the client policy.
 		require.Len(t, policies, 1)
 	} else {
-		// The default partition also has the global-management policy
-		require.Len(t, policies, 2)
-		require.Equal(t, policies[1].Name, "global-management")
+		// Otherwise, we expect the global-management policy and anonymous-token-policy to be found
+		// if we're running Consul Enterprise and in the default partition, or if we're running
+		// Consul OSS.
+		require.Len(t, policies, 3)
+		require.Contains(t, policyNames, "anonymous-token-policy")
+		require.Contains(t, policyNames, "global-management")
 	}
 
 	policy, _, err := consulClient.ACL().PolicyReadByName("consul-ecs-client-policy", nil)
@@ -446,16 +454,17 @@ func makeAuthMethod(principals interface{}) *api.ACLAuthMethod {
 	}
 }
 
+type anonTokenTest struct {
+	partitionsEnabled bool
+	agentConfig       AgentConfig
+	existingPolicy    bool
+	attachPolicy      bool
+	expPolicy         string
+	expErr            string
+}
+
 func TestUpsertAnonymousTokenPolicy(t *testing.T) {
-	t.Parallel()
-	cases := map[string]struct {
-		partitionsEnabled bool
-		agentConfig       AgentConfig
-		existingPolicy    bool
-		attachPolicy      bool
-		expPolicy         string
-		expErr            string
-	}{
+	testUpsertAnonymousTokenPolicy(t, map[string]anonTokenTest{
 		"list datacenters err, no datacenter": {
 			expErr: "agent config does not contain Config.Datacenter key",
 		},
@@ -463,57 +472,42 @@ func TestUpsertAnonymousTokenPolicy(t *testing.T) {
 			agentConfig: AgentConfig{Config: Config{Datacenter: "dc1"}},
 			expErr:      "both Config.PrimaryDatacenter and DebugConfig.PrimaryDatacenter are empty",
 		},
-		"mgw WAN fed not enabled": {
+		"primary datacenter": {
+			// Testing with primary datacenter in Config.
 			agentConfig: AgentConfig{Config: Config{Datacenter: "dc1", PrimaryDatacenter: "dc1"}},
+			expPolicy:   expOSSAnonTokenPolicy,
 		},
-		"mgw WAN fed enabled, not primary DC": {
-			agentConfig: AgentConfig{Config: Config{Datacenter: "dc2"}, DebugConfig: Config{PrimaryDatacenter: "dc1"}},
-		},
-		"mgw WAN fed enabled, primary DC, policy attached": {
+		"secondary datacenter": {
+			// Testing with primary datacenter in DebugConfig.
 			agentConfig: AgentConfig{
-				Config: Config{Datacenter: "dc1"},
-				DebugConfig: Config{
-					PrimaryDatacenter:               "dc1",
-					MeshGatewayWANFederationEnabled: true,
-				},
+				Config:      Config{Datacenter: "dc2"},
+				DebugConfig: Config{PrimaryDatacenter: "dc1"},
+			},
+			// The anonymous token policy should not be created.
+		},
+		"primary datacenter, policy attached": {
+			agentConfig: AgentConfig{
+				Config:      Config{Datacenter: "dc1"},
+				DebugConfig: Config{PrimaryDatacenter: "dc1"},
 			},
 			existingPolicy: true,
 			attachPolicy:   true,
 			expPolicy:      expOSSAnonTokenPolicy,
 		},
-		"mgw WAN fed enabled, primary DC, policy exists": {
+		"primary datacenter, policy exists": {
 			agentConfig: AgentConfig{
-				Config: Config{Datacenter: "dc1"},
-				DebugConfig: Config{
-					PrimaryDatacenter:               "dc1",
-					MeshGatewayWANFederationEnabled: true,
-				},
+				Config:      Config{Datacenter: "dc1"},
+				DebugConfig: Config{PrimaryDatacenter: "dc1"},
 			},
 			existingPolicy: true,
 			expPolicy:      expOSSAnonTokenPolicy,
 		},
-		"mgw WAN fed enabled, primary DC, create policy OSS": {
-			agentConfig: AgentConfig{
-				Config: Config{Datacenter: "dc1"},
-				DebugConfig: Config{
-					PrimaryDatacenter:               "dc1",
-					MeshGatewayWANFederationEnabled: true,
-				},
-			},
-			expPolicy: expOSSAnonTokenPolicy,
-		},
-		"mgw WAN fed enabled, primary DC, create policy ENT": {
-			agentConfig: AgentConfig{
-				Config: Config{Datacenter: "dc1"},
-				DebugConfig: Config{
-					PrimaryDatacenter:               "dc1",
-					MeshGatewayWANFederationEnabled: true,
-				},
-			},
-			partitionsEnabled: true,
-			expPolicy:         expEntAnonTokenPolicy,
-		},
-	}
+	})
+}
+
+func testUpsertAnonymousTokenPolicy(t *testing.T, cases map[string]anonTokenTest) {
+	t.Parallel()
+	t.Helper()
 	for name, c := range cases {
 		c := c
 		t.Run(name, func(t *testing.T) {

@@ -496,11 +496,8 @@ func TestUpsertAnonymousTokenPolicy(t *testing.T) {
 		},
 		"primary datacenter, policy exists": {
 			agentConfig: AgentConfig{
-				Config: Config{Datacenter: "dc1"},
-				DebugConfig: Config{
-					PrimaryDatacenter:               "dc1",
-					MeshGatewayWANFederationEnabled: true,
-				},
+				Config:      Config{Datacenter: "dc1"},
+				DebugConfig: Config{PrimaryDatacenter: "dc1"},
 			},
 			existingPolicy: true,
 			expPolicy:      expOSSAnonTokenPolicy,

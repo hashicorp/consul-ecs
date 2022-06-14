@@ -616,9 +616,8 @@ type AgentConfig struct {
 }
 
 type Config struct {
-	Datacenter                      string `mapstructure:"Datacenter"`
-	PrimaryDatacenter               string `mapstructure:"PrimaryDatacenter"`
-	MeshGatewayWANFederationEnabled bool   `mapstructure:"ConnectMeshGatewayWANFederationEnabled"`
+	Datacenter        string `mapstructure:"Datacenter"`
+	PrimaryDatacenter string `mapstructure:"PrimaryDatacenter"`
 }
 
 type templateData struct {

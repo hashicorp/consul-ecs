@@ -23,6 +23,8 @@ const (
 	envoyBoostrapConfigFilename = "envoy-bootstrap.json"
 	raftReplicationTimeout      = 2 * time.Second
 	tokenReadPollingInterval    = 100 * time.Millisecond
+
+	ConsulECSCheckType = "ecs-health-check"
 )
 
 type Command struct {
@@ -90,7 +92,7 @@ func (c *Command) realRun() error {
 		// proxyRegistration = c.constructGatewayProxyRegistration(taskMeta)
 		return fmt.Errorf("HACK: mesh gateway not (yet) supported in agentless hack")
 	} else {
-		svcReg, err = c.constructServiceRegistration(taskMeta)
+		svcReg, err = ConstructServiceRegistration(c.config, taskMeta)
 		if err != nil {
 			return err
 		}
@@ -141,7 +143,7 @@ func (c *Command) realRun() error {
 		"-grpc-addr", strings.ReplaceAll(c.config.ConsulHTTPAddr, ":8500", "") + ":8502",
 		"-node-name", proxyReg.Node,
 	}
-	// TODO: Using the https ca cert here. Need separate config in case the grpc cert is different.
+	// TODO: Is just the https cert? I think so. The
 	if c.config.ConsulCACertFile != "" {
 		cmdArgs = append(cmdArgs, "-ca-file", c.config.ConsulCACertFile)
 	}
@@ -388,20 +390,16 @@ func mergeMeta(m1, m2 map[string]string) map[string]string {
 
 // constructServiceRegistration returns the service registration request body.
 // May return an error due to invalid inputs from the config file.
-func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*api.CatalogRegistration, error) {
-	serviceName := c.constructServiceName(taskMeta.Family)
+func ConstructServiceRegistration(conf *config.Config, taskMeta awsutil.ECSTaskMeta) (*api.CatalogRegistration, error) {
+	svcName := serviceName(conf, taskMeta.Family)
 	taskID := taskMeta.TaskID()
-	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
-	//checks, err := constructChecks(serviceID, c.config.Service.Checks, c.config.HealthSyncContainers)
-	//if err != nil {
-	//	return nil, err
-	//}
+	svcID := serviceID(svcName, taskID)
 
 	fullMeta := mergeMeta(map[string]string{
 		"task-id":  taskID,
 		"task-arn": taskMeta.TaskARN,
 		"source":   "consul-ecs",
-	}, c.config.Service.Meta)
+	}, conf.Service.Meta)
 
 	ipv4, err := taskMeta.IPv4Address()
 	if err != nil {
@@ -412,18 +410,71 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*a
 		return nil, err
 	}
 
-	svcReg := c.config.Service.ToConsulType()
+	svcReg := conf.Service.ToConsulType()
 	svcReg.Node = hostname
 	svcReg.Address = ipv4
 
-	svcReg.Service.ID = serviceID
-	svcReg.Service.Service = serviceName
-	svcReg.Service.Meta = fullMeta
-	svcReg.Checks = nil
-	//for _, check := range checks {
-	//	svcReg.Checks = append(svcReg.Checks, check.ToConsulType())
+	// Hack. Only set to critical if we have a health check to sync from ECS.
+	// TODO: We should:
+	//   1. Create one check per health sync container, initially critical.
+	//   2. Maybe default to syncing overall task health into Consul?
+	//healthStatus := api.HealthPassing
+	//healthReason := "Task started"
+	//if len(conf.HealthSyncContainers) > 0 {
+	//	healthStatus = api.HealthCritical
+	//	healthReason = "Task is starting. App is not yet healthy."
 	//}
+
+	svcReg.Service.ID = svcID
+	svcReg.Service.Service = svcName
+	svcReg.Service.Meta = fullMeta
+	svcReg.Checks = api.HealthChecks{}
+	if len(conf.HealthSyncContainers) == 0 {
+		// If no health check sync containers, configure a default passing check.
+		svcReg.Checks = append(svcReg.Checks, &api.HealthCheck{
+			CheckID:     CheckID(svcID, ""),
+			Name:        svcName,
+			Status:      api.HealthPassing,
+			Notes:       "poc hack hack hack",
+			Output:      "Task started.",
+			ServiceID:   svcID,
+			ServiceName: svcName,
+			Type:        ConsulECSCheckType,
+		})
+	} else {
+		for _, container := range conf.HealthSyncContainers {
+			svcReg.Checks = append(svcReg.Checks, &api.HealthCheck{
+				CheckID:     CheckID(svcID, container),
+				Name:        svcName,
+				Status:      api.HealthCritical,
+				Notes:       "poc hack hack hack",
+				Output:      fmt.Sprintf("Task is starting. Container %s not yet healthy.", container),
+				ServiceID:   svcID,
+				ServiceName: svcName,
+				Type:        ConsulECSCheckType,
+			})
+
+		}
+	}
 	return svcReg, nil
+}
+
+func serviceName(conf *config.Config, family string) string {
+	if serviceName := conf.Service.Name; serviceName != "" {
+		return serviceName
+	}
+	return strings.ToLower(family)
+}
+
+func serviceID(serviceName, taskID string) string {
+	return fmt.Sprintf("%s-%s", serviceName, taskID)
+}
+
+func CheckID(serviceID, container string) string {
+	if container == "" {
+		return serviceID + "-check"
+	}
+	return fmt.Sprintf("%s-%s-check", serviceID, container)
 }
 
 // constructProxyRegistration returns the proxy registration request body.

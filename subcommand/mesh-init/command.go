@@ -96,7 +96,7 @@ func (c *Command) realRun() error {
 		if err != nil {
 			return err
 		}
-		proxyReg = c.constructProxyRegistration(svcReg)
+		proxyReg = ConstructProxyRegistration(c.config, svcReg)
 	}
 
 	if svcReg != nil {
@@ -122,7 +122,7 @@ func (c *Command) realRun() error {
 		c.log.Info("registering proxy", "kind", proxyReg.Service.Kind)
 		_, err := consulClient.Catalog().Register(proxyReg, nil)
 		return err
-	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
+	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
@@ -413,18 +413,6 @@ func ConstructServiceRegistration(conf *config.Config, taskMeta awsutil.ECSTaskM
 	svcReg := conf.Service.ToConsulType()
 	svcReg.Node = hostname
 	svcReg.Address = ipv4
-
-	// Hack. Only set to critical if we have a health check to sync from ECS.
-	// TODO: We should:
-	//   1. Create one check per health sync container, initially critical.
-	//   2. Maybe default to syncing overall task health into Consul?
-	//healthStatus := api.HealthPassing
-	//healthReason := "Task started"
-	//if len(conf.HealthSyncContainers) > 0 {
-	//	healthStatus = api.HealthCritical
-	//	healthReason = "Task is starting. App is not yet healthy."
-	//}
-
 	svcReg.Service.ID = svcID
 	svcReg.Service.Service = svcName
 	svcReg.Service.Meta = fullMeta
@@ -459,26 +447,8 @@ func ConstructServiceRegistration(conf *config.Config, taskMeta awsutil.ECSTaskM
 	return svcReg, nil
 }
 
-func serviceName(conf *config.Config, family string) string {
-	if serviceName := conf.Service.Name; serviceName != "" {
-		return serviceName
-	}
-	return strings.ToLower(family)
-}
-
-func serviceID(serviceName, taskID string) string {
-	return fmt.Sprintf("%s-%s", serviceName, taskID)
-}
-
-func CheckID(serviceID, container string) string {
-	if container == "" {
-		return serviceID + "-check"
-	}
-	return fmt.Sprintf("%s-%s-check", serviceID, container)
-}
-
-// constructProxyRegistration returns the proxy registration request body.
-func (c *Command) constructProxyRegistration(svcReg *api.CatalogRegistration) *api.CatalogRegistration {
+// ConstructProxyRegistration returns the proxy registration request body.
+func ConstructProxyRegistration(conf *config.Config, svcReg *api.CatalogRegistration) *api.CatalogRegistration {
 	svc := svcReg.Service
 
 	proxyReg := &api.CatalogRegistration{
@@ -492,22 +462,20 @@ func (c *Command) constructProxyRegistration(svcReg *api.CatalogRegistration) *a
 	proxyReg.Service.Port = 20000
 	proxyReg.Service.Meta = svc.Meta
 	proxyReg.Service.Tags = svc.Tags
-	proxyReg.Service.Proxy = c.config.Proxy.ToConsulType()
+	proxyReg.Service.Proxy = conf.Proxy.ToConsulType()
 	proxyReg.Service.Proxy.DestinationServiceName = svc.Service
 	proxyReg.Service.Proxy.DestinationServiceID = svc.ID
 	proxyReg.Service.Proxy.LocalServicePort = svc.Port
-	//proxyReg.Checks = []*api.AgentServiceCheck{
-	//	{
-	//		Name:                           "Proxy Public Listener",
-	//		TCP:                            "127.0.0.1:20000",
-	//		Interval:                       "10s",
-	//		DeregisterCriticalServiceAfter: "10m",
-	//	},
-	//	{
-	//		Name:         "Destination Alias",
-	//		AliasService: svcReg.ID,
-	//	},
-	//}
+	proxyReg.Check = &api.AgentCheck{
+		CheckID:     CheckID(proxyReg.Service.ID, ""),
+		Name:        proxyReg.Service.Service,
+		Status:      api.HealthCritical,
+		Notes:       "poc hack hack hack",
+		Output:      "Task is starting. Container sidecar-proxy not yet healthy.",
+		ServiceID:   proxyReg.Service.ID,
+		ServiceName: proxyReg.Service.Service,
+		Type:        ConsulECSCheckType,
+	}
 	proxyReg.Partition = svcReg.Partition
 	proxyReg.Service.Partition = svc.Partition
 	proxyReg.Service.Namespace = svc.Namespace
@@ -584,4 +552,22 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 		},
 	}
 	return gwRegistration
+}
+
+func serviceName(conf *config.Config, family string) string {
+	if serviceName := conf.Service.Name; serviceName != "" {
+		return serviceName
+	}
+	return family
+}
+
+func serviceID(serviceName, taskID string) string {
+	return fmt.Sprintf("%s-%s", serviceName, taskID)
+}
+
+func CheckID(serviceID, container string) string {
+	if container == "" {
+		return serviceID + "-check"
+	}
+	return fmt.Sprintf("%s-%s-check", serviceID, container)
 }

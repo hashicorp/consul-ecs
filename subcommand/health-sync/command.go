@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -88,12 +87,24 @@ func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
 
 	currentStatuses := make(map[string]string)
 
+	proxyReg := meshinit.ConstructProxyRegistration(c.config, svcReg)
+	var proxyStatus string
+
 	for {
 		select {
 		case <-time.After(pollInterval):
-			currentStatuses = c.syncChecks(consulClient, currentStatuses, svcReg, healthSyncContainers)
+			taskMeta, err = awsutil.ECSTaskMetadata()
+			if err != nil {
+				c.log.Error("unable to get task metadata", "err", err)
+			} else {
+				currentStatuses = c.syncChecks(consulClient, taskMeta, currentStatuses, svcReg, healthSyncContainers)
+				proxyStatus = c.syncProxyCheck(consulClient, taskMeta, proxyStatus, proxyReg)
+			}
 		case <-ctx.Done():
-			result := c.setChecksCritical(consulClient, svcReg, healthSyncContainers)
+			result := c.setProxyCheckCritical(consulClient, proxyReg)
+			if err := c.setChecksCritical(consulClient, svcReg); err != nil {
+				result = multierror.Append(result, err)
+			}
 			if c.config.ConsulLogin.Enabled {
 				if err := c.logout(config.ServiceTokenFilename); err != nil {
 					result = multierror.Append(result, err)
@@ -126,20 +137,17 @@ func (c *Command) ignoreSIGTERM(cancel context.CancelFunc) {
 // updates the Consul TTL checks for the containers specified in
 // `parsedContainerNames`. Checks are only updated if they have changed since
 // the last invocation of this function.
-func (c *Command) syncChecks(consulClient *api.Client, currentStatuses map[string]string, svcReg *api.CatalogRegistration, parsedContainerNames []string) map[string]string {
-	taskMeta, err := awsutil.ECSTaskMetadata()
-	if err != nil {
-		c.log.Error("unable to get task metadata", "err", err)
-		return currentStatuses
+func (c *Command) syncChecks(consulClient *api.Client, taskMeta awsutil.ECSTaskMeta, currentStatuses map[string]string, svcReg *api.CatalogRegistration, parsedContainerNames []string) map[string]string {
+	newStatuses := map[string]string{}
+	for k, v := range currentStatuses {
+		newStatuses[k] = v
 	}
 
-	needsUpdate := false
 	containersToSync, missingContainers := findContainersToSync(parsedContainerNames, taskMeta)
 	for _, name := range missingContainers {
-		if currentStatuses[name] != api.HealthCritical {
+		if newStatuses[name] != api.HealthCritical {
 			c.log.Info("will update health for container not found in task", "container", name, "status", api.HealthCritical)
-			currentStatuses[name] = api.HealthCritical
-			needsUpdate = true
+			newStatuses[name] = api.HealthCritical
 		}
 	}
 
@@ -151,7 +159,7 @@ func (c *Command) syncChecks(consulClient *api.Client, currentStatuses map[strin
 			"exitCode", container.Health.ExitCode,
 		)
 
-		previousStatus := currentStatuses[container.Name]
+		previousStatus := newStatuses[container.Name]
 		if container.Health.Status != previousStatus {
 			c.log.Info("will update health for container",
 				"name", container.Name,
@@ -159,35 +167,121 @@ func (c *Command) syncChecks(consulClient *api.Client, currentStatuses map[strin
 				"statusSince", container.Health.StatusSince,
 				"exitCode", container.Health.ExitCode,
 			)
-			currentStatuses[container.Name] = container.Health.Status
+			newStatuses[container.Name] = container.Health.Status
+		}
+	}
+
+	needsUpdate := false
+	for name := range newStatuses {
+		if newStatuses[name] != currentStatuses[name] {
 			needsUpdate = true
 		}
 	}
 
 	if needsUpdate {
-		err := updateConsulHealthChecks(consulClient, svcReg, currentStatuses)
+		err := updateConsulHealthChecks(consulClient, svcReg, newStatuses)
 		if err != nil {
 			c.log.Warn("failed to update health status in Consul", "err", err.Error())
+			// on failure, forget the new statuses seen here. otherwise, we'll
+			// see no change in status on the next attempt, and will not retry the update.
+			return currentStatuses
 		} else {
-			c.log.Info("successfully updated container health status(es) in Consul")
+			c.log.Info("successfully updated health status in Consul")
+		}
+	}
+	return newStatuses
+}
+
+// syncProxyCheck syncs the status of the sidecar-proxy container into Consul
+func (c *Command) syncProxyCheck(consulClient *api.Client, taskMeta awsutil.ECSTaskMeta, currentStatus string, proxyReg *api.CatalogRegistration) string {
+	var container *awsutil.ECSTaskMetaContainer
+	for _, c := range taskMeta.Containers {
+		if c.Name == "sidecar-proxy" {
+			container = &c
+			break
 		}
 	}
 
-	return currentStatuses
+	if container == nil {
+		c.log.Error("sidecar-proxy container not found")
+		return currentStatus
+	}
+
+	c.log.Debug("found ECS container health",
+		"name", container.Name,
+		"status", container.Health.Status,
+		"statusSince", container.Health.StatusSince,
+		"exitCode", container.Health.ExitCode,
+	)
+
+	if container.Health.Status == currentStatus {
+		// status unchanged.
+		return currentStatus
+	} else if container.Health.Status == "" {
+		// health status is unknown. either:
+		//
+		// * The ECS health check has not yet run, so we do nothing for now. Eventually,
+		//   the check should run and we'll get a status value.
+		// * Or, there is no ECS health check defined for the sidecar-proxy container.
+		//   We'll require a health check IS defined for the sidecar-proxy container (and our
+		//   terraform modules define the check). If the user doesn't define a health check,
+		//   then we'll hit this case and we do nothing. This will leave the proxy in its initial
+		//   status (critical).
+		return currentStatus
+	}
+
+	c.log.Info("will update health for container",
+		"name", container.Name,
+		"status", container.Health.Status,
+		"statusSince", container.Health.StatusSince,
+		"exitCode", container.Health.ExitCode,
+	)
+
+	proxyReg.Check.Output = fmt.Sprintf("ECS health status is %q for container %q",
+		container.Health.Status, container.Name)
+	proxyReg.Check.Status = ecsHealthToConsulHealth(container.Health.Status)
+
+	_, err := consulClient.Catalog().Register(proxyReg, nil)
+	if err != nil {
+		c.log.Error("failed to update proxy health status in Consul", "err", err.Error())
+	} else {
+		currentStatus = container.Health.Status
+	}
+	return currentStatus
+
+}
+
+func (c *Command) setProxyCheckCritical(consulClient *api.Client, proxyReg *api.CatalogRegistration) error {
+	proxyReg.Check.Status = api.HealthCritical
+	proxyReg.Check.Output = "ECS task stopped."
+	proxyReg.SkipNodeUpdate = true
+	_, err := consulClient.Catalog().Register(proxyReg, nil)
+	if err != nil {
+		return fmt.Errorf("setting proxy check to critical: %w", err)
+	}
+	return nil
 }
 
 // setChecksCritical sets checks for all of the containers to critical
-func (c *Command) setChecksCritical(consulClient *api.Client, svcReg *api.CatalogRegistration, parsedContainerNames []string) error {
+func (c *Command) setChecksCritical(consulClient *api.Client, svcReg *api.CatalogRegistration) error {
+	var result error
 
-	// TODO: should we even bother setting checks here? maybe just immediately deregister the service
-	statuses := map[string]string{}
-	for _, container := range parsedContainerNames {
-		c.log.Info("will set health status to critical", "container", container)
-		statuses[container] = ecs.HealthStatusUnhealthy
+	for _, check := range svcReg.Checks {
+		check.Status = api.HealthCritical
+		check.Output = "ECS task stopped."
 	}
-	result := updateConsulHealthChecks(consulClient, svcReg, statuses)
+	svcReg.SkipNodeUpdate = true
+	if _, err := consulClient.Catalog().Register(svcReg, nil); err != nil {
+		result = multierror.Append(result, fmt.Errorf("setting service checks to critical: %w", err))
+	}
 
 	// Deregister the service instance
+	//
+	// TODO: Instead of immediately de-registering the node, do we need to wait until the application has stopped
+	//		 to support graceful shutdown? See the envoy-entrypoint command, which supports this already.
+	//       I don't think so. Because it was okay previously to do the consul leave, which deregisters everything
+	//		 from Consul.
+	//
 	// We specify only the Node so that Consul registers the node and its associated services and checks.
 	// Since ECS uses 1 node per service, so this is perfect for us.
 	//
@@ -203,8 +297,8 @@ func (c *Command) setChecksCritical(consulClient *api.Client, svcReg *api.Catalo
 		//Namespace:  "",
 		//Partition:  "",
 	}, nil)
-	if err != nil {
-		result = multierror.Append(result, err)
+	if result != nil {
+		result = multierror.Append(result, fmt.Errorf("deregistering service: %w", err))
 	}
 
 	return result

@@ -186,7 +186,7 @@ func (c *Command) syncChecks(consulClient *api.Client, taskMeta awsutil.ECSTaskM
 			// see no change in status on the next attempt, and will not retry the update.
 			return currentStatuses
 		} else {
-			c.log.Info("successfully updated health status in Consul")
+			c.log.Info("successfully updated service health status in Consul")
 		}
 	}
 	return newStatuses
@@ -245,6 +245,7 @@ func (c *Command) syncProxyCheck(consulClient *api.Client, taskMeta awsutil.ECST
 	if err != nil {
 		c.log.Error("failed to update proxy health status in Consul", "err", err.Error())
 	} else {
+		c.log.Info("successfully updated sidecar-proxy health status in Consul")
 		currentStatus = container.Health.Status
 	}
 	return currentStatus
@@ -291,7 +292,8 @@ func (c *Command) setChecksCritical(consulClient *api.Client, svcReg *api.Catalo
 	// the node and all associated service instances would be fine, since it would cleanup the old node too.
 	c.log.Info("deregistering service", "node", svcReg.Node, "service-id", svcReg.Service.ID)
 	_, err := consulClient.Catalog().Deregister(&api.CatalogDeregistration{
-		Node: svcReg.Node,
+		Node:      svcReg.Node,
+		ServiceID: svcReg.Service.ID,
 		// TODO:
 		//Datacenter: "",
 		//Namespace:  "",

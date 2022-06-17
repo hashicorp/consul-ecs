@@ -99,31 +99,6 @@ func (e ECSTaskMeta) NodeIP() string {
 	return ip
 }
 
-func (e ECSTaskMeta) IPv4Address() (string, error) {
-	// The /task endpoint includes network info as part of each container.
-	// The root endpoint returns Networks at the top-level, and each container
-	// in /task appears to have that same config.
-	for _, container := range e.Containers {
-		for _, network := range container.Networks {
-			// Return the first found address. With awsvpc mode, there is only one,
-			// and each container seems to be the same?
-			for _, address := range network.IPv4Addresses {
-				return address, nil
-			}
-		}
-	}
-	return "", fmt.Errorf("unable to find IPv4Address in task metadata")
-}
-
-func (e ECSTaskMeta) PrivateDNSName() (string, error) {
-	for _, container := range e.Containers {
-		for _, network := range container.Networks {
-			return network.PrivateDNSName, nil
-		}
-	}
-	return "", fmt.Errorf("unable to find PrivateDNSName in task metadata")
-}
-
 func ECSTaskMetadata() (ECSTaskMeta, error) {
 	var metadataResp ECSTaskMeta
 

@@ -98,7 +98,7 @@ func (r *ServiceRegistration) ToConsulType() *api.CatalogRegistration {
 	result := &api.CatalogRegistration{
 		ID:              "",
 		Node:            "",
-		Address:         TaggedAddressLAN,
+		Address:         "",
 		TaggedAddresses: map[string]string{},
 		NodeMeta:        map[string]string{},
 		Datacenter:      "",
@@ -115,7 +115,7 @@ func (r *ServiceRegistration) ToConsulType() *api.CatalogRegistration {
 			Proxy:             nil,
 			Connect:           nil,
 			Namespace:         r.Namespace,
-			Partition:         r.Partition,
+			Partition:         r.Partition, // Service partition
 			// TODO: ensure datacenter is passed?
 			// Pre-agentless this relied on the agent knowing the datacenter.
 			// This was configured with the CONSUL_DATACENTER environment variable for consul-client.
@@ -124,8 +124,8 @@ func (r *ServiceRegistration) ToConsulType() *api.CatalogRegistration {
 		},
 		Check:          nil,
 		Checks:         nil,
-		SkipNodeUpdate: false,       // Can use this to update checks, I think
-		Partition:      r.Partition, // I guess we specify this for both top-level and within the service?
+		SkipNodeUpdate: true,        // Can use this to update checks, I think
+		Partition:      r.Partition, // Node partition
 	}
 	if r.Weights != nil {
 		result.Service.Weights = *r.Weights.ToConsulType()

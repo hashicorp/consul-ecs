@@ -3,6 +3,7 @@ package meshinit
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -133,14 +134,21 @@ func (c *Command) realRun() error {
 		"id", proxyReg.Service.ID,
 	)
 
+	// TODO: Add a config option for the gRPC address instead of inferring from the http address.
+	grpcAddr, err := url.Parse(c.config.ConsulHTTPAddr)
+	if err != nil {
+		return err
+	}
+	parts := strings.Split(grpcAddr.Host, ":")
+	grpcAddr.Host = parts[0] + ":8502"
+
 	// Run consul envoy -bootstrap to generate bootstrap file.
 	cmdArgs := []string{
 		"consul", "connect", "envoy",
 		"-bootstrap",
 		"-proxy-id", proxyReg.Service.ID,
 		"-http-addr", c.config.ConsulHTTPAddr,
-		// TODO: Using the http address here. Need separate config in case the grpc address is different.
-		"-grpc-addr", strings.ReplaceAll(c.config.ConsulHTTPAddr, ":8500", "") + ":8502",
+		"-grpc-addr", grpcAddr.String(),
 		"-node-name", proxyReg.Node,
 	}
 	// TODO: Is just the https cert? I think so. The
@@ -401,20 +409,17 @@ func ConstructServiceRegistration(conf *config.Config, taskMeta awsutil.ECSTaskM
 		"source":   "consul-ecs",
 	}, conf.Service.Meta)
 
-	ipv4, err := taskMeta.IPv4Address()
-	if err != nil {
-		return nil, err
-	}
-	hostname, err := taskMeta.PrivateDNSName()
+	clusterArn, err := taskMeta.ClusterARN()
 	if err != nil {
 		return nil, err
 	}
 
 	svcReg := conf.Service.ToConsulType()
-	svcReg.Node = hostname
-	svcReg.Address = ipv4
+	svcReg.Node = clusterArn
+	svcReg.SkipNodeUpdate = true
 	svcReg.Service.ID = svcID
 	svcReg.Service.Service = svcName
+	svcReg.Service.Address = taskMeta.NodeIP() // TODO: This should error if not found, rather than default to localhost.
 	svcReg.Service.Meta = fullMeta
 	svcReg.Checks = api.HealthChecks{}
 	if len(conf.HealthSyncContainers) == 0 {
@@ -455,9 +460,16 @@ func ConstructProxyRegistration(conf *config.Config, svcReg *api.CatalogRegistra
 		Service: &api.AgentService{},
 	}
 	proxyReg.Node = svcReg.Node
-	proxyReg.Address = svcReg.Address
+	proxyReg.SkipNodeUpdate = true
 	proxyReg.Service.ID = fmt.Sprintf("%s-sidecar-proxy", svc.ID)
 	proxyReg.Service.Service = fmt.Sprintf("%s-sidecar-proxy", svc.Service)
+	// The proxy will bind to the task ip, and not localhost. So, we need the ECS health check
+	// to hit the <taskIp>:20000 and not localhost:20000.
+	//
+	// NOTE: I tried unsetting the proxy address. This causes envoy to bind its public listener to 0.0.0.0 (good).
+	// But, Consul still configures the Envoy clusters with the node address of each proxy for service mesh traffic (bad).
+	// Since tasks share a node under agentless, that didn't work.
+	proxyReg.Service.Address = svcReg.Service.Address // TaskIP
 	proxyReg.Service.Kind = api.ServiceKindConnectProxy
 	proxyReg.Service.Port = 20000
 	proxyReg.Service.Meta = svc.Meta

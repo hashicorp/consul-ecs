@@ -1,4 +1,4 @@
-## Unreleased
+## 0.5.0 (June 21, 2022)
 
 BUG FIXES
 * Fix issue where the `acl-controller` did not update the default namespace with the cross-namespace policy.

@@ -232,7 +232,6 @@ var (
 				Port:    8443,
 			},
 			WanAddress: &GatewayAddress{
-				Source:  "publicIP",
 				Address: "172.16.0.0",
 				Port:    443,
 			},
@@ -339,12 +338,10 @@ var (
 		Gateway: &GatewayRegistration{
 			Kind: "mesh-gateway",
 			LanAddress: &GatewayAddress{
-				Source:  "",
 				Address: "",
 				Port:    0,
 			},
 			WanAddress: &GatewayAddress{
-				Source:  "",
 				Address: "",
 				Port:    0,
 			},

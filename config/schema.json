@@ -377,10 +377,6 @@
           "description": "WAN address and port for the gateway. If not specified, defaults to the task/node address.",
           "type": ["object", "null"],
           "properties": {
-            "source": {
-              "type": ["string", "null"],
-              "enum": ["publicIP", "loadBalancerDNS", "", null]
-            },
             "address": {
               "type": ["string", "null"]
             },

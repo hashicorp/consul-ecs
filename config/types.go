@@ -349,8 +349,6 @@ func (p *GatewayProxyConfig) ToConsulType() *api.AgentServiceConnectProxyConfig 
 }
 
 type GatewayAddress struct {
-	// Source is for the WAN address only (enforced by schema).
-	Source  string `json:"source,omitempty"`
 	Address string `json:"address,omitempty"`
 	Port    int    `json:"port,omitempty"`
 }

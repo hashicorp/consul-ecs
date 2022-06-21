@@ -24,11 +24,11 @@
       "type": ["string", "null"]
     },
     "consulLogin": {
-      "description": "Configuration for login to the AWS IAM auth method.",
+      "description": "Configuration for logging into the AWS IAM auth method.",
       "type": ["object", "null"],
       "properties": {
         "enabled": {
-          "description": "Enable login to Consul's AWS IAM auth method to obtain an ACL token. This requires the auth method to be configured on the Consul server, and the ECS task role must be trusted by the auth method. After login, the token is written to the file `<bootstrapDir>/service-token`.",
+          "description": "Enables logging into Consul's AWS IAM auth method to obtain an ACL token. The auth method must be configured on the Consul server and the ECS task role must be trusted by the auth method. After logging in, the token is written to the file `<bootstrapDir>/service-token`.",
           "type": ["boolean", "null"]
         },
         "method": {
@@ -36,7 +36,7 @@
           "type": ["string", "null"]
         },
         "includeEntity": {
-          "description": "Defaults to true. Set this to false to remove the `-aws-include-entity` flag from the `consul login` command. The `-aws-include-entity` flag should be passed if and only if the Consul AWS IAM auth method is configured with `EnableIAMEntityDetails=true`.",
+          "description": "Adds the `-aws-include-entity` flag to the `consul login` command. Defaults to `true`. Set to `false` to remove the flag from the command. The `-aws-include-entity` flag should only be passed if the Consul AWS IAM auth method is configured with `EnableIAMEntityDetails=true`.",
           "type": ["boolean", "null"]
         },
         "extraLoginFlags": {
@@ -110,7 +110,7 @@
           "description": "The list of Consul checks for the service. Cannot be specified with `healthSyncContainers`.",
           "type": ["array", "null"],
           "items": {
-            "description": "Defines the Consul checks for the service. Each check may contain these fields.",
+            "description": "Defines the Consul checks for the service. Each `check` object may contain the following fields.",
             "type": "object",
             "properties": {
               "checkId": {
@@ -129,11 +129,11 @@
                 }
               },
               "interval": {
-                "description": "Specifies the frequency at which to run this check. Required for HTTP and TCP checks.",
+                "description": "Specifies the frequency at which to run this check. Required for HTTP, TCP, and UDP checks.",
                 "type": ["string", "null"]
               },
               "timeout": {
-                "description": "Specifies a timeout for outgoing connections in the case of a Script, HTTP, TCP, or gRPC check. Must be a duration string, such as `10s` or `5m`.",
+                "description": "Specifies a timeout for outgoing connections. Applies to script, HTTP, TCP, UDP, and gRPC checks. Must be a duration string, such as `10s` or `5m`.",
                 "type": ["string", "null"]
               },
               "ttl": {
@@ -166,6 +166,10 @@
               },
               "tcp": {
                 "description": "Specifies this is a TCP check. Must be an IP/hostname plus port to which a TCP connection is made every `interval`.",
+                "type": ["string", "null"]
+              },
+              "udp": {
+                "description": "Specifies this is a UDP check. Must be an IP/hostname plus port to which UDP datagrams are sent every `interval`.",
                 "type": ["string", "null"]
               },
               "status": {
@@ -245,7 +249,7 @@
           "description": "The list of the upstream services that the proxy should create listeners for.",
           "type": ["array", "null"],
           "items": {
-            "description": "The list of the upstream services that the proxy should create listeners for. Each upstream may contain these fields.",
+            "description": "The list of the upstream services that the proxy should create listeners for. Each `upstream` object may contain the following fields.",
             "type": "object",
             "properties": {
               "destinationType": {
@@ -303,7 +307,7 @@
           "type": ["object", "null"],
           "properties": {
             "mode": {
-              "description": "Specifies how upstreams with a remote destination datacenter get resolved.",
+              "description": "Specifies how upstreams with a remote destination datacenter are resolved.",
               "type": "string",
               "enum": ["none", "local", "remote"]
             }
@@ -352,7 +356,7 @@
       "type": "object",
       "properties": {
         "kind": {
-          "description": "The gateway kind.",
+          "description": "Specifies the type of gateway to register.",
           "type": "string",
           "enum": ["mesh-gateway"]
         },
@@ -373,10 +377,6 @@
           "description": "WAN address and port for the gateway. If not specified, defaults to the task/node address.",
           "type": ["object", "null"],
           "properties": {
-            "source": {
-              "type": ["string", "null"],
-              "enum": ["publicIP", "loadBalancerDNS", "", null]
-            },
             "address": {
               "type": ["string", "null"]
             },
@@ -409,11 +409,11 @@
           }
         },
         "namespace": {
-          "description": "Consul namespace in which the gateway will register [Consul Enterprise].",
+          "description": "Consul namespace in which the gateway will be registered [Consul Enterprise].",
           "type": ["string", "null"]
         },
         "partition": {
-          "description": "Consul admin partition in which the gateway will register [Consul Enterprise].",
+          "description": "Consul admin partition in which the gateway will be registered [Consul Enterprise].",
           "type": ["string", "null"]
         },
         "proxy": {

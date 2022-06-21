@@ -91,7 +91,6 @@
       "port": 8443
     },
     "wanAddress": {
-      "source": "publicIP",
       "address": "172.16.0.0",
       "port": 443
     },

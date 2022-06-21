@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
@@ -16,7 +18,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testPartitionName = "test-partition"
+const (
+	testPartitionName = "test-partition"
+
+	expEntAnonTokenPolicy = `
+partition_prefix "" {
+  namespace_prefix "" {
+    node_prefix "" {
+      policy = "read"
+    }
+    service_prefix "" {
+      policy = "read"
+    }
+  }
+}`
+
+	expOSSAnonTokenPolicy = `
+    node_prefix "" {
+      policy = "read"
+    }
+    service_prefix "" {
+      policy = "read"
+    }`
+)
 
 var (
 	testTaskMetadataResponse = awsutil.ECSTaskMeta{
@@ -199,17 +223,25 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, expPolicyRules
 	// Check the client policy is created.
 	policies, _, err := consulClient.ACL().PolicyList(nil)
 	require.NoError(t, err)
-	sort.Slice(policies, func(i, j int) bool {
-		return policies[i].Name < policies[j].Name
-	})
 
-	require.Equal(t, policies[0].Name, "consul-ecs-client-policy")
+	policyNames := []string{}
+	for _, policy := range policies {
+		policyNames = append(policyNames, policy.Name)
+	}
+
+	require.Contains(t, policyNames, "consul-ecs-client-policy")
 	if partitionsEnabled {
+		// We test with a non-default partition which lacks the global-management policy.
+		// The anonymous token policy is only created in the default partition, since that
+		// is where the anonymous token lives, so we expect only the client policy.
 		require.Len(t, policies, 1)
 	} else {
-		// The default partition also has the global-management policy
-		require.Len(t, policies, 2)
-		require.Equal(t, policies[1].Name, "global-management")
+		// Otherwise, we expect the global-management policy and anonymous-token-policy to be found
+		// if we're running Consul Enterprise and in the default partition, or if we're running
+		// Consul OSS.
+		require.Len(t, policies, 3)
+		require.Contains(t, policyNames, "anonymous-token-policy")
+		require.Contains(t, policyNames, "global-management")
 	}
 
 	policy, _, err := consulClient.ACL().PolicyReadByName("consul-ecs-client-policy", nil)
@@ -419,5 +451,122 @@ func makeAuthMethod(principals interface{}) *api.ACLAuthMethod {
 			"BoundIAMPrincipalARNs":  principals,
 			"EnableIAMEntityDetails": true,
 		},
+	}
+}
+
+type anonTokenTest struct {
+	partitionsEnabled bool
+	agentConfig       AgentConfig
+	existingPolicy    bool
+	attachPolicy      bool
+	expPolicy         string
+	expErr            string
+}
+
+func TestUpsertAnonymousTokenPolicy(t *testing.T) {
+	testUpsertAnonymousTokenPolicy(t, map[string]anonTokenTest{
+		"list datacenters err, no datacenter": {
+			expErr: "agent config does not contain Config.Datacenter key",
+		},
+		"list datacenters err, no primary": {
+			agentConfig: AgentConfig{Config: Config{Datacenter: "dc1"}},
+			expErr:      "both Config.PrimaryDatacenter and DebugConfig.PrimaryDatacenter are empty",
+		},
+		"primary datacenter": {
+			// Testing with primary datacenter in Config.
+			agentConfig: AgentConfig{Config: Config{Datacenter: "dc1", PrimaryDatacenter: "dc1"}},
+			expPolicy:   expOSSAnonTokenPolicy,
+		},
+		"secondary datacenter": {
+			// Testing with primary datacenter in DebugConfig.
+			agentConfig: AgentConfig{
+				Config:      Config{Datacenter: "dc2"},
+				DebugConfig: Config{PrimaryDatacenter: "dc1"},
+			},
+			// The anonymous token policy should not be created.
+		},
+		"primary datacenter, policy attached": {
+			agentConfig: AgentConfig{
+				Config:      Config{Datacenter: "dc1"},
+				DebugConfig: Config{PrimaryDatacenter: "dc1"},
+			},
+			existingPolicy: true,
+			attachPolicy:   true,
+			expPolicy:      expOSSAnonTokenPolicy,
+		},
+		"primary datacenter, policy exists": {
+			agentConfig: AgentConfig{
+				Config:      Config{Datacenter: "dc1"},
+				DebugConfig: Config{PrimaryDatacenter: "dc1"},
+			},
+			existingPolicy: true,
+			expPolicy:      expOSSAnonTokenPolicy,
+		},
+	})
+}
+
+func testUpsertAnonymousTokenPolicy(t *testing.T, cases map[string]anonTokenTest) {
+	t.Parallel()
+	t.Helper()
+	for name, c := range cases {
+		c := c
+		t.Run(name, func(t *testing.T) {
+			cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+			consulClient, err := api.NewClient(cfg)
+			require.NoError(t, err)
+
+			cmd := Command{
+				log:                   hclog.Default().Named("acl-controller"),
+				flagPartitionsEnabled: c.partitionsEnabled,
+			}
+
+			// if we're simulating that the policy already exists, then create it.
+			if c.existingPolicy {
+				_, _, err := consulClient.ACL().PolicyCreate(&api.ACLPolicy{
+					Name:        anonPolicyName,
+					Description: "Anonymous token policy",
+					Rules:       c.expPolicy,
+				}, nil)
+				require.NoError(t, err)
+			}
+
+			expAnonToken, _, err := consulClient.ACL().TokenRead(anonTokenID, nil)
+			require.NoError(t, err)
+
+			// if we're simulating that the policy is already attached, then attach it.
+			if c.attachPolicy {
+				expAnonToken.Policies = append(expAnonToken.Policies, &api.ACLTokenPolicyLink{Name: anonPolicyName})
+				_, _, err = consulClient.ACL().TokenUpdate(expAnonToken, nil)
+				require.NoError(t, err)
+			}
+
+			err = cmd.upsertAnonymousTokenPolicy(consulClient, c.agentConfig)
+
+			if len(c.expErr) == 0 {
+				require.NoError(t, err)
+				obsAnonToken, _, err := consulClient.ACL().TokenRead(anonTokenID, nil)
+				require.NoError(t, err)
+
+				if len(c.expPolicy) > 0 {
+					// if we expect the policy to be created then read it back to make sure
+					// it was and that it matches the expected
+					obsAnonTokenPolicy, _, err := consulClient.ACL().PolicyReadByName(anonPolicyName, nil)
+					require.NoError(t, err)
+					require.Equal(t, c.expPolicy, obsAnonTokenPolicy.Rules)
+
+					// expect that the policy is now attached to the anonymous token.
+					if !c.attachPolicy {
+						expAnonToken.Policies = append(expAnonToken.Policies, &api.ACLTokenPolicyLink{
+							Name: anonPolicyName})
+					}
+				}
+				tokenIgnoreFields := cmpopts.IgnoreFields(api.ACLToken{}, "ModifyIndex", "Hash")
+				policyIgnoreFields := cmpopts.IgnoreFields(api.ACLTokenPolicyLink{}, "ID")
+				require.Empty(t, cmp.Diff(expAnonToken, obsAnonToken, tokenIgnoreFields, policyIgnoreFields))
+			} else {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), c.expErr)
+			}
+		})
 	}
 }

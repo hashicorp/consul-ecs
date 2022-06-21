@@ -385,6 +385,8 @@ func TestReconcileNamespaces(t *testing.T) {
 			expNS:     map[string][]string{"default": {"default"}},
 			resources: []Resource{
 				makeTaskStateEnt("some-task-id", true, nil, "default", "default"),
+				// simulate a task state with an empty string for the namespace
+				makeTaskStateEnt("some-task-id", false, nil, "", ""),
 			},
 			expXnsPolicy: true,
 		}
@@ -434,18 +436,42 @@ func TestReconcileNamespaces(t *testing.T) {
 			require.NoError(t, s.ReconcileNamespaces(c.resources))
 			require.Equal(t, c.expNS, listNamespaces(t, consulClient))
 
-			// check cross namespace policy is created (or not)
-			policy, _, err := consulClient.ACL().PolicyReadByName(
+			// check cross namespace xnsPolicy is created (or not)
+			xnsPolicy, _, err := consulClient.ACL().PolicyReadByName(
 				xnsPolicyName,
 				&api.QueryOptions{Partition: c.partition},
 			)
 			if c.expXnsPolicy {
 				require.NoError(t, err)
-				require.NotNil(t, policy)
-				require.Equal(t, fmt.Sprintf(xnsPolicyTpl, c.partition), policy.Rules)
+				require.NotNil(t, xnsPolicy)
+				require.Equal(t, xnsPolicyName, xnsPolicy.Name)
+				require.Equal(t, fmt.Sprintf(xnsPolicyTpl, c.partition), xnsPolicy.Rules)
+
+				// check which namespaces have the cross-namespace policy assigned.
+				xnsLink := api.ACLLink{ID: xnsPolicy.ID, Name: xnsPolicy.Name}
+				for ptn, namespaces := range c.expNS {
+					for _, nsName := range namespaces {
+						ns, _, err := consulClient.Namespaces().Read(
+							nsName, &api.QueryOptions{Partition: ptn},
+						)
+						require.NoError(t, err)
+						require.NotNil(t, ns)
+						if ptn == c.partition {
+							// namespaces in the controller's assigned partition (c.partition) should have
+							// the cross-namespace policy as a default policy.
+							require.NotNil(t, ns.ACLs)
+							require.Contains(t, ns.ACLs.PolicyDefaults, xnsLink)
+						} else if ns.ACLs != nil {
+							// namespaces outside the controller's assigned partition should not have the xnsPolicy
+							for _, link := range ns.ACLs.PolicyDefaults {
+								require.NotEqual(t, xnsLink.Name, link.Name)
+							}
+						}
+					}
+				}
 			} else {
 				require.Error(t, err)
-				require.Nil(t, policy)
+				require.Nil(t, xnsPolicy)
 			}
 		})
 	}

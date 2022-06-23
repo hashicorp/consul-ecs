@@ -1,16 +1,4 @@
-## Unreleased
-
-BUG FIXES
-* Fix issue where the `acl-controller` did not update the default namespace with the cross-namespace policy.
-  [[GH-104](https://github.com/hashicorp/consul-ecs/pull/104)]
-* Fix token cleanup in the `acl-controller` when Consul Enterprise admin partitions are enabled.
-  [[GH-105](https://github.com/hashicorp/consul-ecs/pull/105)]
-* The `acl-controller` configures the anonymous token with `service:read` and `node:read`
-  permissions to support cross-dc or cross-partition traffic through mesh gateways.
-  [[GH-103](https://github.com/hashicorp/consul-ecs/pull/103)]
-  [[GH-106](https://github.com/hashicorp/consul-ecs/pull/106)]
-
-## 0.5.0-beta1 (Jun 06, 2022)
+## 0.5.0 (June 21, 2022)
 
 BREAKING CHANGES
 * Update `acl-controller` to cleanup ACL tokens created from Consul's AWS IAM auth method. Remove
@@ -49,7 +37,14 @@ BUG FIXES:
 * Fix issue in the `acl-controller` command where namespaces are not created in the correct
   partition when using Consul 1.12. [[GH-72](https://github.com/hashicorp/consul-ecs/pull/72)]
 * Fix note text for synced Consul health checks. [[GH-80](https://github.com/hashicorp/consul-ecs/pull/80)]
-
+* Fix issue where the `acl-controller` did not update the default namespace with the cross-namespace policy.
+  [[GH-104](https://github.com/hashicorp/consul-ecs/pull/104)]
+* Fix token cleanup in the `acl-controller` when Consul Enterprise admin partitions are enabled.
+  [[GH-105](https://github.com/hashicorp/consul-ecs/pull/105)]
+* The `acl-controller` configures the anonymous token with `service:read` and `node:read`
+  permissions to support cross-dc or cross-partition traffic through mesh gateways.
+  [[GH-103](https://github.com/hashicorp/consul-ecs/pull/103)]
+  [[GH-106](https://github.com/hashicorp/consul-ecs/pull/106)]
 
 ## 0.4.1 (April 08, 2022)
 

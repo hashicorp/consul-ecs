@@ -524,7 +524,7 @@ func testUpsertAnonymousTokenPolicy(t *testing.T, cases map[string]anonTokenTest
 			if c.existingPolicy {
 				_, _, err := consulClient.ACL().PolicyCreate(&api.ACLPolicy{
 					Name:        anonPolicyName,
-					Description: "Anonymous token policy",
+					Description: anonPolicyDesc,
 					Rules:       c.expPolicy,
 				}, nil)
 				require.NoError(t, err)
@@ -552,6 +552,8 @@ func testUpsertAnonymousTokenPolicy(t *testing.T, cases map[string]anonTokenTest
 					// it was and that it matches the expected
 					obsAnonTokenPolicy, _, err := consulClient.ACL().PolicyReadByName(anonPolicyName, nil)
 					require.NoError(t, err)
+					require.Equal(t, anonPolicyName, obsAnonTokenPolicy.Name)
+					require.Equal(t, anonPolicyDesc, obsAnonTokenPolicy.Description)
 					require.Equal(t, c.expPolicy, obsAnonTokenPolicy.Rules)
 
 					// expect that the policy is now attached to the anonymous token.

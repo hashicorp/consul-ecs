@@ -1,3 +1,10 @@
+## Unreleased
+
+BUG FIXES:
+* Fix the description of the anonymous token policy so that it exactly matches the description
+  created by `consul-k8s`. This fixes a connectivity issue that occurs when `consul-k8s` and
+  `consul-ecs` deployments are connected to the same Consul datacenter.
+
 ## 0.5.0 (June 21, 2022)
 
 BREAKING CHANGES

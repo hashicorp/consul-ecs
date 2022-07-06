@@ -36,6 +36,7 @@ const (
 	// anonTokenID is the well-known ID for the anonymous ACL token.
 	anonTokenID    = "00000000-0000-0000-0000-000000000002"
 	anonPolicyName = "anonymous-token-policy"
+	anonPolicyDesc = "Anonymous token Policy"
 )
 
 type Command struct {
@@ -558,7 +559,7 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 		}
 		policy, _, err = consulClient.ACL().PolicyCreate(&api.ACLPolicy{
 			Name:        anonPolicyName,
-			Description: "Anonymous token policy",
+			Description: anonPolicyDesc,
 			Rules:       rules,
 		}, wopts)
 		if err != nil {

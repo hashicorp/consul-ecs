@@ -13,7 +13,7 @@ import (
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/logging"
-	meshinit "github.com/hashicorp/consul-ecs/subcommand/mesh-init"
+	controlplane "github.com/hashicorp/consul-ecs/subcommand/control-plane"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
@@ -80,14 +80,14 @@ func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
 		return err
 	}
 	healthSyncContainers := c.config.HealthSyncContainers
-	svcReg, err := meshinit.ConstructServiceRegistration(c.config, taskMeta)
+	svcReg, err := controlplane.ConstructServiceRegistration(c.config, taskMeta)
 	if err != nil {
 		return err
 	}
 
 	currentStatuses := make(map[string]string)
 
-	proxyReg := meshinit.ConstructProxyRegistration(c.config, svcReg)
+	proxyReg := controlplane.ConstructProxyRegistration(c.config, svcReg)
 	var proxyStatus string
 
 	for {
@@ -362,7 +362,7 @@ func ecsHealthToConsulHealth(ecsHealth string) string {
 
 func updateConsulHealthChecks(consulClient *api.Client, svcReg *api.CatalogRegistration, currentStatuses map[string]string) error {
 	for container, ecsHealthStatus := range currentStatuses {
-		checkId := meshinit.CheckID(svcReg.Service.ID, container)
+		checkId := controlplane.CheckID(svcReg.Service.ID, container)
 		for _, check := range svcReg.Checks {
 			if check.CheckID == checkId {
 				check.Status = ecsHealthToConsulHealth(ecsHealthStatus)

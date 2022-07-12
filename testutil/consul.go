@@ -28,7 +28,8 @@ func ConsulServer(t *testing.T, cb ServerConfigCallback) *api.Config {
 		cfg.Token = server.Config.ACL.Tokens.Master
 	}
 
-	// Set CONSUL_HTTP_ADDR for mesh-init. Required to invoke the consul binary (i.e. in mesh-init).
+	// Set CONSUL_HTTP_ADDR for control-plane. Required to invoke the consul binary as a subprocess.
+	// TODO: consul binary is no longer needed for agentless, once we have consul-dataplane.
 	require.NoError(t, os.Setenv("CONSUL_HTTP_ADDR", server.HTTPAddr))
 	t.Cleanup(func() {
 		_ = os.Unsetenv("CONSUL_HTTP_ADDR")

@@ -17,10 +17,10 @@ import (
 
 var (
 	nonAppContainers = map[string]struct{}{
-		"consul-client":          {},
-		"sidecar-proxy":          {},
-		"consul-ecs-health-sync": {},
-		"consul-ecs-mesh-init":   {},
+		// TODO: replace with consul-dataplane
+		"consul-client":            {},
+		"sidecar-proxy":            {},
+		"consul-ecs-control-plane": {},
 	}
 )
 

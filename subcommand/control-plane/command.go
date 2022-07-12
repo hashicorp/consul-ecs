@@ -1,4 +1,4 @@
-package meshinit
+package controlplane
 
 import (
 	"fmt"
@@ -273,7 +273,7 @@ func (c *Command) waitForTokenReplication(tokenFile string) error {
 	// next call to reach different servers and those servers to have different states from each
 	// other, but this is unlikely since clients use sticky connections.
 
-	// Mesh-init talks to the local Consul client agent (for now). We need this to hit the Consul
+	// control-plane talks to the local Consul client agent (for now). We need this to hit the Consul
 	// server(s) directly.
 	newCfg := api.DefaultConfig()
 	newCfg.Address = c.config.ConsulHTTPAddr

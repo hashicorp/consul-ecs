@@ -76,7 +76,7 @@ func (c *ConsulLogin) UnmarshalJSON(data []byte) error {
 // ServiceRegistration configures the Consul service registration.
 //
 // NOTE:
-// - The Kind and Id fields are set by mesh-init during service/proxy registration.
+// - The Kind and Id fields are set by control-plane during service/proxy registration.
 // - The Address field excluded. The agent's address (task ip) should always be used in ECS.
 // - The Connect field is not supported:
 //   - No Connect-native support for now. We assume Envoy is used.
@@ -215,20 +215,20 @@ func (w *AgentWeights) ToConsulType() *api.AgentWeights {
 //
 // NOTE:
 // For the proxy registration request (api.AgentServiceRegistration in Consul),
-// - The Kind and Port are set by mesh-init, so these fields are not configurable.
+// - The Kind and Port are set by control-plane, so these fields are not configurable.
 // - The ID, Name, Tags, Meta, EnableTagOverride, and Weights fields are inferred or copied
-//   from the service registration by mesh-init.
+//   from the service registration by control-plane.
 // - The bind address is always localhost in ECS, so the Address and SocketPath are excluded.
 // - The Connect field is excluded. Since the sidecar proxy is being used, it's not a Connect-native
 //   service, and we don't need the nested proxy config included in the Connect field.
-// - The Partition field is excluded. mesh-init will use the partition from the service registration.
-// - The Namespace field is excluded. mesh-init will use the namespace from the service registration.
+// - The Partition field is excluded. control-plane will use the partition from the service registration.
+// - The Namespace field is excluded. control-plane will use the namespace from the service registration.
 // - There's not a use-case for specifying TaggedAddresses with Consul ECS, and Enable
 // For the proxy configuration (api.AgentServiceConnectProxyConfig in Consul),
 // - The DestinationServiceName, DestinationServiceId, LocalServiceAddress, and LocalServicePort
-//   are all set by mesh-init, based on the service configuration.
-// - The LocalServiceSocketPath is excluded, since it would conflict with the address/port set by mesh-init.
-// - Checks are excluded. mesh-init automatically configures useful checks for the proxy.
+//   are all set by control-plane, based on the service configuration.
+// - The LocalServiceSocketPath is excluded, since it would conflict with the address/port set by control-plane.
+// - Checks are excluded. control-plane automatically configures useful checks for the proxy.
 // - TProxy is not supported on ECS, so the Mode and TransparentProxy fields are excluded.
 type AgentServiceConnectProxyConfig struct {
 	Config      map[string]interface{} `json:"config,omitempty"`

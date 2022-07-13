@@ -3,7 +3,6 @@ package controlplane
 import (
 	"fmt"
 	"net"
-	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -40,12 +39,22 @@ func (c *Command) Run(args []string) int {
 		return 1
 	}
 
-	config, err := config.FromEnv()
+	conf, err := config.FromEnv()
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("invalid config: %s", err))
 		return 1
 	}
-	c.config = config
+	c.config = conf
+
+	if caCert := os.Getenv(config.ConsulCACertEnvVar); caCert != "" {
+		// TODO: check if CACertFile is empty?
+		certFile := c.config.ConsulServers.CACertFile
+		err := os.WriteFile(certFile, []byte(caCert), 0644)
+		if err != nil {
+			c.UI.Error(fmt.Sprintf("unable to write CA cert file %q: %s", certFile, err))
+			return 1
+		}
+	}
 
 	c.log = logging.FromConfig(c.config).Logger()
 
@@ -64,9 +73,10 @@ func (c *Command) realRun() error {
 	}
 
 	cfg := api.DefaultConfig()
-	cfg.Address = c.config.ConsulHTTPAddr
-	cfg.TLSConfig.CAFile = c.config.ConsulCACertFile
+	cfg.Address = c.config.ConsulServers.HTTPAddr()
+	cfg.TLSConfig.CAFile = c.config.ConsulServers.CACertFile
 
+	var consulClient *api.Client
 	if c.config.ConsulLogin.Enabled {
 		// If enabled, login to the auth method to obtain an ACL token.
 		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
@@ -77,14 +87,18 @@ func (c *Command) realRun() error {
 
 		// The just-created token is not immediately replicated to Consul server followers.
 		// Mitigate against this by waiting for the token in stale consistency mode.
-		if err := c.waitForTokenReplication(tokenFile); err != nil {
+		consulClient, err = api.NewClient(cfg)
+		if err != nil {
+			return fmt.Errorf("constructing consul client: %s", err)
+		}
+		if err := c.waitForTokenReplication(consulClient); err != nil {
 			return err
 		}
-	}
-
-	consulClient, err := api.NewClient(cfg)
-	if err != nil {
-		return fmt.Errorf("constructing consul client: %s", err)
+	} else {
+		consulClient, err = api.NewClient(cfg)
+		if err != nil {
+			return fmt.Errorf("constructing consul client: %s", err)
+		}
 	}
 
 	var svcReg, proxyReg *api.CatalogRegistration
@@ -134,26 +148,17 @@ func (c *Command) realRun() error {
 		"id", proxyReg.Service.ID,
 	)
 
-	// TODO: Add a config option for the gRPC address instead of inferring from the http address.
-	grpcAddr, err := url.Parse(c.config.ConsulHTTPAddr)
-	if err != nil {
-		return err
-	}
-	parts := strings.Split(grpcAddr.Host, ":")
-	grpcAddr.Host = parts[0] + ":8502"
-
 	// Run consul envoy -bootstrap to generate bootstrap file.
 	cmdArgs := []string{
 		"consul", "connect", "envoy",
 		"-bootstrap",
 		"-proxy-id", proxyReg.Service.ID,
-		"-http-addr", c.config.ConsulHTTPAddr,
-		"-grpc-addr", grpcAddr.String(),
+		"-http-addr", c.config.ConsulServers.HTTPAddr(),
+		"-grpc-addr", c.config.ConsulServers.GRPCAddr(),
 		"-node-name", proxyReg.Node,
 	}
-	// TODO: Is just the https cert? I think so. The
-	if c.config.ConsulCACertFile != "" {
-		cmdArgs = append(cmdArgs, "-ca-file", c.config.ConsulCACertFile)
+	if certFile := c.config.ConsulServers.CACertFile; certFile != "" {
+		cmdArgs = append(cmdArgs, "-ca-file", certFile)
 	}
 	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
 		kind := strings.ReplaceAll(string(c.config.Gateway.Kind), "-gateway", "")
@@ -242,7 +247,7 @@ func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMe
 	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 }
 
-func (c *Command) waitForTokenReplication(tokenFile string) error {
+func (c *Command) waitForTokenReplication(client *api.Client) error {
 	// A workaround to check that the ACL token is replicated to other Consul servers.
 	// Code borrowed from: https://github.com/hashicorp/consul-k8s/pull/887
 	//
@@ -272,23 +277,10 @@ func (c *Command) waitForTokenReplication(tokenFile string) error {
 	// The does not eliminate this problem completely. It's still possible for this call and the
 	// next call to reach different servers and those servers to have different states from each
 	// other, but this is unlikely since clients use sticky connections.
-
-	// control-plane talks to the local Consul client agent (for now). We need this to hit the Consul
-	// server(s) directly.
-	newCfg := api.DefaultConfig()
-	newCfg.Address = c.config.ConsulHTTPAddr
-	newCfg.TLSConfig.CAFile = c.config.ConsulCACertFile
-	newCfg.TokenFile = tokenFile
-
-	client, err := api.NewClient(newCfg)
-	if err != nil {
-		return err
-	}
-
 	c.log.Info("Checking that the ACL token exists when reading it in the stale consistency mode")
 	// Use raft timeout and polling interval to determine the number of retries.
 	numTokenReadRetries := uint64(raftReplicationTimeout.Milliseconds() / tokenReadPollingInterval.Milliseconds())
-	err = backoff.Retry(func() error {
+	err := backoff.Retry(func() error {
 		_, _, err := client.ACL().TokenReadSelf(&api.QueryOptions{AllowStale: true})
 		if err != nil {
 			c.log.Error("Unable to read ACL token; retrying", "err", err)
@@ -318,8 +310,8 @@ func (c *Command) constructLoginCmd(tokenFile string, taskMeta awsutil.ECSTaskMe
 		"login", "-type", "aws", "-method", method,
 		// NOTE: If -http-addr and -ca-file are empty strings, Consul ignores them.
 		// The -http-addr flag will default to the local Consul client.
-		"-http-addr", c.config.ConsulHTTPAddr,
-		"-ca-file", c.config.ConsulCACertFile,
+		"-http-addr", c.config.ConsulServers.HTTPAddr(),
+		"-ca-file", c.config.ConsulServers.CACertFile,
 		"-token-sink-file", tokenFile,
 		"-meta", fmt.Sprintf("consul.hashicorp.com/task-id=%s", taskMeta.TaskID()),
 		"-meta", fmt.Sprintf("consul.hashicorp.com/cluster=%s", taskMeta.Cluster),

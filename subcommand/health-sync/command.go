@@ -48,8 +48,8 @@ func (c *Command) Run(args []string) int {
 	c.log = logging.FromConfig(c.config).Logger()
 
 	cfg := api.DefaultConfig()
-	cfg.Address = c.config.ConsulHTTPAddr
-	cfg.TLSConfig.CAFile = c.config.ConsulCACertFile
+	cfg.Address = c.config.ConsulServers.HTTPAddr()
+	cfg.TLSConfig.CAFile = c.config.ConsulServers.CACertFile
 
 	if c.config.ConsulLogin.Enabled {
 		// This file will already have been written by mesh-init.
@@ -312,12 +312,8 @@ func (c *Command) logout(tokenFile string) error {
 	tokenFile = filepath.Join(c.config.BootstrapDir, tokenFile)
 	c.log.Info("log out token", "file", tokenFile)
 	cfg := api.DefaultConfig()
-	if c.config.ConsulHTTPAddr != "" {
-		cfg.Address = c.config.ConsulHTTPAddr
-	}
-	if c.config.ConsulCACertFile != "" {
-		cfg.TLSConfig.CAFile = c.config.ConsulCACertFile
-	}
+	cfg.Address = c.config.ConsulServers.HTTPAddr()
+	cfg.TLSConfig.CAFile = c.config.ConsulServers.CACertFile
 	cfg.TokenFile = tokenFile
 
 	client, err := api.NewClient(cfg)

@@ -3,6 +3,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/hashicorp/consul/api"
 )
@@ -26,19 +27,61 @@ const (
 
 	// TaggedAddressWAN is the map key for WAN tagged addresses.
 	TaggedAddressWAN = "wan"
+
+	// ConsulCACertEnvVar is the environment variable containing the Consul server's CA Cert
+	// for the HTTPS / GRPC interface.
+	ConsulCACertEnvVar = "CONSUL_CACERT_PEM"
 )
 
 // Config is the top-level config object.
 type Config struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
-	ConsulHTTPAddr       string                          `json:"consulHTTPAddr"`
-	ConsulCACertFile     string                          `json:"consulCACertFile"`
+	ConsulServers        ConsulServers                   `json:"consulServers"`
 	ConsulLogin          ConsulLogin                     `json:"consulLogin"`
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	LogLevel             string                          `json:"logLevel,omitempty"`
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
 	Gateway              *GatewayRegistration            `json:"gateway,omitempty"`
 	Service              ServiceRegistration             `json:"service"`
+}
+
+type ConsulServers struct {
+	Hosts      string `json:"hosts"`
+	HTTPS      bool   `json:"https"`
+	HTTPPort   int    `json:"httpPort"`
+	GRPCPort   int    `json:"grpcPort"`
+	CACertFile string `json:"caCertFile"`
+}
+
+func (c ConsulServers) HTTPAddr() string {
+	// TODO: Temporary. We will use a server discovery library for agentless.
+	// We'll support exec commands to discover server IP addresses.
+	// For now, just constructing the address assuming Hosts is a ip/hostname.
+	// TODO: default https to true when parsing the json (similar to ConsulLogin.UnmarshalJSON)
+	scheme := "http"
+	if c.HTTPS {
+		scheme = "https"
+	}
+
+	port := c.HTTPPort
+	if c.HTTPPort == 0 {
+		port = 8501
+	}
+	return fmt.Sprintf("%s://%s:%d", scheme, c.Hosts, port)
+}
+
+func (c ConsulServers) GRPCAddr() string {
+	scheme := "http"
+	if c.HTTPS {
+		scheme = "https"
+	}
+
+	port := c.GRPCPort
+	if c.GRPCPort == 0 {
+		port = 8502
+	}
+	return fmt.Sprintf("%s://%s:%d", scheme, c.Hosts, port)
+
 }
 
 // ConsulLogin configures login options for the Consul IAM auth method.

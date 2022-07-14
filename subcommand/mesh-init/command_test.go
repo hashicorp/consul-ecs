@@ -213,9 +213,16 @@ func TestRun(t *testing.T) {
 
 				// Point `consul login` at the local fake AWS server.
 				c.consulLogin.STSEndpoint = fakeAws.URL + "/sts"
-				c.consulLogin.Region = "fake-region"
-				c.consulLogin.AccessKeyID = "fake-key-id"
-				c.consulLogin.SecretAccessKey = "fake-secret-key"
+
+				// Because c.consulLogin is dumped to JSON and passed to the cmd, we must set these
+				// environment variables rather than c.consulLogin.AccessKeyID and
+				// c.consulLogin.SecretAccessKey, which are disallowed by the JSON schema.
+				t.Cleanup(func() {
+					os.Unsetenv("AWS_ACCESS_KEY_ID")
+					os.Unsetenv("AWS_SECRET_ACCESS_KEY_ID")
+				})
+				os.Setenv("AWS_ACCESS_KEY_ID", "fake-key-id")
+				os.Setenv("AWS_SECRET_ACCESS_KEY_ID", "fake-secret-key")
 			}
 
 			ui := cli.NewMockUi()

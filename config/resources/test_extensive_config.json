@@ -10,7 +10,13 @@
     "enabled": true,
     "method": "my-auth-method",
     "includeEntity": false,
-    "extraLoginFlags": ["-aws-region", "fake"]
+    "meta": {
+      "tag-1": "val-1",
+      "tag-2": "val-2"
+    },
+    "region": "bogus-east-2",
+    "stsEndpoint": "https://sts.bogus-east-2.example.com",
+    "serverIdHeaderValue": "my.consul.example.com"
   },
   "service": {
     "name": "frontend",

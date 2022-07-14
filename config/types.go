@@ -43,10 +43,19 @@ type Config struct {
 
 // ConsulLogin configures login options for the Consul IAM auth method.
 type ConsulLogin struct {
-	Enabled         bool     `json:"enabled"`
-	Method          string   `json:"method"`
-	IncludeEntity   bool     `json:"includeEntity"`
-	ExtraLoginFlags []string `json:"extraLoginFlags"`
+	Enabled       bool              `json:"enabled"`
+	Method        string            `json:"method"`
+	IncludeEntity bool              `json:"includeEntity"`
+	Meta          map[string]string `json:"meta"`
+	Region        string            `json:"region"`
+
+	// These are passed through to the consul-awsauth library.
+	STSEndpoint         string `json:"stsEndpoint"`
+	ServerIDHeaderValue string `json:"serverIdHeaderValue"`
+
+	// These are for unit tests. They are disallowed by the JSON schema.
+	AccessKeyID     string `json:"-"`
+	SecretAccessKey string `json:"-"`
 }
 
 // UnmarshalJSON is a custom unmarshaller that defaults `includeEntity` to true

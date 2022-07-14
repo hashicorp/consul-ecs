@@ -145,8 +145,8 @@ func TestRun(t *testing.T) {
 			consulLogin: config.ConsulLogin{
 				Enabled:       true,
 				IncludeEntity: true,
-				ExtraLoginFlags: []string{
-					"-meta", "unittest-tag=12345",
+				Meta: map[string]string{
+					"unittest-tag": "12345",
 				},
 			},
 		},
@@ -212,12 +212,10 @@ func TestRun(t *testing.T) {
 				fakeAws := testutil.AuthMethodInit(t, consulClient, expectedServiceName)
 
 				// Point `consul login` at the local fake AWS server.
-				c.consulLogin.ExtraLoginFlags = append(c.consulLogin.ExtraLoginFlags,
-					"-aws-sts-endpoint", fakeAws.URL+"/sts",
-					"-aws-region", "fake-region",
-					"-aws-access-key-id", "fake-key-id",
-					"-aws-secret-access-key", "fake-secret-key",
-				)
+				c.consulLogin.STSEndpoint = fakeAws.URL + "/sts"
+				c.consulLogin.Region = "fake-region"
+				c.consulLogin.AccessKeyID = "fake-key-id"
+				c.consulLogin.SecretAccessKey = "fake-secret-key"
 			}
 
 			ui := cli.NewMockUi()
@@ -604,92 +602,65 @@ func TestConstructServiceName(t *testing.T) {
 	require.Equal(t, expectedServiceName, serviceName)
 }
 
-func TestConstructLoginCmd(t *testing.T) {
+func TestConstructLoginParams(t *testing.T) {
+	t.Parallel()
+
 	var (
-		taskARN = "arn:aws:ecs:bogus-east-1:123456789:task/test/abcdef"
-		meta    = awsutil.ECSTaskMeta{
-			Cluster: "my-cluster",
-			TaskARN: taskARN,
+		authMethodName = "my-auth-method"
+		bearerToken    = "<bogus-token>"
+		cluster        = "my-cluster"
+		taskID         = "abcdef"
+		taskMeta       = awsutil.ECSTaskMeta{
+			Cluster: cluster,
+			TaskARN: "arn:aws:ecs:bogus-east-1:123456789:task/test/" + taskID,
 			Family:  "my-service",
 		}
-		method     = "test-method"
-		tokenFile  = "test-file"
-		httpAddr   = "consul.example.com"
-		caCertFile = "my-ca-cert.pem"
 	)
 
 	cases := map[string]struct {
-		config *config.Config
-		expCmd []string
+		conf *config.Config
+		exp  *api.ACLLoginParams
 	}{
 		"defaults": {
-			config: &config.Config{
-				ConsulHTTPAddr:   httpAddr,
-				ConsulCACertFile: caCertFile,
-				ConsulLogin: config.ConsulLogin{
-					Method:        method,
-					IncludeEntity: true, // defaults to true, when parsed from JSON
-				},
+			conf: &config.Config{
+				ConsulLogin: config.ConsulLogin{},
 			},
-			expCmd: []string{
-				"login", "-type", "aws", "-method", method,
-				"-http-addr", httpAddr,
-				"-ca-file", caCertFile,
-				"-token-sink-file", tokenFile,
-				"-meta", "consul.hashicorp.com/task-id=abcdef",
-				"-meta", "consul.hashicorp.com/cluster=my-cluster",
-				"-aws-region", "bogus-east-1",
-				"-aws-auto-bearer-token", "-aws-include-entity",
+			exp: &api.ACLLoginParams{
+				AuthMethod:  config.DefaultAuthMethodName,
+				BearerToken: bearerToken,
+				Meta: map[string]string{
+					"consul.hashicorp.com/task-id": taskID,
+					"consul.hashicorp.com/cluster": cluster,
+				},
 			},
 		},
-		"fewest fields": {
-			config: &config.Config{
+		"non defaults": {
+			conf: &config.Config{
 				ConsulLogin: config.ConsulLogin{
-					Method:        method,
-					IncludeEntity: false,
+					Method: authMethodName,
+					Meta: map[string]string{
+						"unittest-tag": "1234",
+					},
 				},
 			},
-			expCmd: []string{
-				"login", "-type", "aws", "-method", method,
-				"-http-addr", "", // unset
-				"-ca-file", "",
-				"-token-sink-file", tokenFile,
-				"-meta", "consul.hashicorp.com/task-id=abcdef",
-				"-meta", "consul.hashicorp.com/cluster=my-cluster",
-				"-aws-region", "bogus-east-1",
-				"-aws-auto-bearer-token",
-				// no -aws-include-entity
-			},
-		},
-		"all fields": {
-			config: &config.Config{
-				ConsulHTTPAddr:   httpAddr,
-				ConsulCACertFile: caCertFile,
-				ConsulLogin: config.ConsulLogin{
-					Method:          method,
-					IncludeEntity:   true,
-					ExtraLoginFlags: []string{"-aws-server-id-header-value", "abcd"},
+			exp: &api.ACLLoginParams{
+				AuthMethod:  authMethodName,
+				BearerToken: bearerToken,
+				Meta: map[string]string{
+					"consul.hashicorp.com/task-id": taskID,
+					"consul.hashicorp.com/cluster": cluster,
+					"unittest-tag":                 "1234",
 				},
-			},
-			expCmd: []string{
-				"login", "-type", "aws", "-method", method,
-				"-http-addr", httpAddr,
-				"-ca-file", caCertFile,
-				"-token-sink-file", tokenFile,
-				"-meta", "consul.hashicorp.com/task-id=abcdef",
-				"-meta", "consul.hashicorp.com/cluster=my-cluster",
-				"-aws-region", "bogus-east-1",
-				"-aws-auto-bearer-token", "-aws-include-entity",
-				"-aws-server-id-header-value", "abcd",
 			},
 		},
 	}
 	for name, c := range cases {
+		c := c
+
 		t.Run(name, func(t *testing.T) {
-			cmd := &Command{config: c.config}
-			loginOpts, err := cmd.constructLoginCmd(tokenFile, meta)
-			require.NoError(t, err)
-			require.Equal(t, c.expCmd, loginOpts)
+			cmd := &Command{config: c.conf}
+			params := cmd.constructLoginParams(bearerToken, taskMeta)
+			require.Equal(t, c.exp, params)
 		})
 	}
 }

@@ -188,17 +188,19 @@ func (c *Command) realRun() error {
 // The login command is skipped if LogintOptions is not set in the
 // consul-ecs config JSON, in order to support non-ACL deployments.
 func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMeta) error {
-	cfg := api.DefaultConfig()
-	cfg.Address = c.config.ConsulHTTPAddr
-	cfg.TLSConfig.CAFile = c.config.ConsulCACertFile
-
-	client, err := api.NewClient(cfg)
-	if err != nil {
-		return err
-	}
-
 	return backoff.RetryNotify(func() error {
 		c.log.Debug("login attempt")
+
+		// We need to retry creating the client here, because there's a race between this
+		// and the consul-client container writing the ca cert file.
+		cfg := api.DefaultConfig()
+		cfg.Address = c.config.ConsulHTTPAddr
+		cfg.TLSConfig.CAFile = c.config.ConsulCACertFile
+
+		client, err := api.NewClient(cfg)
+		if err != nil {
+			return err
+		}
 
 		// We rerun createAWSBearerToken every iteration of this loop to ensure we have a valid
 		// bearer token, since we retry forever and since the token may expire during that time.

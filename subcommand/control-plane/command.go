@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -63,6 +64,7 @@ func (c *Command) Run(args []string) int {
 		c.log.Error(err.Error())
 		return 1
 	}
+
 	return 0
 }
 
@@ -215,7 +217,10 @@ func (c *Command) realRun() error {
 		return err
 	}
 	c.log.Info("copied binary", "file", copyConsulECSBinary)
-	return nil
+
+	ctx, cancel := context.WithCancel(context.Background())
+	c.ignoreSIGTERM(cancel)
+	return c.runHealthSync(ctx, consulClient)
 }
 
 // loginToAuthMethod runs a 'consul login' command to obtain a token.
@@ -328,7 +333,7 @@ func (c *Command) constructLoginCmd(tokenFile string, taskMeta awsutil.ECSTaskMe
 }
 
 func (c *Command) Synopsis() string {
-	return "Initializes a mesh app"
+	return "Control plane binary for Consul service mesh applications in ECS"
 }
 
 func (c *Command) Help() string {

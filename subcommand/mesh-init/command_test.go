@@ -219,10 +219,10 @@ func TestRun(t *testing.T) {
 				// c.consulLogin.SecretAccessKey, which are disallowed by the JSON schema.
 				t.Cleanup(func() {
 					os.Unsetenv("AWS_ACCESS_KEY_ID")
-					os.Unsetenv("AWS_SECRET_ACCESS_KEY_ID")
+					os.Unsetenv("AWS_SECRET_ACCESS_KEY")
 				})
 				os.Setenv("AWS_ACCESS_KEY_ID", "fake-key-id")
-				os.Setenv("AWS_SECRET_ACCESS_KEY_ID", "fake-secret-key")
+				os.Setenv("AWS_SECRET_ACCESS_KEY", "fake-secret-key")
 			}
 
 			ui := cli.NewMockUi()

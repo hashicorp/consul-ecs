@@ -229,7 +229,7 @@ func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMe
 			return err
 		}
 
-		c.log.Info("login success, token with accessor id %s written to file %s", tok.AccessorID, tokenFile)
+		c.log.Info("login success", "accessor-id", tok.AccessorID, "token-file", tokenFile)
 		return nil
 	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 }

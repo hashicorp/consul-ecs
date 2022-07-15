@@ -211,18 +211,8 @@ func TestRun(t *testing.T) {
 			if c.consulLogin.Enabled {
 				fakeAws := testutil.AuthMethodInit(t, consulClient, expectedServiceName)
 
-				// Point `consul login` at the local fake AWS server.
+				// Use the fake local AWS server.
 				c.consulLogin.STSEndpoint = fakeAws.URL + "/sts"
-
-				// Because c.consulLogin is dumped to JSON and passed to the cmd, we must set these
-				// environment variables rather than c.consulLogin.AccessKeyID and
-				// c.consulLogin.SecretAccessKey, which are disallowed by the JSON schema.
-				t.Cleanup(func() {
-					os.Unsetenv("AWS_ACCESS_KEY_ID")
-					os.Unsetenv("AWS_SECRET_ACCESS_KEY")
-				})
-				os.Setenv("AWS_ACCESS_KEY_ID", "fake-key-id")
-				os.Setenv("AWS_SECRET_ACCESS_KEY", "fake-secret-key")
 			}
 
 			ui := cli.NewMockUi()
@@ -373,7 +363,7 @@ func TestGateway(t *testing.T) {
 			},
 			expServiceID:   family + "-abcdef",
 			expServiceName: family,
-			expLanPort:     8443, // default gateway port if unspecified
+			expLanPort:     config.DefaultGatewayPort,
 		},
 		"mesh gateway with port": {
 			config: &config.Config{
@@ -445,7 +435,7 @@ func TestGateway(t *testing.T) {
 			},
 			expServiceID:   family + "-abcdef",
 			expServiceName: family,
-			expLanPort:     8443, // default gateway port
+			expLanPort:     config.DefaultGatewayPort,
 			expLanAddress:  "",
 			expTaggedAddresses: map[string]api.ServiceAddress{
 				"wan": {
@@ -454,19 +444,42 @@ func TestGateway(t *testing.T) {
 				},
 			},
 		},
+		"mesh gateway with auth method enabled": {
+			config: &config.Config{
+				ConsulLogin: config.ConsulLogin{
+					Enabled:       true,
+					IncludeEntity: true,
+				},
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+				},
+			},
+			expServiceID:   family + "-abcdef",
+			expServiceName: family,
+			expLanPort:     config.DefaultGatewayPort,
+		},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			t.Logf("%v", c.config)
+			var srvConfig testutil.ServerConfigCallback
+			if c.config.ConsulLogin.Enabled {
+				// Enable ACLs to test with the auth method
+				srvConfig = testutil.ConsulACLConfigFn
+			}
 
-			apiCfg := testutil.ConsulServer(t, nil)
+			apiCfg := testutil.ConsulServer(t, srvConfig)
 			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataResponse))
-
-			c.config.BootstrapDir = testutil.TempDir(t)
-			testutil.SetECSConfigEnvVar(t, c.config)
 
 			consulClient, err := api.NewClient(apiCfg)
 			require.NoError(t, err)
+
+			c.config.BootstrapDir = testutil.TempDir(t)
+			if c.config.ConsulLogin.Enabled {
+				fakeAws := testutil.AuthMethodInit(t, consulClient, c.expServiceName)
+				// Use the fake local AWS server.
+				c.config.ConsulLogin.STSEndpoint = fakeAws.URL + "/sts"
+			}
+			testutil.SetECSConfigEnvVar(t, c.config)
 
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}

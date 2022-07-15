@@ -28,15 +28,6 @@ const (
 	envoyBoostrapConfigFilename = "envoy-bootstrap.json"
 	raftReplicationTimeout      = 2 * time.Second
 	tokenReadPollingInterval    = 100 * time.Millisecond
-
-	authMethodType string = "aws-iam"
-
-	// Match Consul: https://github.com/hashicorp/consul/blob/68e79b8180ca89e8cfca291b40a30d943039bd49/agent/consul/authmethod/awsauth/aws.go#L16-L20
-	iamServerIDHeaderName  string = "X-Consul-IAM-ServerID"
-	getEntityMethodHeader  string = "X-Consul-IAM-GetEntity-Method"
-	getEntityURLHeader     string = "X-Consul-IAM-GetEntity-URL"
-	getEntityHeadersHeader string = "X-Consul-IAM-GetEntity-Headers"
-	getEntityBodyHeader    string = "X-Consul-IAM-GetEntity-Body"
 )
 
 type Command struct {
@@ -217,9 +208,16 @@ func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMe
 		if err != nil {
 			return err
 		}
+
+		// We use this for gateways, too.
+		partition := c.config.Service.Partition
+		if partition == "" && c.config.Gateway != nil {
+			partition = c.config.Gateway.Partition
+		}
+
 		tok, _, err := client.ACL().Login(
 			c.constructLoginParams(bearerToken, taskMeta),
-			&api.WriteOptions{Partition: c.config.Service.Partition},
+			&api.WriteOptions{Partition: partition},
 		)
 		if err != nil {
 			c.log.Error(err.Error())
@@ -303,11 +301,11 @@ func (c *Command) createAWSBearerToken(taskMeta awsutil.ECSTaskMeta) (string, er
 		STSRegion:              region,
 		Logger:                 hclog.New(nil),
 		ServerIDHeaderValue:    l.ServerIDHeaderValue,
-		ServerIDHeaderName:     iamServerIDHeaderName,
-		GetEntityMethodHeader:  getEntityMethodHeader,
-		GetEntityURLHeader:     getEntityURLHeader,
-		GetEntityHeadersHeader: getEntityHeadersHeader,
-		GetEntityBodyHeader:    getEntityBodyHeader,
+		ServerIDHeaderName:     config.IAMServerIDHeaderName,
+		GetEntityMethodHeader:  config.GetEntityMethodHeader,
+		GetEntityURLHeader:     config.GetEntityURLHeader,
+		GetEntityHeadersHeader: config.GetEntityHeadersHeader,
+		GetEntityBodyHeader:    config.GetEntityBodyHeader,
 	})
 	if err != nil {
 		return "", err

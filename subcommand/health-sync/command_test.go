@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	iamauth "github.com/hashicorp/consul-awsauth"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/testutil"
@@ -337,19 +338,32 @@ func TestLogoutSuccess(t *testing.T) {
 
 	// Login to an auth method. We can only log out of tokens created by a login.
 	fakeAws := testutil.AuthMethodInit(t, client, "test-service")
-	loginCmd := exec.Command(
-		"consul", "login", "-type", "aws",
-		"-method", config.DefaultAuthMethodName,
-		"-token-sink-file", tokenPath,
-		"-aws-auto-bearer-token", "-aws-include-entity",
-		"-aws-sts-endpoint", fakeAws.URL+"/sts",
-		"-aws-region", "fake-region",
-		"-aws-access-key-id", "fake-key-id",
-		"-aws-secret-access-key", "fake-secret-key",
-	)
-	out, err := loginCmd.CombinedOutput()
-	require.NoError(t, err, "out=%s", out)
-	require.FileExists(t, tokenPath)
+
+	loginData, err := iamauth.GenerateLoginData(&iamauth.LoginInput{
+		Creds:                  credentials.NewStaticCredentials("fake-key-id", "fake-secret-key", ""),
+		IncludeIAMEntity:       true,
+		STSEndpoint:            fakeAws.URL + "/sts",
+		STSRegion:              "fake-region",
+		Logger:                 hclog.New(nil),
+		GetEntityMethodHeader:  config.GetEntityMethodHeader,
+		GetEntityURLHeader:     config.GetEntityURLHeader,
+		GetEntityHeadersHeader: config.GetEntityHeadersHeader,
+		GetEntityBodyHeader:    config.GetEntityBodyHeader,
+	})
+	require.NoError(t, err)
+	bearerToken, err := json.Marshal(loginData)
+	require.NoError(t, err)
+
+	tok, _, err := client.ACL().Login(&api.ACLLoginParams{
+		AuthMethod:  config.DefaultAuthMethodName,
+		BearerToken: string(bearerToken),
+		Meta:        nil,
+	}, nil)
+	require.NoError(t, err)
+
+	// Write the token to file. Health-sync reads tokens from files.
+	err = os.WriteFile(tokenPath, []byte(tok.SecretID), 0644)
+	require.NoError(t, err)
 
 	// Configure a client with the token.
 	tokenCfg := api.DefaultConfig()
@@ -378,7 +392,7 @@ func TestLogoutSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	// Ensure the token was deleted.
-	tok, _, err := tokenClient.ACL().TokenReadSelf(nil)
+	tok, _, err = tokenClient.ACL().TokenReadSelf(nil)
 	require.Error(t, err)
 	require.Nil(t, tok)
 }

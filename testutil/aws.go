@@ -76,6 +76,7 @@ func TaskMetaServer(t *testing.T, handler http.Handler) {
 // - Start a fake AWS server. This responds with an IAM role tagged with expectedServiceName.
 // - Configures an auth method + binding rule that uses the tagged service name from the IAM
 //   role for the service identity.
+// - Sets the AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to dummy values.
 //
 // When using this, you will also need to point the login command at the fake AWS server,
 // for example:
@@ -125,6 +126,13 @@ func AuthMethodInit(t *testing.T, consulClient *api.Client, expectedServiceName 
 		BindName: "${entity_tags.service-name}",
 	}, nil)
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		os.Unsetenv("AWS_ACCESS_KEY_ID")
+		os.Unsetenv("AWS_SECRET_ACCESS_KEY")
+	})
+	os.Setenv("AWS_ACCESS_KEY_ID", "fake-key-id")
+	os.Setenv("AWS_SECRET_ACCESS_KEY", "fake-secret-key")
 
 	return fakeAws
 }

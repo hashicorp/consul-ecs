@@ -26,6 +26,14 @@ const (
 
 	// TaggedAddressWAN is the map key for WAN tagged addresses.
 	TaggedAddressWAN = "wan"
+
+	// Match Consul: https://github.com/hashicorp/consul/blob/68e79b8180ca89e8cfca291b40a30d943039bd49/agent/consul/authmethod/awsauth/aws.go#L16-L20
+	AuthMethodType         string = "aws-iam"
+	IAMServerIDHeaderName  string = "X-Consul-IAM-ServerID"
+	GetEntityMethodHeader  string = "X-Consul-IAM-GetEntity-Method"
+	GetEntityURLHeader     string = "X-Consul-IAM-GetEntity-URL"
+	GetEntityHeadersHeader string = "X-Consul-IAM-GetEntity-Headers"
+	GetEntityBodyHeader    string = "X-Consul-IAM-GetEntity-Body"
 )
 
 // Config is the top-level config object.

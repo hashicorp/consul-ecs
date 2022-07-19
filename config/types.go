@@ -126,15 +126,14 @@ func (c *ConsulLogin) UnmarshalJSON(data []byte) error {
 //   - Proxy registration occurs in a separate request, so no need to inline the proxy config.
 //     See the SidecarProxyRegistration type.
 type ServiceRegistration struct {
-	Name              string              `json:"name"`
-	Tags              []string            `json:"tags,omitempty"`
-	Port              int                 `json:"port"`
-	EnableTagOverride bool                `json:"enableTagOverride,omitempty"`
-	Meta              map[string]string   `json:"meta,omitempty"`
-	Weights           *AgentWeights       `json:"weights,omitempty"`
-	Checks            []AgentServiceCheck `json:"checks,omitempty"`
-	Namespace         string              `json:"namespace,omitempty"`
-	Partition         string              `json:"partition,omitempty"`
+	Name              string            `json:"name"`
+	Tags              []string          `json:"tags,omitempty"`
+	Port              int               `json:"port"`
+	EnableTagOverride bool              `json:"enableTagOverride,omitempty"`
+	Meta              map[string]string `json:"meta,omitempty"`
+	Weights           *AgentWeights     `json:"weights,omitempty"`
+	Namespace         string            `json:"namespace,omitempty"`
+	Partition         string            `json:"partition,omitempty"`
 }
 
 func (r *ServiceRegistration) ToConsulType() *api.CatalogRegistration {
@@ -142,8 +141,8 @@ func (r *ServiceRegistration) ToConsulType() *api.CatalogRegistration {
 		ID:              "",
 		Node:            "",
 		Address:         "",
-		TaggedAddresses: map[string]string{},
-		NodeMeta:        map[string]string{},
+		TaggedAddresses: nil,
+		NodeMeta:        nil,
 		Datacenter:      "",
 		Service: &api.AgentService{
 			Service:           r.Name,

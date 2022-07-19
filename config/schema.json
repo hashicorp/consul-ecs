@@ -77,7 +77,7 @@
       }
     },
     "healthSyncContainers": {
-      "description": "The names of containers that will have health check status synced from ECS into Consul by the `consul-ecs control-plane` command. Cannot be specified with `service.checks`.",
+      "description": "The names of containers that will have health check status synced from ECS into Consul by the `consul-ecs control-plane` command.",
       "type": ["array", "null"],
       "items": {
         "type": "string"
@@ -133,125 +133,6 @@
           },
           "required": ["passing", "warning"],
           "additionalProperties": false
-        },
-        "checks": {
-          "description": "The list of Consul checks for the service. Cannot be specified with `healthSyncContainers`.",
-          "type": ["array", "null"],
-          "items": {
-            "description": "Defines the Consul checks for the service. Each `check` object may contain the following fields.",
-            "type": "object",
-            "properties": {
-              "checkId": {
-                "description": "The unique ID for this check on the node. Defaults to the check `name`.",
-                "type": ["string", "null"]
-              },
-              "name": {
-                "description": "The name of the check.",
-                "type": "string"
-              },
-              "args": {
-                "description": "Command arguments to run to update the status of the check.",
-                "type": ["array", "null"],
-                "items": {
-                  "type": "string"
-                }
-              },
-              "interval": {
-                "description": "Specifies the frequency at which to run this check. Required for HTTP, TCP, and UDP checks.",
-                "type": ["string", "null"]
-              },
-              "timeout": {
-                "description": "Specifies a timeout for outgoing connections. Applies to script, HTTP, TCP, UDP, and gRPC checks. Must be a duration string, such as `10s` or `5m`.",
-                "type": ["string", "null"]
-              },
-              "ttl": {
-                "description": "Specifies this is a TTL check. Must be a duration string, such as `10s` or `5m`.",
-                "type": ["string", "null"]
-              },
-              "http": {
-                "description": "Specifies this is an HTTP check. Must be a URL against which request is performed every `interval`.",
-                "type": ["string", "null"]
-              },
-              "header": {
-                "description": "Specifies a set of headers that should be set for HTTP checks. Each header can have multiple values.",
-                "type": ["object", "null"],
-                "patternProperties": {
-                  ".*": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                }
-              },
-              "method": {
-                "description": "Specifies the HTTP method to be used for an HTTP check. When no value is specified, `GET` is used.",
-                "type": ["string", "null"]
-              },
-              "body": {
-                "description": "Specifies a body that should be sent with `HTTP` checks.",
-                "type": ["string", "null"]
-              },
-              "tcp": {
-                "description": "Specifies this is a TCP check. Must be an IP/hostname plus port to which a TCP connection is made every `interval`.",
-                "type": ["string", "null"]
-              },
-              "udp": {
-                "description": "Specifies this is a UDP check. Must be an IP/hostname plus port to which UDP datagrams are sent every `interval`.",
-                "type": ["string", "null"]
-              },
-              "status": {
-                "description": "Specifies the initial status the health check.",
-                "type": ["string", "null"],
-                "enum": ["passing", "warning", "critical", "maintenance", null]
-              },
-              "notes": {
-                "description": "Specifies arbitrary information for humans. This is not used by Consul internally.",
-                "type": ["string", "null"]
-              },
-              "tlsServerName": {
-                "description": "Specifies an optional string used to set the SNI host when connecting via TLS.",
-                "type": ["string", "null"]
-              },
-              "tlsSkipVerify": {
-                "description": "Specifies if the certificate for an HTTPS check should not be verified.",
-                "type": ["boolean", "null"]
-              },
-              "grpc": {
-                "description": "Specifies a `gRPC` check. Must be an endpoint that supports the [standard gRPC health checking protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md). The endpoint will be probed every `interval`.",
-                "type": ["string", "null"]
-              },
-              "grpcUseTls": {
-                "description": "Specifies whether to use TLS for this gRPC health check.",
-                "type": ["boolean", "null"]
-              },
-              "h2ping": {
-                "description": "Specifies this is an h2ping check. Must be an address, which will be pinged every `interval`.",
-                "type": ["string", "null"]
-              },
-              "h2pingUseTls": {
-                "description": "Specifies whether TLS is used for an h2ping check.",
-                "type": ["boolean", "null"]
-              },
-              "aliasNode": {
-                "description": "Specifies the ID of the node for an alias check.",
-                "type": ["string", "null"]
-              },
-              "aliasService": {
-                "description": "Specifies the ID of a service for an alias check.",
-                "type": ["string", "null"]
-              },
-              "successBeforePassing": {
-                "description": "Specifies the number of consecutive successful results required before check status transitions to passing.",
-                "type": ["integer", "null"]
-              },
-              "failuresBeforeCritical": {
-                "description": "Specifies the number of consecutive unsuccessful results required before check status transitions to critical.",
-                "type": ["integer", "null"]
-              }
-            },
-            "additionalProperties": false
-          }
         },
         "namespace": {
           "description": "The Consul namespace where the service will be registered [Consul Enterprise].",

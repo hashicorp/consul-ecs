@@ -28,14 +28,14 @@ func (c *Command) runHealthSync(ctx context.Context, consulClient *api.Client) e
 		return err
 	}
 	healthSyncContainers := c.config.HealthSyncContainers
-	svcReg, err := ConstructServiceRegistration(c.config, taskMeta)
+	svcReg, err := c.constructServiceRegistration(taskMeta)
 	if err != nil {
 		return err
 	}
 
 	currentStatuses := make(map[string]string)
 
-	proxyReg := ConstructProxyRegistration(c.config, svcReg)
+	proxyReg := c.constructProxyRegistration(svcReg)
 	var proxyStatus string
 
 	for {

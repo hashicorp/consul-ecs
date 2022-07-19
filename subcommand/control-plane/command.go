@@ -46,81 +46,107 @@ func (c *Command) Run(args []string) int {
 		return 1
 	}
 	c.config = conf
+	c.log = logging.FromConfig(c.config).Logger()
 
+	taskMeta, err := awsutil.ECSTaskMetadata()
+	if err != nil {
+		c.UI.Error(err.Error())
+		return 1
+	}
+
+	err = c.realRun(taskMeta)
+	if err != nil {
+		c.UI.Error(err.Error())
+		return 1
+	}
+	return 0
+}
+
+func (c *Command) realRun(taskMeta awsutil.ECSTaskMeta) error {
+	client, _, err := c.clientInit(taskMeta)
+	if err != nil {
+		return err
+	}
+
+	err = c.meshInit(client, taskMeta)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	c.ignoreSIGTERM(cancel)
+	return c.runHealthSync(ctx, client)
+}
+
+// clientInit initializes a Consul client:
+// - Write the CONSUL_CACERT_PEM to a file, if necessary.
+// - Login to the IAM Auth Method to obtain an ACL token
+// This returns a configured Consul client.
+// It also returns the config object for unit tests.
+func (c *Command) clientInit(taskMeta awsutil.ECSTaskMeta) (*api.Client, *api.Config, error) {
+	// Write the cert to a shared volume for consul-dataplane.
 	if caCert := os.Getenv(config.ConsulCACertEnvVar); caCert != "" {
 		// TODO: check if CACertFile is empty?
 		certFile := c.config.ConsulServers.CACertFile
 		err := os.WriteFile(certFile, []byte(caCert), 0644)
 		if err != nil {
-			c.UI.Error(fmt.Sprintf("unable to write CA cert file %q: %s", certFile, err))
-			return 1
+			return nil, nil, fmt.Errorf("unable to write CA cert file %q: %w", certFile, err)
 		}
-	}
-
-	c.log = logging.FromConfig(c.config).Logger()
-
-	err = c.realRun()
-	if err != nil {
-		c.log.Error(err.Error())
-		return 1
-	}
-
-	return 0
-}
-
-func (c *Command) realRun() error {
-	taskMeta, err := awsutil.ECSTaskMetadata()
-	if err != nil {
-		return err
 	}
 
 	cfg := api.DefaultConfig()
 	cfg.Address = c.config.ConsulServers.HTTPAddr()
 	cfg.TLSConfig.CAFile = c.config.ConsulServers.CACertFile
 
-	var consulClient *api.Client
+	// If enabled, login to the auth method to obtain an ACL token.
 	if c.config.ConsulLogin.Enabled {
-		// If enabled, login to the auth method to obtain an ACL token.
 		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
 		if err := c.loginToAuthMethod(tokenFile, taskMeta); err != nil {
-			return err
+			return nil, nil, err
 		}
 		cfg.TokenFile = tokenFile
+	}
 
-		// The just-created token is not immediately replicated to Consul server followers.
-		// Mitigate against this by waiting for the token in stale consistency mode.
-		consulClient, err = api.NewClient(cfg)
-		if err != nil {
-			return fmt.Errorf("constructing consul client: %s", err)
-		}
+	consulClient, err := api.NewClient(cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("constructing consul client: %s", err)
+	}
+
+	// Tokens just-created by login are not immediately replicated to Consul server followers.
+	// Mitigate against this by waiting for the token in stale consistency mode.
+	if c.config.ConsulLogin.Enabled {
 		if err := c.waitForTokenReplication(consulClient); err != nil {
-			return err
-		}
-	} else {
-		consulClient, err = api.NewClient(cfg)
-		if err != nil {
-			return fmt.Errorf("constructing consul client: %s", err)
+			return nil, nil, err
 		}
 	}
 
+	return consulClient, cfg, nil
+}
+
+// meshInit initializes the task for the service mesh
+// - Register the service and the proxy
+// - Configure consul-dataplane
+// - Copy the consul-ecs binary to a shared volume
+func (c *Command) meshInit(client *api.Client, taskMeta awsutil.ECSTaskMeta) error {
 	var svcReg, proxyReg *api.CatalogRegistration
 	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
 		// TODO: return api.CatalogRegistration from constructGatewayProxyRegistration
 		// proxyRegistration = c.constructGatewayProxyRegistration(taskMeta)
 		return fmt.Errorf("HACK: mesh gateway not (yet) supported in agentless hack")
 	} else {
-		svcReg, err = ConstructServiceRegistration(c.config, taskMeta)
+		reg, err := c.constructServiceRegistration(taskMeta)
 		if err != nil {
 			return err
 		}
-		proxyReg = ConstructProxyRegistration(c.config, svcReg)
+		svcReg = reg
+		proxyReg = c.constructProxyRegistration(svcReg)
 	}
 
 	if svcReg != nil {
 		// No need to register the service for gateways.
-		err = backoff.RetryNotify(func() error {
+		err := backoff.RetryNotify(func() error {
 			c.log.Info("registering service")
-			_, err := consulClient.Catalog().Register(svcReg, nil)
+			_, err := client.Catalog().Register(svcReg, nil)
 			return err
 		}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 		if err != nil {
@@ -135,9 +161,9 @@ func (c *Command) realRun() error {
 	}
 
 	// Register the proxy.
-	err = backoff.RetryNotify(func() error {
+	err := backoff.RetryNotify(func() error {
 		c.log.Info("registering proxy", "kind", proxyReg.Service.Kind)
-		_, err := consulClient.Catalog().Register(proxyReg, nil)
+		_, err := client.Catalog().Register(proxyReg, nil)
 		return err
 	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 	if err != nil {
@@ -151,6 +177,8 @@ func (c *Command) realRun() error {
 	)
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
+	// TODO: This is a workaround until consul-dataplane is ready.
+	//       This will be replaced by writing the consul-dataplane config file.
 	cmdArgs := []string{
 		"consul", "connect", "envoy",
 		"-bootstrap",
@@ -167,7 +195,8 @@ func (c *Command) realRun() error {
 		cmdArgs = append(cmdArgs, "-gateway", kind)
 	}
 	if c.config.ConsulLogin.Enabled {
-		cmdArgs = append(cmdArgs, "-token-file", cfg.TokenFile)
+		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
+		cmdArgs = append(cmdArgs, "-token-file", tokenFile)
 	}
 	if proxyReg.Partition != "" {
 		// Partition/namespace support is enabled so augment the connect command.
@@ -218,9 +247,7 @@ func (c *Command) realRun() error {
 	}
 	c.log.Info("copied binary", "file", copyConsulECSBinary)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	c.ignoreSIGTERM(cancel)
-	return c.runHealthSync(ctx, consulClient)
+	return nil
 }
 
 // loginToAuthMethod runs a 'consul login' command to obtain a token.
@@ -346,24 +373,6 @@ func retryLogger(log hclog.Logger) backoff.Notify {
 	}
 }
 
-func constructChecks(serviceID string, checks []config.AgentServiceCheck, healthSyncContainers []string) ([]config.AgentServiceCheck, error) {
-	if len(checks) > 0 && len(healthSyncContainers) > 0 {
-		return nil, fmt.Errorf("only one of service.checks or healthSyncContainers should be set")
-	}
-
-	if len(healthSyncContainers) > 0 {
-		for _, containerName := range healthSyncContainers {
-			checks = append(checks, config.AgentServiceCheck{
-				CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName),
-				Name:    "consul ecs synced",
-				Notes:   fmt.Sprintf("consul-ecs created and updates this check because the %s container is essential and has an ECS health check.", containerName),
-				TTL:     "100000h",
-			})
-		}
-	}
-	return checks, nil
-}
-
 // constructServiceName returns the service name for registration with Consul.
 // This will use the config-provided name or, if not specified, default to the task family name.
 // A lower case service name is required since the auth method relies on tokens with a service identity,
@@ -395,8 +404,8 @@ func mergeMeta(m1, m2 map[string]string) map[string]string {
 
 // constructServiceRegistration returns the service registration request body.
 // May return an error due to invalid inputs from the config file.
-func ConstructServiceRegistration(conf *config.Config, taskMeta awsutil.ECSTaskMeta) (*api.CatalogRegistration, error) {
-	svcName := serviceName(conf, taskMeta.Family)
+func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*api.CatalogRegistration, error) {
+	svcName := c.constructServiceName(taskMeta.Family)
 	taskID := taskMeta.TaskID()
 	svcID := serviceID(svcName, taskID)
 
@@ -404,14 +413,14 @@ func ConstructServiceRegistration(conf *config.Config, taskMeta awsutil.ECSTaskM
 		"task-id":  taskID,
 		"task-arn": taskMeta.TaskARN,
 		"source":   "consul-ecs",
-	}, conf.Service.Meta)
+	}, c.config.Service.Meta)
 
 	clusterArn, err := taskMeta.ClusterARN()
 	if err != nil {
 		return nil, err
 	}
 
-	svcReg := conf.Service.ToConsulType()
+	svcReg := c.config.Service.ToConsulType()
 	svcReg.Node = clusterArn
 	svcReg.SkipNodeUpdate = true
 	svcReg.Service.ID = svcID
@@ -419,25 +428,23 @@ func ConstructServiceRegistration(conf *config.Config, taskMeta awsutil.ECSTaskM
 	svcReg.Service.Address = taskMeta.NodeIP() // TODO: This should error if not found, rather than default to localhost.
 	svcReg.Service.Meta = fullMeta
 	svcReg.Checks = api.HealthChecks{}
-	if len(conf.HealthSyncContainers) == 0 {
+	if len(c.config.HealthSyncContainers) == 0 {
 		// If no health check sync containers, configure a default passing check.
 		svcReg.Checks = append(svcReg.Checks, &api.HealthCheck{
 			CheckID:     CheckID(svcID, ""),
 			Name:        svcName,
 			Status:      api.HealthPassing,
-			Notes:       "poc hack hack hack",
 			Output:      "Task started.",
 			ServiceID:   svcID,
 			ServiceName: svcName,
 			Type:        ConsulECSCheckType,
 		})
 	} else {
-		for _, container := range conf.HealthSyncContainers {
+		for _, container := range c.config.HealthSyncContainers {
 			svcReg.Checks = append(svcReg.Checks, &api.HealthCheck{
 				CheckID:     CheckID(svcID, container),
 				Name:        svcName,
 				Status:      api.HealthCritical,
-				Notes:       "poc hack hack hack",
 				Output:      fmt.Sprintf("Task is starting. Container %s not yet healthy.", container),
 				ServiceID:   svcID,
 				ServiceName: svcName,
@@ -449,8 +456,8 @@ func ConstructServiceRegistration(conf *config.Config, taskMeta awsutil.ECSTaskM
 	return svcReg, nil
 }
 
-// ConstructProxyRegistration returns the proxy registration request body.
-func ConstructProxyRegistration(conf *config.Config, svcReg *api.CatalogRegistration) *api.CatalogRegistration {
+// constructProxyRegistration returns the proxy registration request body.
+func (c *Command) constructProxyRegistration(svcReg *api.CatalogRegistration) *api.CatalogRegistration {
 	svc := svcReg.Service
 
 	proxyReg := &api.CatalogRegistration{
@@ -464,14 +471,14 @@ func ConstructProxyRegistration(conf *config.Config, svcReg *api.CatalogRegistra
 	// to hit the <taskIp>:20000 and not localhost:20000.
 	//
 	// NOTE: I tried unsetting the proxy address. This causes envoy to bind its public listener to 0.0.0.0 (good).
-	// But, Consul still configures the Envoy clusters with the node address of each proxy for service mesh traffic (bad).
+	// But, Consul still configures the Envoy clusters with the node address of each proxy for service mesh traffic (not good for me).
 	// Since tasks share a node under agentless, that didn't work.
 	proxyReg.Service.Address = svcReg.Service.Address // TaskIP
 	proxyReg.Service.Kind = api.ServiceKindConnectProxy
 	proxyReg.Service.Port = 20000
 	proxyReg.Service.Meta = svc.Meta
 	proxyReg.Service.Tags = svc.Tags
-	proxyReg.Service.Proxy = conf.Proxy.ToConsulType()
+	proxyReg.Service.Proxy = c.config.Proxy.ToConsulType()
 	proxyReg.Service.Proxy.DestinationServiceName = svc.Service
 	proxyReg.Service.Proxy.DestinationServiceID = svc.ID
 	proxyReg.Service.Proxy.LocalServicePort = svc.Port
@@ -479,7 +486,6 @@ func ConstructProxyRegistration(conf *config.Config, svcReg *api.CatalogRegistra
 		CheckID:     CheckID(proxyReg.Service.ID, ""),
 		Name:        proxyReg.Service.Service,
 		Status:      api.HealthCritical,
-		Notes:       "poc hack hack hack",
 		Output:      "Task is starting. Container sidecar-proxy not yet healthy.",
 		ServiceID:   proxyReg.Service.ID,
 		ServiceName: proxyReg.Service.Service,
@@ -561,13 +567,6 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 		},
 	}
 	return gwRegistration
-}
-
-func serviceName(conf *config.Config, family string) string {
-	if serviceName := conf.Service.Name; serviceName != "" {
-		return serviceName
-	}
-	return family
 }
 
 func serviceID(serviceName, taskID string) string {

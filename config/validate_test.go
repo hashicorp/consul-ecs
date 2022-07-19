@@ -124,8 +124,11 @@ var (
 			// Because ConsulLogin is not a pointer, when `consulLogin` is absent from
 			// the JSON, UnmarshalJSON is not called, so IncludeEntity is not defaulted
 			// to `true`. This is okay since if Enabled=false, IncludeEntity is not used.
-			IncludeEntity:   false,
-			ExtraLoginFlags: nil,
+			IncludeEntity:       false,
+			Meta:                nil,
+			Region:              "",
+			STSEndpoint:         "",
+			ServerIDHeaderValue: "",
 		},
 		Service: ServiceRegistration{
 			Name: "blah",
@@ -152,10 +155,16 @@ var (
 		ConsulHTTPAddr:       "consul.example.com",
 		ConsulCACertFile:     "/consul/consul-ca-cert.pem",
 		ConsulLogin: ConsulLogin{
-			Enabled:         true,
-			Method:          "my-auth-method",
-			IncludeEntity:   false,
-			ExtraLoginFlags: []string{"-aws-region", "fake"},
+			Enabled:       true,
+			Method:        "my-auth-method",
+			IncludeEntity: false,
+			Meta: map[string]string{
+				"tag-1": "val-1",
+				"tag-2": "val-2",
+			},
+			Region:              "bogus-east-2",
+			STSEndpoint:         "https://sts.bogus-east-2.example.com",
+			ServerIDHeaderValue: "my.consul.example.com",
 		},
 		Service: ServiceRegistration{
 			Name:              "frontend",
@@ -294,10 +303,13 @@ var (
 		ConsulHTTPAddr:       "",
 		ConsulCACertFile:     "",
 		ConsulLogin: ConsulLogin{
-			Enabled:         false,
-			Method:          "",
-			IncludeEntity:   true, // default true
-			ExtraLoginFlags: nil,
+			Enabled:             false,
+			Method:              "",
+			IncludeEntity:       true,
+			Meta:                nil,
+			Region:              "",
+			STSEndpoint:         "",
+			ServerIDHeaderValue: "",
 		},
 		Gateway: &GatewayRegistration{
 			Kind:       "mesh-gateway",
@@ -330,10 +342,13 @@ var (
 		ConsulHTTPAddr:       "",
 		ConsulCACertFile:     "",
 		ConsulLogin: ConsulLogin{
-			Enabled:         false,
-			Method:          "",
-			IncludeEntity:   true, // default true
-			ExtraLoginFlags: nil,
+			Enabled:             false,
+			Method:              "",
+			IncludeEntity:       true,
+			Meta:                nil,
+			Region:              "",
+			STSEndpoint:         "",
+			ServerIDHeaderValue: "",
 		},
 		Gateway: &GatewayRegistration{
 			Kind: "mesh-gateway",
@@ -415,10 +430,13 @@ var (
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: []string{},
 		ConsulLogin: ConsulLogin{
-			Enabled:         false,
-			Method:          "",
-			IncludeEntity:   true, // default true
-			ExtraLoginFlags: nil,
+			Enabled:             false,
+			Method:              "",
+			IncludeEntity:       true,
+			Meta:                nil,
+			Region:              "",
+			STSEndpoint:         "",
+			ServerIDHeaderValue: "",
 		},
 		Gateway: &GatewayRegistration{
 			Kind:       "mesh-gateway",

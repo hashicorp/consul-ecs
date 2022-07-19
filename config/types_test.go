@@ -50,9 +50,15 @@ func TestConsulLoginIncludeEntity(t *testing.T) {
 		c := c
 		t.Run(name, func(t *testing.T) {
 			fields := map[string]interface{}{
-				"enabled":         true,
-				"method":          "my-method",
-				"extraLoginFlags": []string{"-aws-region", "fake"},
+				"enabled": true,
+				"method":  "my-method",
+				"meta": map[string]string{
+					"tag-1": "val-1",
+					"tag-2": "val-2",
+				},
+				"region":              "bogus-east-1",
+				"stsEndpoint":         "https://sts.bogus-east-2.example.com",
+				"serverIdHeaderValue": "my.consul.example.com",
 			}
 			for k, v := range c.extraFields {
 				fields[k] = v
@@ -68,7 +74,10 @@ func TestConsulLoginIncludeEntity(t *testing.T) {
 			t.Logf("parsed = %+v", login)
 			require.Equal(t, fields["enabled"], login.Enabled)
 			require.Equal(t, fields["method"], login.Method)
-			require.Equal(t, fields["extraLoginFlags"], login.ExtraLoginFlags)
+			require.Equal(t, fields["meta"], login.Meta)
+			require.Equal(t, fields["region"], login.Region)
+			require.Equal(t, fields["stsEndpoint"], login.STSEndpoint)
+			require.Equal(t, fields["serverIdHeaderValue"], login.ServerIDHeaderValue)
 			require.Equal(t, c.expIncludeEntity, login.IncludeEntity)
 		})
 	}

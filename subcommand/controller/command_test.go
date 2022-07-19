@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/consul-ecs/awsutil"
+	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
@@ -97,7 +98,7 @@ func testUpsertConsulResources(t *testing.T, cases map[string]iamAuthTestCase) {
 		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+			cfg, consulServers := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
 			if c.partitionsEnabled {
 				cfg.Partition = testPartitionName
 			}
@@ -106,13 +107,18 @@ func testUpsertConsulResources(t *testing.T, cases map[string]iamAuthTestCase) {
 
 			ui := cli.NewMockUi()
 			cmd := Command{
-				UI:              ui,
-				flagIAMRolePath: "/path/to/roles",
-				log:             hclog.Default().Named("acl-controller"),
+				UI: ui,
+				config: &config.Config{
+					ConsulServers: consulServers,
+					Controller: config.Controller{
+						IAMRolePath: "/path/to/roles",
+					},
+				},
+				log: hclog.Default().Named("acl-controller"),
 			}
 			if c.partitionsEnabled {
-				cmd.flagPartitionsEnabled = true
-				cmd.flagPartition = testPartitionName
+				cmd.config.Controller.PartitionsEnabled = true
+				cmd.config.Controller.Partition = testPartitionName
 			}
 
 			// Upsert once to create the resources
@@ -229,116 +235,72 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, expPolicyRules
 		policyNames = append(policyNames, policy.Name)
 	}
 
-	require.Contains(t, policyNames, "consul-ecs-client-policy")
 	if partitionsEnabled {
-		// We test with a non-default partition which lacks the global-management policy.
-		// The anonymous token policy is only created in the default partition, since that
-		// is where the anonymous token lives, so we expect only the client policy.
-		require.Len(t, policies, 1)
+		// When partitions are enabled, we test with a non-default partition that has no policies. The
+		// controller will not create policies in a non-default partition, and the global-management and
+		// anonymous token policies only exist in the default partition, so we won't see them here
+		require.Len(t, policies, 0)
 	} else {
-		// Otherwise, we expect the global-management policy and anonymous-token-policy to be found
-		// if we're running Consul Enterprise and in the default partition, or if we're running
-		// Consul OSS.
-		require.Len(t, policies, 3)
+		// Otherwise, we expect the global-management policy and anonymous-token-policy to be found if
+		// we're running Consul Enterprise and in the default partition, or if we're running Consul OSS.
+		require.Len(t, policies, 2)
 		require.Contains(t, policyNames, "anonymous-token-policy")
 		require.Contains(t, policyNames, "global-management")
 	}
 
-	policy, _, err := consulClient.ACL().PolicyReadByName("consul-ecs-client-policy", nil)
-	require.NoError(t, err)
-	require.Equal(t, expPolicyRules, policy.Rules)
-
-	// Check the client role is created with policy attached
-	// Note: When the policy is deleted, it is detached from the role
-	roles, _, err := consulClient.ACL().RoleList(nil)
-	require.NoError(t, err)
-	require.Len(t, roles, 1)
-
-	role, _, err := consulClient.ACL().RoleReadByName("consul-ecs-client-role", nil)
-	require.NoError(t, err)
-	require.Len(t, role.Policies, 1)
-	require.Equal(t, role.Policies[0].Name, "consul-ecs-client-policy")
-
-	// Check the auth methods are created
+	// Check the auth method is created
 	methods, _, err := consulClient.ACL().AuthMethodList(nil)
 	require.NoError(t, err)
-	require.Len(t, methods, 2)
-	sort.Slice(methods, func(i, j int) bool {
-		return methods[i].Name < methods[j].Name
-	})
-	require.Equal(t, methods[0].Name, "iam-ecs-client-token")
-	require.Equal(t, methods[1].Name, "iam-ecs-service-token")
+	require.Len(t, methods, 1)
+	require.Equal(t, methods[0].Name, "iam-ecs-service-token")
 
-	{
-		method, _, err := consulClient.ACL().AuthMethodRead("iam-ecs-client-token", nil)
-		require.NoError(t, err)
-		require.Equal(t, method.Type, "aws-iam")
-		require.Equal(t, method.Name, "iam-ecs-client-token")
+	method, _, err := consulClient.ACL().AuthMethodRead("iam-ecs-service-token", nil)
+	require.NoError(t, err)
+	require.Equal(t, method.Type, "aws-iam")
+	require.Equal(t, method.Name, "iam-ecs-service-token")
+	if partitionsEnabled {
+		require.Len(t, method.NamespaceRules, 1)
+		require.Equal(t, method.NamespaceRules[0], &api.ACLAuthMethodNamespaceRule{
+			Selector:      fmt.Sprintf(`entity_tags["%s"] != ""`, authMethodNamespaceTag),
+			BindNamespace: fmt.Sprintf(`${entity_tags.%s}`, authMethodNamespaceTag),
+		})
+	} else {
 		require.Len(t, method.NamespaceRules, 0)
-		require.Equal(t, method.Config, map[string]interface{}{
-			"BoundIAMPrincipalARNs": []interface{}{
-				"arn:aws:iam::123456789:role/path/to/roles/*",
-			},
-			"EnableIAMEntityDetails": true,
-		})
-
-		// Check the binding rule is created.
-		rules, _, err := consulClient.ACL().BindingRuleList(method.Name, nil)
-		require.NoError(t, err)
-		require.Len(t, rules, 1)
-
-		rule, _, err := consulClient.ACL().BindingRuleRead(rules[0].ID, nil)
-		require.NoError(t, err)
-		require.Equal(t, rule.BindType, api.BindingRuleBindTypeRole)
-		require.Equal(t, rule.BindName, "consul-ecs-client-role")
 	}
 
-	{
-		method, _, err := consulClient.ACL().AuthMethodRead("iam-ecs-service-token", nil)
-		require.NoError(t, err)
-		require.Equal(t, method.Type, "aws-iam")
-		require.Equal(t, method.Name, "iam-ecs-service-token")
-		if partitionsEnabled {
-			require.Len(t, method.NamespaceRules, 1)
-			require.Equal(t, method.NamespaceRules[0], &api.ACLAuthMethodNamespaceRule{
-				Selector:      fmt.Sprintf(`entity_tags["%s"] != ""`, authMethodNamespaceTag),
-				BindNamespace: fmt.Sprintf(`${entity_tags.%s}`, authMethodNamespaceTag),
-			})
-		} else {
-			require.Len(t, method.NamespaceRules, 0)
-		}
+	require.Equal(t, method.Config, map[string]interface{}{
+		"BoundIAMPrincipalARNs": []interface{}{
+			"arn:aws:iam::123456789:role/path/to/roles/*",
+		},
+		"EnableIAMEntityDetails": true,
+		"IAMEntityTags": []interface{}{
+			authMethodServiceNameTag,
+			authMethodNamespaceTag,
+		},
+	})
 
-		require.Equal(t, method.Config, map[string]interface{}{
-			"BoundIAMPrincipalARNs": []interface{}{
-				"arn:aws:iam::123456789:role/path/to/roles/*",
-			},
-			"EnableIAMEntityDetails": true,
-			"IAMEntityTags": []interface{}{
-				authMethodServiceNameTag,
-				authMethodNamespaceTag,
-			},
-		})
+	// Check the binding rule is created.
+	rules, _, err := consulClient.ACL().BindingRuleList(method.Name, nil)
+	require.NoError(t, err)
+	require.Len(t, rules, 1)
 
-		// Check the binding rule is created.
-		rules, _, err := consulClient.ACL().BindingRuleList(method.Name, nil)
-		require.NoError(t, err)
-		require.Len(t, rules, 1)
-
-		rule, _, err := consulClient.ACL().BindingRuleRead(rules[0].ID, nil)
-		require.NoError(t, err)
-		require.Equal(t, rule.BindType, api.BindingRuleBindTypeService)
-		require.Equal(t, rule.BindName, fmt.Sprintf(`${entity_tags.%s}`, authMethodServiceNameTag))
-	}
+	rule, _, err := consulClient.ACL().BindingRuleRead(rules[0].ID, nil)
+	require.NoError(t, err)
+	require.Equal(t, rule.BindType, api.BindingRuleBindTypeService)
+	require.Equal(t, rule.BindName, fmt.Sprintf(`${entity_tags.%s}`, authMethodServiceNameTag))
 }
 
 func TestUpsertAuthMethod(t *testing.T) {
 	t.Parallel()
-	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+	cfg, consulServers := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
 	consulClient, err := api.NewClient(cfg)
 	require.NoError(t, err)
 
 	cmd := Command{
 		log: hclog.Default().Named("acl-controller"),
+		config: &config.Config{
+			ConsulServers: consulServers,
+		},
 	}
 
 	// Simulate two ACL controllers adding auth method config.
@@ -511,13 +473,18 @@ func testUpsertAnonymousTokenPolicy(t *testing.T, cases map[string]anonTokenTest
 	for name, c := range cases {
 		c := c
 		t.Run(name, func(t *testing.T) {
-			cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+			cfg, consulServers := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
 			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
 
 			cmd := Command{
-				log:                   hclog.Default().Named("acl-controller"),
-				flagPartitionsEnabled: c.partitionsEnabled,
+				log: hclog.Default().Named("acl-controller"),
+				config: &config.Config{
+					ConsulServers: consulServers,
+					Controller: config.Controller{
+						PartitionsEnabled: c.partitionsEnabled,
+					},
+				},
 			}
 
 			// if we're simulating that the policy already exists, then create it.

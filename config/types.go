@@ -1,4 +1,3 @@
-//go:generate go run gen.go
 package config
 
 import (
@@ -36,6 +35,7 @@ const (
 // Config is the top-level config object.
 type Config struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
+	Controller           Controller                      `json:"controller"`
 	ConsulServers        ConsulServers                   `json:"consulServers"`
 	ConsulLogin          ConsulLogin                     `json:"consulLogin"`
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
@@ -43,6 +43,12 @@ type Config struct {
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
 	Gateway              *GatewayRegistration            `json:"gateway,omitempty"`
 	Service              ServiceRegistration             `json:"service"`
+}
+
+type Controller struct {
+	IAMRolePath       string `json:"iamRolePath"`
+	PartitionsEnabled bool   `json:"partitionsEnabled"`
+	Partition         string `json:"partition"`
 }
 
 type ConsulServers struct {

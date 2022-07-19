@@ -3,17 +3,16 @@ package aclcontroller
 import (
 	"bytes"
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"reflect"
 	"sort"
 	"strings"
-	"sync"
 	"text/template"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
+	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/controller"
 	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/consul/api"
@@ -23,10 +22,6 @@ import (
 )
 
 const (
-	flagIAMRolePath       = "iam-role-path"
-	flagPartition         = "partition"
-	flagPartitionsEnabled = "partitions-enabled"
-
 	consulCACertEnvVar = "CONSUL_CACERT_PEM"
 
 	// Binding rules don't support a '/' character, so we need compatible IAM role tag names.
@@ -40,39 +35,29 @@ const (
 )
 
 type Command struct {
-	UI                    cli.Ui
-	flagIAMRolePath       string
-	flagPartition         string
-	flagPartitionsEnabled bool
-
-	log     hclog.Logger
-	flagSet *flag.FlagSet
-	once    sync.Once
-	ctx     context.Context
-
-	logging.LogOpts
-}
-
-func (c *Command) init() {
-	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
-	c.flagSet.StringVar(&c.flagIAMRolePath, flagIAMRolePath, "", "IAM roles at this path will be trusted by the IAM Auth method created by the controller")
-	c.flagSet.StringVar(&c.flagPartition, flagPartition, "", "The Consul partition name that the ACL controller will use for ACL resources. If not provided will default to the `default` partition [Consul Enterprise]")
-	c.flagSet.BoolVar(&c.flagPartitionsEnabled, flagPartitionsEnabled, false, "Enables support for Consul partitions and namespaces [Consul Enterprise]")
-
-	logging.Merge(c.flagSet, c.LogOpts.Flags())
-	c.ctx = context.Background()
+	UI     cli.Ui
+	config *config.Config
+	log    hclog.Logger
+	ctx    context.Context
 }
 
 func (c *Command) Run(args []string) int {
-	c.once.Do(c.init)
-
-	if err := c.flagSet.Parse(args); err != nil {
+	if len(args) > 0 {
+		c.UI.Error(fmt.Sprintf("unexpected argument: %v", args[0]))
 		return 1
 	}
 
-	c.log = c.LogOpts.Logger()
+	conf, err := config.FromEnv()
+	if err != nil {
+		c.UI.Error(fmt.Sprintf("invalid config: %s", err))
+		return 1
+	}
+	c.config = conf
+	c.log = logging.FromConfig(c.config).Logger()
 
-	err := c.run()
+	c.ctx = context.Background()
+
+	err = c.run()
 	if err != nil {
 		c.log.Error(err.Error())
 		return 1
@@ -100,6 +85,9 @@ func (c *Command) run() error {
 	ecsClient := ecs.New(clientSession)
 
 	cfg := api.DefaultConfig()
+	cfg.Address = c.config.ConsulServers.HTTPAddr()
+	// We have a CA Cert File in the config. But, that is only for sharing with
+	// other containers.
 	if caCert := os.Getenv(consulCACertEnvVar); caCert != "" {
 		cfg.TLSConfig = api.TLSConfig{
 			CAPem: []byte(caCert),
@@ -119,7 +107,7 @@ func (c *Command) run() error {
 		ECSClient:    ecsClient,
 		ConsulClient: consulClient,
 		ClusterARN:   clusterArn,
-		Partition:    c.flagPartition,
+		Partition:    c.partition(),
 		Log:          c.log,
 	}
 	ctrl := controller.Controller{
@@ -151,7 +139,11 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 	if err != nil {
 		return err
 	}
-	path := strings.Trim(c.flagIAMRolePath, "/")
+	iamRolePath := c.config.Controller.IAMRolePath
+	if iamRolePath == "" {
+		iamRolePath = "/consul-ecs"
+	}
+	path := strings.Trim(iamRolePath, "/")
 	if path != "" {
 		path += "/"
 	}
@@ -173,7 +165,7 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 			},
 		},
 	}
-	if c.flagPartitionsEnabled {
+	if c.config.Controller.PartitionsEnabled {
 		serviceAuthMethod.NamespaceRules = append(serviceAuthMethod.NamespaceRules,
 			&api.ACLAuthMethodNamespaceRule{
 				Selector:      fmt.Sprintf(`entity_tags["%s"] != ""`, authMethodNamespaceTag),
@@ -199,19 +191,17 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 		return fmt.Errorf("failed to decode Consul agent self config: %w", err)
 	}
 
-	if c.flagPartitionsEnabled {
-		if c.flagPartition == "" {
-			// if an explicit partition was not provided use the default partition.
-			c.flagPartition = controller.DefaultPartition
-		}
+	if !c.config.Controller.PartitionsEnabled && c.config.Controller.Partition != "" {
+		return fmt.Errorf("partition provided without partitions enabled")
+	}
+	if c.config.Controller.PartitionsEnabled {
 		if err := c.upsertPartition(consulClient); err != nil {
 			return err
 		}
-	} else if c.flagPartition != "" {
-		return fmt.Errorf("partition flag provided without partitions-enabled flag")
 	}
 
-	// In agentless, nodes don't matter.
+	// In agentless, nodes don't matter. We use the ClusterARN as the node to contain all
+	// service instances in the ECS cluster.
 	nodeName, err := ecsMeta.ClusterARN()
 	if err != nil {
 		return err
@@ -244,17 +234,17 @@ func (c *Command) upsertPartition(consulClient *api.Client) error {
 		return fmt.Errorf("failed to list partitions: %s", err)
 	}
 	for _, p := range partitions {
-		if p.Name == c.flagPartition {
+		if p.Name == c.partition() {
 			c.log.Info("found existing partition", "partition", p.Name)
 			return nil
 		}
 	}
 	// the partition doesn't exist, so create it.
-	_, _, err = consulClient.Partitions().Create(c.ctx, &api.Partition{Name: c.flagPartition}, nil)
+	_, _, err = consulClient.Partitions().Create(c.ctx, &api.Partition{Name: c.partition()}, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create partition %s: %s", c.flagPartition, err)
+		return fmt.Errorf("failed to create partition %s: %s", c.partition(), err)
 	}
-	c.log.Info("created partition", "partition", c.flagPartition)
+	c.log.Info("created partition", "partition", c.partition())
 	return nil
 }
 
@@ -432,7 +422,7 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 	// mesh gateways actually work across partitions.
 	var qopts *api.QueryOptions
 	var wopts *api.WriteOptions
-	if c.flagPartitionsEnabled {
+	if c.config.Controller.PartitionsEnabled {
 		qopts = &api.QueryOptions{
 			Namespace: controller.DefaultPartition,
 			Partition: controller.DefaultNamespace,
@@ -494,16 +484,27 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 	return nil
 }
 
+func (c *Command) partition() string {
+	if !c.config.Controller.PartitionsEnabled {
+		return ""
+	}
+	partition := c.config.Controller.Partition
+	if partition != "" {
+		return partition
+	}
+	return controller.DefaultPartition
+}
+
 func (c *Command) queryOptions() *api.QueryOptions {
-	if c.flagPartitionsEnabled {
-		return &api.QueryOptions{Partition: c.flagPartition}
+	if c.config.Controller.PartitionsEnabled {
+		return &api.QueryOptions{Partition: c.partition()}
 	}
 	return nil
 }
 
 func (c *Command) writeOptions() *api.WriteOptions {
-	if c.flagPartitionsEnabled {
-		return &api.WriteOptions{Partition: c.flagPartition}
+	if c.config.Controller.PartitionsEnabled {
+		return &api.WriteOptions{Partition: c.partition()}
 	}
 	return nil
 }
@@ -539,7 +540,7 @@ type templateData struct {
 }
 
 func (c *Command) templateData() templateData {
-	return templateData{Enterprise: c.flagPartitionsEnabled}
+	return templateData{Enterprise: c.config.Controller.PartitionsEnabled}
 }
 
 func (c *Command) anonymousPolicyRules() (string, error) {

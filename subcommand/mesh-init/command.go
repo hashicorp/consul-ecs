@@ -1,6 +1,7 @@
 package meshinit
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -10,7 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/cenkalti/backoff/v4"
+	iamauth "github.com/hashicorp/consul-awsauth"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/logging"
@@ -174,29 +179,143 @@ func (c *Command) realRun() error {
 // The login command is skipped if LogintOptions is not set in the
 // consul-ecs config JSON, in order to support non-ACL deployments.
 func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMeta) error {
-	loginOpts, err := c.constructLoginCmd(tokenFile, taskMeta)
-	if err != nil {
-		return err
-	}
-
 	return backoff.RetryNotify(func() error {
-		// We'll get errors until the consul binary is copied to the volume ("fork/exec: text file busy")
-		c.log.Debug("login", "cmd", fmt.Sprint(loginOpts))
-		cmd := exec.Command("consul", loginOpts...)
-		out, err := cmd.CombinedOutput()
-		// TODO: Distinguish unrecoverable errors, like lack of permission to log in.
-		if out != nil && err != nil {
-			c.log.Error("login", "output", string(out))
-		} else if out != nil {
-			c.log.Debug("login", "output", string(out))
+		c.log.Debug("login attempt")
+
+		// We need to retry creating the client here, because there's a race between this
+		// and the consul-client container writing the ca cert file.
+		cfg := api.DefaultConfig()
+		cfg.Address = c.config.ConsulHTTPAddr
+		cfg.TLSConfig.CAFile = c.config.ConsulCACertFile
+
+		client, err := api.NewClient(cfg)
+		if err != nil {
+			return err
 		}
+
+		// We rerun createAWSBearerToken every iteration of this loop to ensure we have a valid
+		// bearer token, since we retry forever and since the token may expire during that time.
+		//
+		// The bearer token includes signed AWS API request(s), and the signature expires after a
+		// short time (maybe 15 minutes). The AWS credentials used for signing also expire after
+		// some longer period (probably after a few hours after they are first generated). On ECS,
+		// credentials for the task IAM role are fetched from
+		// 169.254.170.2${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI} which caches and returns the same
+		// set of credentials until they expire, after which it returns new credentials.
+		//
+		// So we should be safe from accumulating a bunch of temporary tokens or other garbage.
+		bearerToken, err := c.createAWSBearerToken(taskMeta)
+		if err != nil {
+			return err
+		}
+
+		// We use this for gateways, too.
+		partition := c.config.Service.Partition
+		if partition == "" && c.config.Gateway != nil {
+			partition = c.config.Gateway.Partition
+		}
+
+		tok, _, err := client.ACL().Login(
+			c.constructLoginParams(bearerToken, taskMeta),
+			&api.WriteOptions{Partition: partition},
+		)
 		if err != nil {
 			c.log.Error(err.Error())
 			return err
 		}
-		c.log.Info("login success")
+
+		err = os.WriteFile(tokenFile, []byte(tok.SecretID), 0644)
+		if err != nil {
+			return err
+		}
+
+		c.log.Info("login success", "accessor-id", tok.AccessorID, "token-file", tokenFile)
 		return nil
 	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
+}
+
+func (c *Command) constructLoginParams(bearerToken string, taskMeta awsutil.ECSTaskMeta) *api.ACLLoginParams {
+	method := c.config.ConsulLogin.Method
+	if method == "" {
+		method = config.DefaultAuthMethodName
+	}
+	meta := mergeMeta(
+		map[string]string{
+			"consul.hashicorp.com/task-id": taskMeta.TaskID(),
+			"consul.hashicorp.com/cluster": taskMeta.Cluster,
+		},
+		c.config.ConsulLogin.Meta,
+	)
+	return &api.ACLLoginParams{
+		AuthMethod:  method,
+		BearerToken: bearerToken,
+		Meta:        meta,
+	}
+}
+
+func (c *Command) createAWSBearerToken(taskMeta awsutil.ECSTaskMeta) (string, error) {
+	l := c.config.ConsulLogin
+
+	region := l.Region
+	if region == "" {
+		r, err := taskMeta.Region()
+		if err != nil {
+			return "", err
+		}
+		region = r
+	}
+
+	cfg := aws.Config{
+		Region: aws.String(region),
+		// More detailed error message to help debug credential discovery.
+		CredentialsChainVerboseErrors: aws.Bool(true),
+	}
+
+	// support explicit creds for unit tests
+	if l.AccessKeyID != "" {
+		cfg.Credentials = credentials.NewStaticCredentials(
+			l.AccessKeyID, l.SecretAccessKey, "",
+		)
+	}
+
+	// Session loads creds from standard sources (env vars, file, EC2 metadata, ...)
+	sess, err := session.NewSessionWithOptions(session.Options{
+		Config: cfg,
+		// Allow loading from config files by default:
+		//   ~/.aws/config or AWS_CONFIG_FILE
+		//   ~/.aws/credentials or AWS_SHARED_CREDENTIALS_FILE
+		SharedConfigState: session.SharedConfigEnable,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	if sess.Config.Credentials == nil {
+		return "", fmt.Errorf("AWS credentials not found")
+	}
+
+	loginData, err := iamauth.GenerateLoginData(&iamauth.LoginInput{
+		Creds:                  sess.Config.Credentials,
+		IncludeIAMEntity:       l.IncludeEntity,
+		STSEndpoint:            l.STSEndpoint,
+		STSRegion:              region,
+		Logger:                 hclog.New(nil),
+		ServerIDHeaderValue:    l.ServerIDHeaderValue,
+		ServerIDHeaderName:     config.IAMServerIDHeaderName,
+		GetEntityMethodHeader:  config.GetEntityMethodHeader,
+		GetEntityURLHeader:     config.GetEntityURLHeader,
+		GetEntityHeadersHeader: config.GetEntityHeadersHeader,
+		GetEntityBodyHeader:    config.GetEntityBodyHeader,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	loginDataJson, err := json.Marshal(loginData)
+	if err != nil {
+		return "", err
+	}
+	return string(loginDataJson), err
 }
 
 func (c *Command) waitForTokenReplication(tokenFile string) error {
@@ -259,37 +378,6 @@ func (c *Command) waitForTokenReplication(tokenFile string) error {
 	}
 	c.log.Info("Successfully read ACL token from the server")
 	return nil
-}
-
-func (c *Command) constructLoginCmd(tokenFile string, taskMeta awsutil.ECSTaskMeta) ([]string, error) {
-	method := c.config.ConsulLogin.Method
-	if method == "" {
-		method = config.DefaultAuthMethodName
-	}
-	region, err := taskMeta.Region()
-	if err != nil {
-		return nil, err
-	}
-
-	loginOpts := []string{
-		"login", "-type", "aws", "-method", method,
-		// NOTE: If -http-addr and -ca-file are empty strings, Consul ignores them.
-		// The -http-addr flag will default to the local Consul client.
-		"-http-addr", c.config.ConsulHTTPAddr,
-		"-ca-file", c.config.ConsulCACertFile,
-		"-token-sink-file", tokenFile,
-		"-meta", fmt.Sprintf("consul.hashicorp.com/task-id=%s", taskMeta.TaskID()),
-		"-meta", fmt.Sprintf("consul.hashicorp.com/cluster=%s", taskMeta.Cluster),
-		"-aws-region", region,
-		"-aws-auto-bearer-token",
-	}
-	if c.config.ConsulLogin.IncludeEntity {
-		loginOpts = append(loginOpts, "-aws-include-entity")
-	}
-	if len(c.config.ConsulLogin.ExtraLoginFlags) > 0 {
-		loginOpts = append(loginOpts, c.config.ConsulLogin.ExtraLoginFlags...)
-	}
-	return loginOpts, nil
 }
 
 func (c *Command) Synopsis() string {

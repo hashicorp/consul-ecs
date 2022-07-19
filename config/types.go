@@ -26,6 +26,14 @@ const (
 
 	// TaggedAddressWAN is the map key for WAN tagged addresses.
 	TaggedAddressWAN = "wan"
+
+	// Match Consul: https://github.com/hashicorp/consul/blob/68e79b8180ca89e8cfca291b40a30d943039bd49/agent/consul/authmethod/awsauth/aws.go#L16-L20
+	AuthMethodType         string = "aws-iam"
+	IAMServerIDHeaderName  string = "X-Consul-IAM-ServerID"
+	GetEntityMethodHeader  string = "X-Consul-IAM-GetEntity-Method"
+	GetEntityURLHeader     string = "X-Consul-IAM-GetEntity-URL"
+	GetEntityHeadersHeader string = "X-Consul-IAM-GetEntity-Headers"
+	GetEntityBodyHeader    string = "X-Consul-IAM-GetEntity-Body"
 )
 
 // Config is the top-level config object.
@@ -43,10 +51,19 @@ type Config struct {
 
 // ConsulLogin configures login options for the Consul IAM auth method.
 type ConsulLogin struct {
-	Enabled         bool     `json:"enabled"`
-	Method          string   `json:"method"`
-	IncludeEntity   bool     `json:"includeEntity"`
-	ExtraLoginFlags []string `json:"extraLoginFlags"`
+	Enabled       bool              `json:"enabled"`
+	Method        string            `json:"method"`
+	IncludeEntity bool              `json:"includeEntity"`
+	Meta          map[string]string `json:"meta"`
+	Region        string            `json:"region"`
+
+	// These are passed through to the consul-awsauth library.
+	STSEndpoint         string `json:"stsEndpoint"`
+	ServerIDHeaderValue string `json:"serverIdHeaderValue"`
+
+	// These are for unit tests. They are disallowed by the JSON schema.
+	AccessKeyID     string `json:"-"`
+	SecretAccessKey string `json:"-"`
 }
 
 // UnmarshalJSON is a custom unmarshaller that defaults `includeEntity` to true

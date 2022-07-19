@@ -5,7 +5,10 @@
     "enabled": null,
     "method": null,
     "includeEntity": null,
-    "extraLoginFlags": null
+    "meta": null,
+    "region": null,
+    "stsEndpoint": null,
+    "serverIdHeaderValue": null
   },
   "service": {
     "name": null,

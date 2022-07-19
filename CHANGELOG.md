@@ -1,6 +1,12 @@
 ## Unreleased
 
-BUG FIXES:
+BREAKING CHANGES
+* Remove `consulLogin.extraLoginFields` config option. The Consul Login API is used directly instead
+  of the `consul login` CLI command for logging into the AWS IAM auth method. Add `meta`, `region`,
+  `stsEndpoint`, and `serverIdHeaderValue` fields to the `consulLogin` config object.
+  [[GH-115](https://github.com/hashicorp/consul-ecs/pull/115)]
+
+BUG FIXES
 * Fix the description of the anonymous token policy so that it exactly matches the description
   created by `consul-k8s`. This fixes a connectivity issue that occurs when `consul-k8s` and
   `consul-ecs` deployments are connected to the same Consul datacenter.

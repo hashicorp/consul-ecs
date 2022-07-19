@@ -3,9 +3,9 @@ package main
 import (
 	"os"
 
-	cmdController "github.com/hashicorp/consul-ecs/subcommand/acl-controller"
 	cmdAppEntrypoint "github.com/hashicorp/consul-ecs/subcommand/app-entrypoint"
 	cmdControlPlane "github.com/hashicorp/consul-ecs/subcommand/control-plane"
+	cmdController "github.com/hashicorp/consul-ecs/subcommand/controller"
 	cmdEnvoyEntrypoint "github.com/hashicorp/consul-ecs/subcommand/envoy-entrypoint"
 	cmdVersion "github.com/hashicorp/consul-ecs/subcommand/version"
 	"github.com/hashicorp/consul-ecs/version"
@@ -25,7 +25,7 @@ func init() {
 		"control-plane": func() (cli.Command, error) {
 			return &cmdControlPlane.Command{UI: ui}, nil
 		},
-		"acl-controller": func() (cli.Command, error) {
+		"controller": func() (cli.Command, error) {
 			return &cmdController.Command{UI: ui}, nil
 		},
 		"envoy-entrypoint": func() (cli.Command, error) {

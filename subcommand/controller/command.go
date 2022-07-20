@@ -139,11 +139,7 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 	if err != nil {
 		return err
 	}
-	iamRolePath := c.config.Controller.IAMRolePath
-	if iamRolePath == "" {
-		iamRolePath = "/consul-ecs"
-	}
-	path := strings.Trim(iamRolePath, "/")
+	path := strings.Trim(c.config.Controller.IAMRolePath, "/")
 	if path != "" {
 		path += "/"
 	}

@@ -64,6 +64,23 @@ func TestTaskStateListerList(t *testing.T) {
 	}
 	allTokens := append(loginTokens, nonLoginTokens...)
 
+	ecsServices := []*api.CatalogRegistration{
+		// These service instances have the "task-id" metadata field, and exist on the
+		// shared cluster arn node , so the controller considers them for reconciliation.
+		makeSvc(t, "mesh-task-id-1", testClusterArn, "task-id", "mesh-task-id-1"),
+		makeSvc(t, "mesh-task-id-2", testClusterArn, "task-id", "mesh-task-id-2"),
+		makeSvc(t, "mesh-task-id-3", testClusterArn, "task-id", "mesh-task-id-3"),
+	}
+	nonECSServices := []*api.CatalogRegistration{
+		// service instance for task in different ECS cluster (node name != testClusterArn)
+		makeSvc(t, "other-cluster-svc", "other-cluster-arn", "task-id", "other-cluster-svc"),
+		// an "invalid" service instance registered to the cluster node but without a task-id
+		// metadata field. this will be ignored by the controller, with a warning in the logs.
+		makeSvc(t, "non-ecs-svc-2", testClusterArn),
+		// a non ECS service instance
+		makeSvc(t, "non-ecs-svc-3", "some-node"),
+	}
+
 	tokenIgnoreFields := cmpopts.IgnoreFields(
 		api.ACLTokenListEntry{}, "CreateIndex", "ModifyIndex", "CreateTime", "Hash",
 	)
@@ -74,6 +91,8 @@ func TestTaskStateListerList(t *testing.T) {
 		initTasks []*ecs.Task
 		// tokens to setup in Consul for the test
 		initTokens []*api.ACLTokenListEntry
+		// service instances to setup in Consul for the test
+		initServices []*api.CatalogRegistration
 		// setup partitions + namespaces in Consul
 		initPartitions map[string][]string
 		// the controller's configured partition
@@ -82,13 +101,13 @@ func TestTaskStateListerList(t *testing.T) {
 		expResources []Resource
 	}
 	cases := map[string]testCase{
-		"no tasks and no tokens": {},
-		"no mesh tasks and no login tokens": {
+		"no tasks and no tokens and no services": {},
+		"no mesh tasks and no login tokens and no services": {
 			initTokens: nonLoginTokens,
 			initTasks:  nonMeshTasks,
 			// TaskStateLister finds no resources.
 		},
-		"no mesh tasks with login tokens": {
+		"no mesh tasks with login tokens and no services": {
 			initTokens: allTokens,
 			initTasks:  nonMeshTasks,
 			expResources: []Resource{
@@ -98,7 +117,7 @@ func TestTaskStateListerList(t *testing.T) {
 				makeTaskState("mesh-task-id-3", false, loginTokens[4:6]),
 			},
 		},
-		"mesh tasks without tokens": {
+		"mesh tasks without tokens and no services": {
 			initTokens: nonLoginTokens,
 			initTasks:  allTasks,
 			expResources: []Resource{
@@ -108,7 +127,7 @@ func TestTaskStateListerList(t *testing.T) {
 				makeTaskState("mesh-task-id-3", true, nil),
 			},
 		},
-		"mesh tasks with tokens": {
+		"mesh tasks with tokens and no services": {
 			initTokens: allTokens,
 			initTasks:  allTasks,
 			expResources: []Resource{
@@ -116,6 +135,19 @@ func TestTaskStateListerList(t *testing.T) {
 				makeTaskState("mesh-task-id-1", true, loginTokens[0:2]),
 				makeTaskState("mesh-task-id-2", true, loginTokens[2:4]),
 				makeTaskState("mesh-task-id-3", true, loginTokens[4:6]),
+			},
+		},
+		"no tasks with non-ecs services and no tokens": {
+			initServices: nonECSServices,
+			// TaskStateLister finds no resources
+		},
+		"no tasks with ecs services and no tokens": {
+			initServices: ecsServices,
+			// TaskStateLister finds no resources
+			expResources: []Resource{
+				makeTaskState("mesh-task-id-1", false, nil, ecsServices[0].Service.ID),
+				makeTaskState("mesh-task-id-2", false, nil, ecsServices[1].Service.ID),
+				makeTaskState("mesh-task-id-3", false, nil, ecsServices[2].Service.ID),
 			},
 		},
 	}
@@ -170,6 +202,30 @@ func TestTaskStateListerList(t *testing.T) {
 		}
 		entAllTokens := append(entLoginTokens, entOtherTokens...)
 
+		entECSServices := []*api.CatalogRegistration{
+			// These service instances have the "task-id" metadata field, and exist on the
+			// shared cluster arn node , so the controller considers them for reconciliation.
+			// A single task will not have its service instances in different namespaces.
+			makeSvcEnt(t, "partition-task-1", testClusterArn, testPtn, testNs, "task-id", "partition-task-1"),
+			makeSvcEnt(t, "partition-task-1-sidecar-proxy", testClusterArn, testPtn, testNs, "task-id", "partition-task-1"),
+
+			makeSvcEnt(t, "partition-task-2", testClusterArn, testPtn, testNs, "task-id", "partition-task-2"),
+			makeSvcEnt(t, "partition-task-2-sidecar-proxy", testClusterArn, testPtn, testNs, "task-id", "partition-task-2"),
+
+			makeSvcEnt(t, "partition-task-3", testClusterArn, testPtn, testNs, "task-id", "partition-task-3"),
+			makeSvcEnt(t, "partition-task-3-sidecar-proxy", testClusterArn, testPtn, testNs, "task-id", "partition-task-3"),
+		}
+		entOtherServices := []*api.CatalogRegistration{
+			// other partition (technically invalid, since we should have one partition per cluster arn)
+			makeSvcEnt(t, "other-task-1", testClusterArn, otherPtn, testNs, "task-id", "other-task-1"),
+			makeSvcEnt(t, "other-task-2", testClusterArn, otherPtn, "default", "task-id", "other-task-2"),
+			// Missing task-id metadata field
+			makeSvcEnt(t, "other-task-3", testClusterArn, testPtn, testNs),
+			// Different node (shouldn't happen since one partition per cluster arn)
+			makeSvcEnt(t, "other-task-4", "other-cluster-arn", testPtn, testNs, "task-id", "other-task-4"),
+		}
+		entAllServices := append(entECSServices, entOtherServices...)
+
 		cases["no tasks or tokens in partition"] = testCase{
 			initPartitions: allPartitions,
 			partition:      testPtn,
@@ -216,6 +272,29 @@ func TestTaskStateListerList(t *testing.T) {
 				makeTaskStateEnt("partition-task-3", true, entLoginTokens[4:6], testPtn, testNs),
 			},
 		}
+		cases["no tasks with services in partition"] = testCase{
+			initServices:   entECSServices,
+			initPartitions: allPartitions,
+			partition:      testPtn,
+			expResources: []Resource{
+				makeTaskStateEnt("partition-task-1", false, nil, testPtn, testNs, entECSServices[0].Service.ID, entECSServices[1].Service.ID),
+				makeTaskStateEnt("partition-task-2", false, nil, testPtn, testNs, entECSServices[2].Service.ID, entECSServices[3].Service.ID),
+				makeTaskStateEnt("partition-task-3", false, nil, testPtn, testNs, entECSServices[4].Service.ID, entECSServices[5].Service.ID),
+			},
+		}
+		cases["mesh tasks with tokens and services in partition"] = testCase{
+			initTasks:      entAllTasks,
+			initTokens:     entAllTokens,
+			initServices:   entAllServices,
+			initPartitions: allPartitions,
+			partition:      testPtn,
+			expResources: []Resource{
+				makeTaskStateEnt("partition-task-1", true, entLoginTokens[0:2], testPtn, testNs, entECSServices[0].Service.ID, entECSServices[1].Service.ID),
+				makeTaskStateEnt("partition-task-2", true, entLoginTokens[2:4], testPtn, testNs, entECSServices[2].Service.ID, entECSServices[3].Service.ID),
+				makeTaskStateEnt("partition-task-3", true, entLoginTokens[4:6], testPtn, testNs, entECSServices[4].Service.ID, entECSServices[5].Service.ID),
+			},
+		}
+
 	}
 
 	for name, c := range cases {
@@ -241,6 +320,7 @@ func TestTaskStateListerList(t *testing.T) {
 			}
 
 			createTokens(t, consulClient, c.initTokens...)
+			createServiceInstances(t, consulClient, c.initServices...)
 
 			resources, err := lister.List()
 			require.NoError(t, err)
@@ -256,42 +336,75 @@ func TestTaskStateReconcile(t *testing.T) {
 	t.Parallel()
 
 	type testCase struct {
-		initTokens     []*api.ACLTokenListEntry
-		initPartitions map[string][]string
-		state          *TaskState
-		expExist       []*api.ACLTokenListEntry
-		expDeleted     []*api.ACLTokenListEntry
+		initTokens      []*api.ACLTokenListEntry
+		initServices    []*api.CatalogRegistration
+		initPartitions  map[string][]string
+		state           *TaskState
+		expTokenExist   []*api.ACLTokenListEntry
+		expTokenDeleted []*api.ACLTokenListEntry
+		expSvcExist     []*api.CatalogRegistration
+		expSvcDeleted   []*api.CatalogRegistration
 	}
 
 	tokens := []*api.ACLTokenListEntry{
 		makeToken(t, "test-task", true),
 	}
+	svcs := []*api.CatalogRegistration{
+		makeSvc(t, "test-task", testClusterArn, "task-id", "test-task"),
+	}
 	cases := map[string]testCase{
 		"task not found and tokens not found": {
-			initTokens: tokens,
-			state:      makeTaskState("test-task", false, nil),
-			expExist:   tokens,
+			initTokens:    tokens,
+			state:         makeTaskState("test-task", false, nil),
+			expTokenExist: tokens,
 		},
 		"task found but tokens not found": {
-			initTokens: tokens,
-			state:      makeTaskState("test-task", true, nil),
-			expExist:   tokens,
+			initTokens:    tokens,
+			state:         makeTaskState("test-task", true, nil),
+			expTokenExist: tokens,
 		},
 		"task found and tokens found": {
-			initTokens: tokens,
-			state:      makeTaskState("test-task", true, tokens),
-			expExist:   tokens,
+			initTokens:    tokens,
+			state:         makeTaskState("test-task", true, tokens),
+			expTokenExist: tokens,
 		},
 		"task not found but tokens found": {
-			initTokens: tokens,
-			state:      makeTaskState("test-task", false, tokens),
-			expDeleted: tokens,
+			initTokens:      tokens,
+			state:           makeTaskState("test-task", false, tokens),
+			expTokenDeleted: tokens,
+		},
+		"task not found but service found": {
+			initServices:  svcs,
+			state:         makeTaskState("test-task", false, nil, svcs[0].Service.ID),
+			expSvcDeleted: svcs,
+		},
+		"task found and service found": {
+			initServices: svcs,
+			state:        makeTaskState("test-task", true, nil, svcs[0].Service.ID),
+			expSvcExist:  svcs,
+		},
+		"task not found but services and tokens found": {
+			initTokens:      tokens,
+			initServices:    svcs,
+			state:           makeTaskState("test-task", false, tokens, svcs[0].Service.ID),
+			expSvcDeleted:   svcs,
+			expTokenDeleted: tokens,
+		},
+		"task found and services and tokens found": {
+			initTokens:    tokens,
+			initServices:  svcs,
+			state:         makeTaskState("test-task", true, tokens, svcs[0].Service.ID),
+			expSvcExist:   svcs,
+			expTokenExist: tokens,
 		},
 	}
 
 	if enterpriseFlag() {
 		entTokens := []*api.ACLTokenListEntry{
 			makeTokenEnt(t, "test-task", true, "test-ptn", "test-ns"),
+		}
+		entServices := []*api.CatalogRegistration{
+			makeSvcEnt(t, "test-task", testClusterArn, "test-ptn", "test-ns", "task-id", "test-task"),
 		}
 		partitions := map[string][]string{
 			"test-ptn": {"test-ns"},
@@ -300,25 +413,48 @@ func TestTaskStateReconcile(t *testing.T) {
 			initTokens:     entTokens,
 			initPartitions: partitions,
 			state:          makeTaskStateEnt("test-task", false, nil, "test-ptn", "test-ns"),
-			expExist:       entTokens,
+			expTokenExist:  entTokens,
 		}
 		cases["task found but tokens not found in partition"] = testCase{
 			initTokens:     entTokens,
 			initPartitions: partitions,
 			state:          makeTaskStateEnt("test-task", true, nil, "test-ptn", "test-ns"),
-			expExist:       entTokens,
+			expTokenExist:  entTokens,
 		}
 		cases["task found and tokens found in partition"] = testCase{
 			initTokens:     entTokens,
 			initPartitions: partitions,
 			state:          makeTaskStateEnt("test-task", true, entTokens, "test-ptn", "test-ns"),
-			expExist:       entTokens,
+			expTokenExist:  entTokens,
 		}
 		cases["task not found but tokens found in partition"] = testCase{
-			initTokens:     entTokens,
+			initTokens:      entTokens,
+			initPartitions:  partitions,
+			state:           makeTaskStateEnt("test-task", false, entTokens, "test-ptn", "test-ns"),
+			expTokenDeleted: entTokens,
+		}
+		cases["task not found but service found in partition"] = testCase{
+			initServices:   entServices,
 			initPartitions: partitions,
-			state:          makeTaskStateEnt("test-task", false, entTokens, "test-ptn", "test-ns"),
-			expDeleted:     entTokens,
+			state:          makeTaskStateEnt("test-task", false, nil, "test-ptn", "test-ns", entServices[0].Service.ID),
+			expSvcDeleted:  entServices,
+		}
+		cases["task not found but service and tokens found in partition"] = testCase{
+			initTokens:      entTokens,
+			initServices:    entServices,
+			initPartitions:  partitions,
+			state:           makeTaskStateEnt("test-task", false, entTokens, "test-ptn", "test-ns", entServices[0].Service.ID),
+			expSvcDeleted:   entServices,
+			expTokenDeleted: entTokens,
+		}
+
+		cases["task found and service and tokens found in partition"] = testCase{
+			initTokens:     entTokens,
+			initServices:   entServices,
+			initPartitions: partitions,
+			state:          makeTaskStateEnt("test-task", true, entTokens, "test-ptn", "test-ns", entServices[0].Service.ID),
+			expSvcExist:    entServices,
+			expTokenExist:  entTokens,
 		}
 	}
 	for name, c := range cases {
@@ -331,12 +467,16 @@ func TestTaskStateReconcile(t *testing.T) {
 				createPartitions(t, client, c.initPartitions)
 			}
 			createTokens(t, client, c.initTokens...)
+			createServiceInstances(t, client, c.initServices...)
 
 			c.state.ConsulClient = client
-			c.state.Log = hclog.NewNullLogger()
+			c.state.Log = hclog.New(&hclog.LoggerOptions{
+				Name:  "controller",
+				Level: hclog.Debug,
+			})
 			require.NoError(t, c.state.Reconcile())
 
-			for _, exp := range c.expDeleted {
+			for _, exp := range c.expTokenDeleted {
 				tok, _, err := client.ACL().TokenRead(exp.AccessorID, &api.QueryOptions{
 					Namespace: exp.Namespace,
 					Partition: exp.Partition,
@@ -345,7 +485,7 @@ func TestTaskStateReconcile(t *testing.T) {
 				require.Contains(t, err.Error(), "403 (ACL not found)")
 				require.Nil(t, tok)
 			}
-			for _, exp := range c.expExist {
+			for _, exp := range c.expTokenExist {
 				tok, _, err := client.ACL().TokenRead(exp.AccessorID, &api.QueryOptions{
 					Namespace: exp.Namespace,
 					Partition: exp.Partition,
@@ -353,6 +493,27 @@ func TestTaskStateReconcile(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, tok)
 				require.Equal(t, exp.AccessorID, tok.AccessorID)
+			}
+
+			for _, exp := range c.expSvcDeleted {
+				s, _, err := client.Catalog().NodeServiceList(exp.Node, &api.QueryOptions{
+					Filter:    fmt.Sprintf(`ID == "%s"`, exp.Service.ID),
+					Partition: exp.Service.Partition,
+					Namespace: exp.Service.Namespace,
+				})
+				require.NoError(t, err)
+				require.Empty(t, s.Services, "service %q not deleted", exp.Service.ID)
+			}
+
+			for _, exp := range c.expSvcExist {
+				s, _, err := client.Catalog().NodeServiceList(exp.Node, &api.QueryOptions{
+					Filter:    fmt.Sprintf(`ID == "%s"`, exp.Service.ID),
+					Partition: exp.Service.Partition,
+					Namespace: exp.Service.Namespace,
+				})
+				require.NoError(t, err)
+				require.Len(t, s.Services, 1, "service %q does not exist", exp.Service.ID)
+				require.Equal(t, exp.Service.ID, s.Services[0].ID)
 			}
 		})
 	}
@@ -479,7 +640,7 @@ func TestReconcileNamespaces(t *testing.T) {
 
 // helper func that initializes a Consul test server and returns a Consul API client.
 func initConsul(t *testing.T) *api.Client {
-	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+	cfg, _ := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
 	client, err := api.NewClient(cfg)
 	require.NoError(t, err)
 	return client
@@ -487,6 +648,8 @@ func initConsul(t *testing.T) *api.Client {
 
 // listNamespaces is a helper func that returns a list of namespaces mapped to partition.
 func listNamespaces(t *testing.T, consulClient *api.Client) map[string][]string {
+	t.Helper()
+
 	names := make(map[string][]string)
 
 	if !enterpriseFlag() {
@@ -522,22 +685,23 @@ func makeECSTask(t *testing.T, taskId string, tags ...string) *ecs.Task {
 	}
 }
 
-func makeTaskState(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry) *TaskState {
+func makeTaskState(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry, serviceIds ...string) *TaskState {
 	t := &TaskState{
 		TaskID:       TaskID(taskId),
 		ClusterARN:   testClusterArn,
 		ECSTaskFound: taskFound,
 		ACLTokens:    tokens,
+		ServiceIDs:   serviceIds,
 	}
-	if enterpriseFlag() && taskFound {
+	if enterpriseFlag() && (taskFound || len(serviceIds) > 0) {
 		t.Partition = DefaultPartition
 		t.NS = DefaultNamespace
 	}
 	return t
 }
 
-func makeTaskStateEnt(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry, partition, namespace string) *TaskState {
-	t := makeTaskState(taskId, taskFound, tokens)
+func makeTaskStateEnt(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry, partition, namespace string, serviceIds ...string) *TaskState {
+	t := makeTaskState(taskId, taskFound, tokens, serviceIds...)
 	t.Partition = partition
 	t.NS = namespace
 	return t
@@ -576,6 +740,37 @@ func makeTokenEnt(t *testing.T, taskId string, isLogin bool, partition, namespac
 	return tok
 }
 
+func makeSvc(t *testing.T, taskId string, nodeName string, meta ...string) *api.CatalogRegistration {
+	svcName := "test-service"
+	svc := &api.CatalogRegistration{
+		Node:    nodeName,
+		Address: "127.0.0.2",
+		Service: &api.AgentService{
+			ID:      svcName + "-" + taskId,
+			Service: svcName,
+			Meta:    map[string]string{},
+			Address: "127.0.0.1",
+		},
+	}
+	require.Equal(t, 0, len(meta)%2, "meta must be even length")
+	for i := 0; i < len(meta); i += 2 {
+		svc.Service.Meta[meta[i]] = meta[i+1]
+	}
+
+	if enterpriseFlag() {
+		svc.Service.Partition = DefaultPartition
+		svc.Service.Namespace = DefaultNamespace
+	}
+	return svc
+}
+
+func makeSvcEnt(t *testing.T, taskId, nodeName, partition, namespace string, meta ...string) *api.CatalogRegistration {
+	svc := makeSvc(t, taskId, nodeName, meta...)
+	svc.Service.Partition = partition
+	svc.Service.Namespace = namespace
+	return svc
+}
+
 func createPartitions(t *testing.T, client *api.Client, partitions map[string][]string) {
 	ctx := context.Background()
 	for ptn, namespaces := range partitions {
@@ -608,6 +803,16 @@ func createTokens(t *testing.T, client *api.Client, tokens ...*api.ACLTokenListE
 	}
 }
 
+func createServiceInstances(t *testing.T, client *api.Client, svcs ...*api.CatalogRegistration) {
+	for _, svc := range svcs {
+		_, err := client.Catalog().Register(svc, &api.WriteOptions{
+			Partition: svc.Service.Partition,
+			Namespace: svc.Service.Namespace,
+		})
+		require.NoError(t, err)
+	}
+}
+
 func sortTaskStates(states []Resource) {
 	// Sort by TaskID
 	sort.Slice(states, func(i, j int) bool {
@@ -616,12 +821,13 @@ func sortTaskStates(states []Resource) {
 		return a.TaskID < b.TaskID
 	})
 
-	// Sort ACLTokens by AccessorID
+	// Sort ACLTokens by AccessorID and sort ServiceIDs
 	for _, r := range states {
 		state := r.(*TaskState)
 		sort.Slice(state.ACLTokens, func(i, j int) bool {
 			return state.ACLTokens[i].AccessorID < state.ACLTokens[j].AccessorID
 		})
+		sort.Strings(state.ServiceIDs)
 	}
 }
 

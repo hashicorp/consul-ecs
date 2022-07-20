@@ -63,7 +63,7 @@ type TaskStateLister struct {
 	// ConsulClient is the Consul client to be used by the ServiceStateLister.
 	ConsulClient *api.Client
 
-	// ClusterARN is the name or the ARN of the ECS cluster.
+	// ClusterARN is the ARN of the ECS cluster.
 	ClusterARN string
 
 	// Partition is the partition that is used by the ServiceStateLister [Consul Enterprise].
@@ -85,9 +85,19 @@ func (s TaskStateLister) List() ([]Resource, error) {
 		return nil, err
 	}
 
-	aclState, err := s.fetchACLState()
+	namespaces, err := s.listNamespaces()
 	if err != nil {
-		return resources, err
+		return nil, err
+	}
+
+	aclState, err := s.fetchACLState(namespaces)
+	if err != nil {
+		return nil, err
+	}
+
+	svcIds, err := s.fetchServiceInstances(namespaces)
+	if err != nil {
+		return nil, err
 	}
 
 	for id, state := range aclState {
@@ -97,6 +107,15 @@ func (s TaskStateLister) List() ([]Resource, error) {
 			buildingResources[id] = state
 		} else {
 			buildingResources[id].ACLTokens = append(buildingResources[id].ACLTokens, state.ACLTokens...)
+		}
+	}
+
+	for id, state := range svcIds {
+		// Each task may have two service instances, one for the app and one for the sidecar proxy
+		if _, ok := buildingResources[id]; !ok {
+			buildingResources[id] = state
+		} else {
+			buildingResources[id].ServiceIDs = append(buildingResources[id].ServiceIDs, state.ServiceIDs...)
 		}
 	}
 
@@ -167,27 +186,23 @@ func (s TaskStateLister) fetchECSTasks() (map[TaskID]*TaskState, error) {
 	return resources, nil
 }
 
-// fetchACLState retrieves all of the ACL tokens from Consul (in this partition)
-// and returns a mapping from task id to the ACL tokens created by the task.
-func (s TaskStateLister) fetchACLState() (map[TaskID]*TaskState, error) {
-	aclState := make(map[TaskID]*TaskState)
-
-	var err error
-	var namespaces []*api.Namespace
-
-	opts := &api.QueryOptions{Partition: s.Partition}
+func (s TaskStateLister) listNamespaces() ([]*api.Namespace, error) {
 	if PartitionsEnabled(s.Partition) {
 		// if partitions are enabled then list the namespaces.
-		namespaces, _, err = s.ConsulClient.Namespaces().List(opts)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// partitions aren't enabled so just use an empty namespace when listing ACL info.
-		// when an empty namespace is used, Consul defaults to the `default` namespace.
-		namespaces = append(namespaces, &api.Namespace{})
+		ns, _, err := s.ConsulClient.Namespaces().List(&api.QueryOptions{Partition: s.Partition})
+		return ns, err
 	}
+	// partitions aren't enabled so just use an empty namespace when listing ACL info.
+	// when an empty namespace is used, Consul defaults to the `default` namespace.
+	return []*api.Namespace{{}}, nil
+}
 
+// fetchACLState retrieves all of the ACL tokens from Consul (in this partition)
+// and returns a mapping from task id to the ACL tokens created by the task.
+func (s TaskStateLister) fetchACLState(namespaces []*api.Namespace) (map[TaskID]*TaskState, error) {
+	aclState := make(map[TaskID]*TaskState)
+
+	opts := &api.QueryOptions{Partition: s.Partition}
 	// list tokens from all namespaces and map them by task id
 	for _, ns := range namespaces {
 		opts.Namespace = ns.Name
@@ -216,6 +231,35 @@ func (s TaskStateLister) fetchACLState() (map[TaskID]*TaskState, error) {
 	}
 
 	return aclState, nil
+}
+
+func (s TaskStateLister) fetchServiceInstances(namespaces []*api.Namespace) (map[TaskID]*TaskState, error) {
+	opts := &api.QueryOptions{Partition: s.Partition}
+	svcIds := map[TaskID]*TaskState{}
+	for _, ns := range namespaces {
+		opts.Namespace = ns.Name
+
+		svcList, _, err := s.ConsulClient.Catalog().NodeServiceList(s.ClusterARN, opts)
+		if err != nil {
+			return nil, err
+		}
+
+		// Map service ids by task id
+		for _, svc := range svcList.Services {
+			state, err := s.taskStateFromServiceInstance(svc)
+			if err != nil {
+				s.Log.Debug("ignoring service instance", "id", svc.ID, "meta", fmt.Sprint(svc.Meta), "err", err)
+				continue
+			}
+
+			if found, ok := svcIds[state.TaskID]; ok {
+				found.ServiceIDs = append(found.ServiceIDs, svc.ID)
+			} else {
+				svcIds[state.TaskID] = state
+			}
+		}
+	}
+	return svcIds, nil
 }
 
 // ReconcileNamespaces ensures that for every service in the cluster the namespace
@@ -389,6 +433,20 @@ func (s TaskStateLister) taskStateFromToken(token *api.ACLTokenListEntry) (*Task
 	return ts, nil
 }
 
+func (s TaskStateLister) taskStateFromServiceInstance(svc *api.AgentService) (*TaskState, error) {
+	taskId, ok := svc.Meta["task-id"]
+	if !ok || taskId == "" {
+		return nil, fmt.Errorf("cannot determine task id from svc")
+	}
+
+	ts := s.newTaskState(TaskID(taskId), s.ClusterARN)
+	ts.ServiceIDs = []string{svc.ID}
+	// We need to know partition/namespace in order to clean up the service instance.
+	ts.Partition = svc.Partition
+	ts.NS = svc.Namespace
+	return ts, nil
+}
+
 // parseTokenDescription parses a Consul ACL token description.
 // This parses "metadata" set by `consul login -meta` which is included
 // as a JSON object in the the token description, ex:
@@ -429,29 +487,49 @@ type TaskState struct {
 	ECSTaskFound bool
 	// ACLTokens are the Consul ACL tokens found for this task id.
 	ACLTokens []*api.ACLTokenListEntry
+	// ServiceIDs are the IDs of the Consul service instances for this task id, if any.
+	// There may be two for a task: a service instance and sidecar-proxy instance.
+	ServiceIDs []string
 
 	Log hclog.Logger
 }
 
 // Reconcile deletes ACL tokens based on their ServiceState.
 func (t *TaskState) Reconcile() error {
-	if !t.ECSTaskFound && len(t.ACLTokens) > 0 {
+	if !t.ECSTaskFound && (len(t.ACLTokens) > 0 || len(t.ServiceIDs) > 0) {
 		return t.Delete()
 	}
 	return nil
 }
 
-// Delete removes the service token for the given ServiceInfo.
+// Delete removes the tokens and service instances for the task.
 func (t *TaskState) Delete() error {
+	var errs error
+
+	for _, svcId := range t.ServiceIDs {
+		opts := &api.WriteOptions{Partition: t.Partition, Namespace: t.NS}
+		_, err := t.ConsulClient.Catalog().Deregister(&api.CatalogDeregistration{
+			Node:      t.ClusterARN,
+			ServiceID: svcId,
+		}, opts)
+		if err != nil {
+			errs = multierror.Append(fmt.Errorf("deregistering service: %w", err))
+		} else {
+			t.Log.Info("service deregistered successfully", "id", svcId)
+		}
+	}
+
 	for _, token := range t.ACLTokens {
 		opts := &api.WriteOptions{Partition: token.Partition, Namespace: token.Namespace}
 		_, err := t.ConsulClient.ACL().TokenDelete(token.AccessorID, opts)
 		if err != nil {
-			return fmt.Errorf("deleting token: %w", err)
+			errs = multierror.Append(fmt.Errorf("deleting token: %w", err))
+		} else {
+			t.Log.Info("token deleted successfully", "token", token.Description)
 		}
-		t.Log.Info("token deleted successfully", "token", token.Description)
 	}
-	return nil
+
+	return errs
 }
 
 // Namespace returns the namespace that the service belongs to.

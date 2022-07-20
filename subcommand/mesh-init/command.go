@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -28,6 +29,8 @@ const (
 	envoyBoostrapConfigFilename = "envoy-bootstrap.json"
 	raftReplicationTimeout      = 2 * time.Second
 	tokenReadPollingInterval    = 100 * time.Millisecond
+
+	ConsulECSCheckType = "ecs-health-check"
 )
 
 type Command struct {
@@ -66,6 +69,8 @@ func (c *Command) realRun() error {
 	}
 
 	cfg := api.DefaultConfig()
+	cfg.Address = c.config.ConsulHTTPAddr
+	cfg.TLSConfig.CAFile = c.config.ConsulCACertFile
 
 	if c.config.ConsulLogin.Enabled {
 		// If enabled, login to the auth method to obtain an ACL token.
@@ -87,44 +92,73 @@ func (c *Command) realRun() error {
 		return fmt.Errorf("constructing consul client: %s", err)
 	}
 
-	var serviceRegistration, proxyRegistration *api.AgentServiceRegistration
+	var svcReg, proxyReg *api.CatalogRegistration
 	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
-		proxyRegistration = c.constructGatewayProxyRegistration(taskMeta)
+		// TODO: return api.CatalogRegistration from constructGatewayProxyRegistration
+		// proxyRegistration = c.constructGatewayProxyRegistration(taskMeta)
+		return fmt.Errorf("HACK: mesh gateway not (yet) supported in agentless hack")
 	} else {
-		serviceRegistration, err = c.constructServiceRegistration(taskMeta)
+		svcReg, err = ConstructServiceRegistration(c.config, taskMeta)
 		if err != nil {
 			return err
 		}
-		proxyRegistration = c.constructProxyRegistration(serviceRegistration)
+		proxyReg = ConstructProxyRegistration(c.config, svcReg)
 	}
 
-	if serviceRegistration != nil {
+	if svcReg != nil {
 		// No need to register the service for gateways.
 		err = backoff.RetryNotify(func() error {
 			c.log.Info("registering service")
-			return consulClient.Agent().ServiceRegister(serviceRegistration)
-		}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
+			_, err := consulClient.Catalog().Register(svcReg, nil)
+			return err
+		}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 		if err != nil {
 			return err
 		}
 
-		c.log.Info("service registered successfully", "name", serviceRegistration.Name, "id", serviceRegistration.ID)
+		c.log.Info("service registered successfully",
+			"node", svcReg.Node,
+			"service", svcReg.Service.Service,
+			"id", svcReg.Service.ID,
+		)
 	}
 
 	// Register the proxy.
 	err = backoff.RetryNotify(func() error {
-		c.log.Info("registering proxy", "kind", proxyRegistration.Kind)
-		return consulClient.Agent().ServiceRegister(proxyRegistration)
-	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
+		c.log.Info("registering proxy", "kind", proxyReg.Service.Kind)
+		_, err := consulClient.Catalog().Register(proxyReg, nil)
+		return err
+	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
 
-	c.log.Info("proxy registered successfully", "name", proxyRegistration.Name, "id", proxyRegistration.ID)
+	c.log.Info("proxy registered successfully",
+		"node", proxyReg.Node,
+		"service", proxyReg.Service.Service,
+		"id", proxyReg.Service.ID,
+	)
+
+	// TODO: Add a config option for the gRPC address instead of inferring from the http address.
+	grpcAddr, err := url.Parse(c.config.ConsulHTTPAddr)
+	if err != nil {
+		return err
+	}
+	parts := strings.Split(grpcAddr.Host, ":")
+	grpcAddr.Host = parts[0] + ":8502"
 
 	// Run consul envoy -bootstrap to generate bootstrap file.
 	cmdArgs := []string{
-		"consul", "connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502",
+		"consul", "connect", "envoy",
+		"-bootstrap",
+		"-proxy-id", proxyReg.Service.ID,
+		"-http-addr", c.config.ConsulHTTPAddr,
+		"-grpc-addr", grpcAddr.String(),
+		"-node-name", proxyReg.Node,
+	}
+	// TODO: Is just the https cert? I think so. The
+	if c.config.ConsulCACertFile != "" {
+		cmdArgs = append(cmdArgs, "-ca-file", c.config.ConsulCACertFile)
 	}
 	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
 		kind := strings.ReplaceAll(string(c.config.Gateway.Kind), "-gateway", "")
@@ -133,22 +167,31 @@ func (c *Command) realRun() error {
 	if c.config.ConsulLogin.Enabled {
 		cmdArgs = append(cmdArgs, "-token-file", cfg.TokenFile)
 	}
-	if proxyRegistration.Partition != "" {
+	if proxyReg.Partition != "" {
 		// Partition/namespace support is enabled so augment the connect command.
 		cmdArgs = append(cmdArgs,
-			"-partition", proxyRegistration.Partition,
-			"-namespace", proxyRegistration.Namespace)
+			"-partition", proxyReg.Partition,
+			"-namespace", proxyReg.Service.Namespace,
+		)
 	}
 
-	c.log.Info("Running", "cmd", cmdArgs)
-	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
-	out, err := cmd.CombinedOutput()
+	var output []byte
+	err = backoff.RetryNotify(func() error {
+		c.log.Info("Running", "cmd", cmdArgs)
+		cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s: %s", err, string(out))
+		}
+		output = out
+		return nil
+	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
 	if err != nil {
-		return fmt.Errorf("%s: %s", err, string(out))
+		return err
 	}
 
 	envoyBootstrapFile := path.Join(c.config.BootstrapDir, envoyBoostrapConfigFilename)
-	err = os.WriteFile(envoyBootstrapFile, out, 0444)
+	err = os.WriteFile(envoyBootstrapFile, output, 0444)
 	if err != nil {
 		return err
 	}
@@ -443,62 +486,102 @@ func mergeMeta(m1, m2 map[string]string) map[string]string {
 
 // constructServiceRegistration returns the service registration request body.
 // May return an error due to invalid inputs from the config file.
-func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*api.AgentServiceRegistration, error) {
-	serviceName := c.constructServiceName(taskMeta.Family)
+func ConstructServiceRegistration(conf *config.Config, taskMeta awsutil.ECSTaskMeta) (*api.CatalogRegistration, error) {
+	svcName := serviceName(conf, taskMeta.Family)
 	taskID := taskMeta.TaskID()
-	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
-	checks, err := constructChecks(serviceID, c.config.Service.Checks, c.config.HealthSyncContainers)
-	if err != nil {
-		return nil, err
-	}
+	svcID := serviceID(svcName, taskID)
 
 	fullMeta := mergeMeta(map[string]string{
 		"task-id":  taskID,
 		"task-arn": taskMeta.TaskARN,
 		"source":   "consul-ecs",
-	}, c.config.Service.Meta)
+	}, conf.Service.Meta)
 
-	serviceRegistration := c.config.Service.ToConsulType()
-	serviceRegistration.ID = serviceID
-	serviceRegistration.Name = serviceName
-	serviceRegistration.Meta = fullMeta
-	serviceRegistration.Checks = nil
-	for _, check := range checks {
-		serviceRegistration.Checks = append(serviceRegistration.Checks, check.ToConsulType())
+	clusterArn, err := taskMeta.ClusterARN()
+	if err != nil {
+		return nil, err
 	}
-	return serviceRegistration, nil
+
+	svcReg := conf.Service.ToConsulType()
+	svcReg.Node = clusterArn
+	svcReg.SkipNodeUpdate = true
+	svcReg.Service.ID = svcID
+	svcReg.Service.Service = svcName
+	svcReg.Service.Address = taskMeta.NodeIP() // TODO: This should error if not found, rather than default to localhost.
+	svcReg.Service.Meta = fullMeta
+	svcReg.Checks = api.HealthChecks{}
+	if len(conf.HealthSyncContainers) == 0 {
+		// If no health check sync containers, configure a default passing check.
+		svcReg.Checks = append(svcReg.Checks, &api.HealthCheck{
+			CheckID:     CheckID(svcID, ""),
+			Name:        svcName,
+			Status:      api.HealthPassing,
+			Notes:       "poc hack hack hack",
+			Output:      "Task started.",
+			ServiceID:   svcID,
+			ServiceName: svcName,
+			Type:        ConsulECSCheckType,
+		})
+	} else {
+		for _, container := range conf.HealthSyncContainers {
+			svcReg.Checks = append(svcReg.Checks, &api.HealthCheck{
+				CheckID:     CheckID(svcID, container),
+				Name:        svcName,
+				Status:      api.HealthCritical,
+				Notes:       "poc hack hack hack",
+				Output:      fmt.Sprintf("Task is starting. Container %s not yet healthy.", container),
+				ServiceID:   svcID,
+				ServiceName: svcName,
+				Type:        ConsulECSCheckType,
+			})
+
+		}
+	}
+	return svcReg, nil
 }
 
-// constructProxyRegistration returns the proxy registration request body.
-func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServiceRegistration) *api.AgentServiceRegistration {
-	proxyRegistration := &api.AgentServiceRegistration{}
-	proxyRegistration.ID = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.ID)
-	proxyRegistration.Name = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Name)
-	proxyRegistration.Kind = api.ServiceKindConnectProxy
-	proxyRegistration.Port = 20000
-	proxyRegistration.Meta = serviceRegistration.Meta
-	proxyRegistration.Tags = serviceRegistration.Tags
-	proxyRegistration.Proxy = c.config.Proxy.ToConsulType()
-	proxyRegistration.Proxy.DestinationServiceName = serviceRegistration.Name
-	proxyRegistration.Proxy.DestinationServiceID = serviceRegistration.ID
-	proxyRegistration.Proxy.LocalServicePort = serviceRegistration.Port
-	proxyRegistration.Checks = []*api.AgentServiceCheck{
-		{
-			Name:                           "Proxy Public Listener",
-			TCP:                            "127.0.0.1:20000",
-			Interval:                       "10s",
-			DeregisterCriticalServiceAfter: "10m",
-		},
-		{
-			Name:         "Destination Alias",
-			AliasService: serviceRegistration.ID,
-		},
+// ConstructProxyRegistration returns the proxy registration request body.
+func ConstructProxyRegistration(conf *config.Config, svcReg *api.CatalogRegistration) *api.CatalogRegistration {
+	svc := svcReg.Service
+
+	proxyReg := &api.CatalogRegistration{
+		Service: &api.AgentService{},
 	}
-	proxyRegistration.Partition = serviceRegistration.Partition
-	proxyRegistration.Namespace = serviceRegistration.Namespace
-	proxyRegistration.Weights = serviceRegistration.Weights
-	proxyRegistration.EnableTagOverride = serviceRegistration.EnableTagOverride
-	return proxyRegistration
+	proxyReg.Node = svcReg.Node
+	proxyReg.SkipNodeUpdate = true
+	proxyReg.Service.ID = fmt.Sprintf("%s-sidecar-proxy", svc.ID)
+	proxyReg.Service.Service = fmt.Sprintf("%s-sidecar-proxy", svc.Service)
+	// The proxy will bind to the task ip, and not localhost. So, we need the ECS health check
+	// to hit the <taskIp>:20000 and not localhost:20000.
+	//
+	// NOTE: I tried unsetting the proxy address. This causes envoy to bind its public listener to 0.0.0.0 (good).
+	// But, Consul still configures the Envoy clusters with the node address of each proxy for service mesh traffic (bad).
+	// Since tasks share a node under agentless, that didn't work.
+	proxyReg.Service.Address = svcReg.Service.Address // TaskIP
+	proxyReg.Service.Kind = api.ServiceKindConnectProxy
+	proxyReg.Service.Port = 20000
+	proxyReg.Service.Meta = svc.Meta
+	proxyReg.Service.Tags = svc.Tags
+	proxyReg.Service.Proxy = conf.Proxy.ToConsulType()
+	proxyReg.Service.Proxy.DestinationServiceName = svc.Service
+	proxyReg.Service.Proxy.DestinationServiceID = svc.ID
+	proxyReg.Service.Proxy.LocalServicePort = svc.Port
+	proxyReg.Check = &api.AgentCheck{
+		CheckID:     CheckID(proxyReg.Service.ID, ""),
+		Name:        proxyReg.Service.Service,
+		Status:      api.HealthCritical,
+		Notes:       "poc hack hack hack",
+		Output:      "Task is starting. Container sidecar-proxy not yet healthy.",
+		ServiceID:   proxyReg.Service.ID,
+		ServiceName: proxyReg.Service.Service,
+		Type:        ConsulECSCheckType,
+	}
+	proxyReg.Partition = svcReg.Partition
+	proxyReg.Service.Partition = svc.Partition
+	proxyReg.Service.Namespace = svc.Namespace
+	proxyReg.Service.Weights = svc.Weights
+	proxyReg.Service.EnableTagOverride = svc.EnableTagOverride
+	return proxyReg
 }
 
 func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta) *api.AgentServiceRegistration {
@@ -569,4 +652,22 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 		},
 	}
 	return gwRegistration
+}
+
+func serviceName(conf *config.Config, family string) string {
+	if serviceName := conf.Service.Name; serviceName != "" {
+		return serviceName
+	}
+	return family
+}
+
+func serviceID(serviceName, taskID string) string {
+	return fmt.Sprintf("%s-%s", serviceName, taskID)
+}
+
+func CheckID(serviceID, container string) string {
+	if container == "" {
+		return serviceID + "-check"
+	}
+	return fmt.Sprintf("%s-%s-check", serviceID, container)
 }

@@ -155,19 +155,9 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 	if path != "" {
 		path += "/"
 	}
+
 	boundArnPattern := fmt.Sprintf("arn:aws:iam::%s:role/%s*", account, path)
 
-	clientAuthMethod := &api.ACLAuthMethod{
-		Name:        "iam-ecs-client-token",
-		Type:        "aws-iam",
-		Description: "AWS IAM auth method for ECS client tokens",
-		Config: map[string]interface{}{
-			// Trust a wildcard - any roles at a path.
-			"BoundIAMPrincipalARNs": []string{boundArnPattern},
-			// Must be true to use a wildcard
-			"EnableIAMEntityDetails": true,
-		},
-	}
 	serviceAuthMethod := &api.ACLAuthMethod{
 		Name:        "iam-ecs-service-token",
 		Type:        "aws-iam",
@@ -190,15 +180,6 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 				BindNamespace: fmt.Sprintf(`${entity_tags.%s}`, authMethodNamespaceTag),
 			},
 		)
-	}
-
-	roleName := "consul-ecs-client-role"
-	policyName := "consul-ecs-client-policy"
-	clientBindingRule := &api.ACLBindingRule{
-		Description: "Bind a policy for Consul clients on ECS",
-		AuthMethod:  clientAuthMethod.Name,
-		BindType:    api.BindingRuleBindTypeRole,
-		BindName:    roleName,
 	}
 
 	serviceBindingRule := &api.ACLBindingRule{
@@ -230,16 +211,16 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 		return fmt.Errorf("partition flag provided without partitions-enabled flag")
 	}
 
-	if err := c.upsertConsulClientRole(consulClient, roleName, policyName); err != nil {
+	// In agentless, nodes don't matter.
+	nodeName, err := ecsMeta.ClusterARN()
+	if err != nil {
 		return err
 	}
-	if err := c.upsertAuthMethod(consulClient, clientAuthMethod); err != nil {
+
+	if err := c.upsertConsulNode(consulClient, nodeName); err != nil {
 		return err
 	}
 	if err := c.upsertAuthMethod(consulClient, serviceAuthMethod); err != nil {
-		return err
-	}
-	if err := c.upsertBindingRule(consulClient, clientBindingRule); err != nil {
 		return err
 	}
 	if err := c.upsertBindingRule(consulClient, serviceBindingRule); err != nil {
@@ -289,83 +270,15 @@ var partitionedClientPolicyTpl = `partition "%s" {
   }
 }`
 
-// upsertConsulClientRole creates or updates the Consul ACL role for the client token.
-func (c *Command) upsertConsulClientRole(consulClient *api.Client, roleName, policyName string) error {
-	if err := c.upsertClientPolicy(consulClient, policyName); err != nil {
-		return err
-	}
-	if err := c.upsertClientRole(consulClient, roleName, policyName); err != nil {
-		return err
-	}
-	return nil
-}
-
-// upsertClientPolicy creates the ACL policy for the Consul client, if the policy does not exist.
-func (c *Command) upsertClientPolicy(consulClient *api.Client, policyName string) error {
-	// If the policy already exists, we're done.
-	_, _, err := consulClient.ACL().PolicyReadByName(policyName, c.queryOptions())
-	if err != nil && !controller.IsACLNotFoundError(err) {
-		return fmt.Errorf("reading Consul client ACL policy: %w", err)
-	} else if err == nil {
-		c.log.Info("ACL policy already exists; skipping policy creation", "name", policyName)
-		return nil
-	}
-
-	// Otherwise, the policy is not found, so create it.
-	c.log.Info("creating ACL policy", "name", policyName)
-	rules := ossClientPolicy
-	if c.flagPartitionsEnabled {
-		// If partitions are enabled then create a policy that supports partitions
-		rules = fmt.Sprintf(partitionedClientPolicyTpl, c.flagPartition)
-	}
-	_, _, err = consulClient.ACL().PolicyCreate(&api.ACLPolicy{
-		Name:        policyName,
-		Description: "Consul Client Token Policy for ECS",
-		Rules:       rules,
+func (c *Command) upsertConsulNode(consulClient *api.Client, nodeName string) error {
+	_, err := consulClient.Catalog().Register(&api.CatalogRegistration{
+		Node:    nodeName,
+		Address: "127.0.0.2", // Address doesn't matter in agentless.
 	}, c.writeOptions())
 	if err != nil {
-		return fmt.Errorf("creating Consul client ACL policy: %w", err)
+		return fmt.Errorf("failed to register Consul node %q: %w", nodeName, err)
 	}
-	c.log.Info("ACL policy created successfully", "name", policyName)
-	return nil
-}
-
-// upsertClientRole creates the ACL role for the Consul client, if the role does not exist.
-func (c *Command) upsertClientRole(consulClient *api.Client, roleName, policyName string) error {
-	// If the role already exists, we're done.
-	role, _, err := consulClient.ACL().RoleReadByName(roleName, c.queryOptions())
-	if err != nil && !controller.IsACLNotFoundError(err) {
-		return fmt.Errorf("reading Consul client ACL role: %w", err)
-	} else if err == nil && role != nil { // returns role=nil and err=nil if not found
-		c.log.Info("ACL role already exists; skipping role creation", "name", roleName)
-
-		if len(role.Policies) == 0 {
-			c.log.Info("updating ACL role with policy", "role", roleName, "policy", policyName)
-			role.Policies = []*api.ACLLink{{Name: policyName}}
-			_, _, err := consulClient.ACL().RoleUpdate(role, c.writeOptions())
-			if err != nil {
-				return fmt.Errorf("updating Consul client ACL role: %s", err)
-			}
-			c.log.Info("update ACL role successfully", "name", roleName)
-		}
-		return nil
-	}
-
-	c.log.Info("creating ACL role", "name", roleName)
-	_, _, err = consulClient.ACL().RoleCreate(&api.ACLRole{
-		Name:        roleName,
-		Description: "Consul Client Token Role for ECS",
-		Policies: []*api.ACLLink{
-			{
-				Name: policyName,
-			},
-		},
-	}, c.writeOptions())
-	if err != nil {
-		return fmt.Errorf("creating Consul client ACL role: %w", err)
-	}
-	c.log.Info("ACL role created successfully", "name", roleName)
-
+	c.log.Info("successfully registered Consul node", "node-name", nodeName)
 	return nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"text/template"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
@@ -19,6 +20,8 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
 	"github.com/mitchellh/mapstructure"
+
+	"consul-server-discovery/discovery"
 )
 
 const (
@@ -39,6 +42,7 @@ type Command struct {
 	config *config.Config
 	log    hclog.Logger
 	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func (c *Command) Run(args []string) int {
@@ -55,7 +59,7 @@ func (c *Command) Run(args []string) int {
 	c.config = conf
 	c.log = logging.FromConfig(c.config).Logger()
 
-	c.ctx = context.Background()
+	c.ctx, c.cancel = context.WithCancel(context.Background())
 
 	err = c.run()
 	if err != nil {
@@ -66,6 +70,7 @@ func (c *Command) Run(args []string) int {
 }
 
 func (c *Command) run() error {
+	defer c.cancel()
 	ecsMeta, err := awsutil.ECSTaskMetadata()
 	if err != nil {
 		return err
@@ -84,21 +89,61 @@ func (c *Command) run() error {
 	// Set up ECS client.
 	ecsClient := ecs.New(clientSession)
 
-	cfg := api.DefaultConfig()
-	cfg.Address = c.config.ConsulServers.HTTPAddr()
-	// We have a CA Cert File in the config. But, that is only for sharing with
-	// other containers.
-	if caCert := os.Getenv(consulCACertEnvVar); caCert != "" {
-		cfg.TLSConfig = api.TLSConfig{
-			CAPem: []byte(caCert),
+	// Set up server discovery.
+	watcher := discovery.Watcher{
+		Log: hclog.New(&hclog.LoggerOptions{
+			Name:  "watcher",
+			Level: hclog.Debug,
+		}),
+		Config: discovery.Config{
+			Addresses: c.config.ConsulServers.Hosts,
+			GRPCPort:  c.config.ConsulServers.GRPCPort,
+			TLSConfig: discovery.TLSConfig{
+				CACertPath: c.config.ConsulServers.CACertFile,
+				// ServerName: "127.0.0.1",
+			},
+		},
+	}
+
+	watcherChan := watcher.Chan()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		watcher.Run(c.ctx)
+	}()
+
+	makeNewClient := func(ips discovery.ServerIPs) (*api.Client, error) {
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("unable to create client; no good ips")
 		}
+
+		cfg := api.DefaultConfig()
+		cfg.Address = c.config.ConsulServers.HTTPAddr(ips[0])
+		// We have a CA Cert File in the config. But, that is only for sharing with
+		// other containers.
+		if caCert := os.Getenv(consulCACertEnvVar); caCert != "" {
+			cfg.TLSConfig = api.TLSConfig{
+				CAPem: []byte(caCert),
+			}
+		}
+		return api.NewClient(cfg)
 	}
 
-	consulClient, err := api.NewClient(cfg)
-	if err != nil {
-		return err
+	c.log.Info("waiting for server discovery")
+	var consulClient *api.Client
+	for {
+		ips := <-watcherChan
+		client, err := makeNewClient(ips)
+		if err == nil {
+			consulClient = client
+			break
+		}
+		c.log.Info("still waiting for server discovery", "err", err)
 	}
 
+	// We need to wait until we discover some
 	if err := c.upsertConsulResources(consulClient, ecsMeta); err != nil {
 		return err
 	}
@@ -111,12 +156,20 @@ func (c *Command) run() error {
 		Log:          c.log,
 	}
 	ctrl := controller.Controller{
+		WatcherChan:     watcherChan,
+		NewClientFn:     makeNewClient,
 		Resources:       taskStateLister,
 		PollingInterval: controller.DefaultPollingInterval,
 		Log:             c.log,
 	}
 
-	ctrl.Run(c.ctx)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ctrl.Run(c.ctx)
+	}()
+
+	wg.Wait()
 
 	return nil
 }

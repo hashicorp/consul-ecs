@@ -59,7 +59,8 @@ type ConsulServers struct {
 	CACertFile string `json:"caCertFile"`
 }
 
-func (c ConsulServers) HTTPAddr() string {
+// TODO: using ...string as a poc hack to avoid changing all call sites.
+func (c ConsulServers) HTTPAddr(ips ...string) string {
 	// TODO: Temporary. We will use a server discovery library for agentless.
 	// We'll support exec commands to discover server IP addresses.
 	// For now, just constructing the address assuming Hosts is a ip/hostname.
@@ -73,7 +74,12 @@ func (c ConsulServers) HTTPAddr() string {
 	if c.HTTPPort == 0 {
 		port = 8501
 	}
-	return fmt.Sprintf("%s://%s:%d", scheme, c.Hosts, port)
+
+	if len(ips) > 0 {
+		return fmt.Sprintf("%s://%s:%d", scheme, ips[0], port)
+	} else {
+		return fmt.Sprintf("%s://%s:%d", scheme, c.Hosts, port)
+	}
 }
 
 func (c ConsulServers) GRPCAddr() string {

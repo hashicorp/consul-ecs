@@ -1,4 +1,4 @@
-## Unreleased
+## 0.5.1 (July 28, 2022)
 
 BUG FIXES:
 * Fix the description of the anonymous token policy so that it exactly matches the description

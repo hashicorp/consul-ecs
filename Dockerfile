@@ -7,12 +7,12 @@
 FROM docker.mirror.hashicorp.services/alpine:latest AS release-default
 
 ARG BIN_NAME=consul-ecs
-ARG VERSION
+ARG PRODUCT_VERSION
 # TARGETARCH and TARGETOS are set automatically when --platform is provided.
 ARG TARGETOS TARGETARCH
 # Export BIN_NAME for the CMD below, it can't see ARGs directly.
 ENV BIN_NAME=$BIN_NAME
-ENV VERSION=$VERSION
+ENV VERSION=$PRODUCT_VERSION
 
 LABEL description="consul-ecs provides first-class integration between Consul and AWS ECS." \
       maintainer="Consul Team <consul@hashicorp.com>" \
@@ -20,7 +20,7 @@ LABEL description="consul-ecs provides first-class integration between Consul an
       release=$VERSION \
       summary="consul-ecs provides first-class integration between Consul and AWS ECS." \
       vendor="HashiCorp" \
-      version=$VERSION \
+      version=$PRODUCT_VERSION \
       org.opencontainers.image.authors="Consul Team <consul@hashicorp.com>" \
       org.opencontainers.image.description="consul-ecs provides first-class integration between Consul and AWS ECS." \
       org.opencontainers.image.documentation="https://www.consul.io/docs/ecs" \
@@ -28,7 +28,7 @@ LABEL description="consul-ecs provides first-class integration between Consul an
       org.opencontainers.image.title=$BIN_NAME \
       org.opencontainers.image.url="https://www.consul.io/" \
       org.opencontainers.image.vendor="HashiCorp" \
-      org.opencontainers.image.version=$VERSION
+      org.opencontainers.image.version=$PRODUCT_VERSION
 
 # Create a non-root user to run the software.
 RUN addgroup $BIN_NAME && \

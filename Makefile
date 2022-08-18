@@ -33,7 +33,7 @@ dev: dist
 #       So we enable build-kit in the individual targets.
 #       We can set this here one time, once we're off CircleCI.
 # export DOCKER_BUILDKIT=1
-BUILD_ARGS = BIN_NAME=consul-ecs VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) GIT_DIRTY=$(GIT_DIRTY)
+BUILD_ARGS = BIN_NAME=consul-ecs PRODUCT_VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) GIT_DIRTY=$(GIT_DIRTY)
 TAG        = $(BIN_NAME)/$(TARGET):$(VERSION)
 BA_FLAGS   = $(addprefix --build-arg=,$(BUILD_ARGS))
 FLAGS      = --target $(TARGET) --platform $(PLATFORM) --tag $(TAG) $(BA_FLAGS)

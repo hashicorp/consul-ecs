@@ -277,7 +277,12 @@ func (c *Command) upsertPartition(consulClient *api.Client) error {
 	return nil
 }
 
-var ossClientPolicy = `node_prefix "" { policy = "write" } service_prefix "" { policy = "read" }`
+var ossClientPolicy = `
+node_prefix "" { policy = "write" }
+service_prefix "" { policy = "read" }
+mesh  = "write"
+`
+
 var partitionedClientPolicyTpl = `partition "%s" {
   node_prefix "" {
     policy = "write"

@@ -261,7 +261,7 @@
           "type": ["object", "null"]
         },
         "publicListenerPort": {
-          "description": "The listener port for Envoy that is used service-to-service communication. Defaults to 20000.",
+          "description": "The public listener port for Envoy used for service-to-service communication. Defaults to 20000.",
           "type": ["integer", "null"]
         },
         "upstreams": {

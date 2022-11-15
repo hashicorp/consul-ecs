@@ -475,7 +475,7 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServi
 	proxyRegistration.ID = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.ID)
 	proxyRegistration.Name = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Name)
 	proxyRegistration.Kind = api.ServiceKindConnectProxy
-	proxyRegistration.Port = 20000
+	proxyRegistration.Port = c.config.Proxy.GetPrimaryListenerPort()
 	proxyRegistration.Meta = serviceRegistration.Meta
 	proxyRegistration.Tags = serviceRegistration.Tags
 	proxyRegistration.Proxy = c.config.Proxy.ToConsulType()
@@ -485,7 +485,7 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServi
 	proxyRegistration.Checks = []*api.AgentServiceCheck{
 		{
 			Name:                           "Proxy Public Listener",
-			TCP:                            "127.0.0.1:20000",
+			TCP:                            fmt.Sprintf("127.0.0.1:%d", proxyRegistration.Port),
 			Interval:                       "10s",
 			DeregisterCriticalServiceAfter: "10m",
 		},

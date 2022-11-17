@@ -47,6 +47,8 @@ jobs:
         go install github.com/hashicorp/lint-consul-retry@master && lint-consul-retry
 
   test:
+    needs:
+      - get-go-version
     name: unit test (consul-version=${{ matrix.consul-version }})
     strategy:
       matrix:

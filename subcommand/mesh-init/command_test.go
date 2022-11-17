@@ -56,10 +56,12 @@ func TestRun(t *testing.T) {
 		expAdditionalMeta map[string]string
 		serviceName       string
 		expServiceName    string
+		proxyPort         int
 	}{
 		"basic service": {},
 		"service with port": {
 			servicePort: 8080,
+			proxyPort:   21000,
 		},
 		"service with upstreams": {
 			upstreams: []config.Upstream{
@@ -131,6 +133,7 @@ func TestRun(t *testing.T) {
 	}
 
 	for name, c := range cases {
+		c := c
 		t.Run(name, func(t *testing.T) {
 			var (
 				taskARN          = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
@@ -162,6 +165,10 @@ func TestRun(t *testing.T) {
 				expectedServiceName = c.expServiceName
 			}
 
+			if c.proxyPort == 0 {
+				c.proxyPort = config.DefaultPublicListenerPort
+			}
+
 			for i := range c.upstreams {
 				c.upstreams[i].DestinationPartition = expectedPartition
 				c.upstreams[i].DestinationNamespace = expectedNamespace
@@ -191,7 +198,8 @@ func TestRun(t *testing.T) {
 				BootstrapDir:         envoyBootstrapDir,
 				HealthSyncContainers: nil,
 				Proxy: &config.AgentServiceConnectProxyConfig{
-					Upstreams: c.upstreams,
+					PublicListenerPort: c.proxyPort,
+					Upstreams:          c.upstreams,
 				},
 				Service: config.ServiceRegistration{
 					Name:   c.serviceName,
@@ -227,7 +235,7 @@ func TestRun(t *testing.T) {
 			expectedProxyServiceRegistration := &api.AgentService{
 				ID:      expSidecarServiceID,
 				Service: fmt.Sprintf("%s-sidecar-proxy", expectedServiceName),
-				Port:    20000,
+				Port:    c.proxyPort,
 				Kind:    api.ServiceKindConnectProxy,
 				Proxy: &api.AgentServiceConnectProxyConfig{
 					DestinationServiceName: expectedServiceName,

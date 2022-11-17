@@ -253,7 +253,7 @@ func (a *AgentServiceConnectProxyConfig) ToConsulType() *api.AgentServiceConnect
 	return result
 }
 
-func (a *AgentServiceConnectProxyConfig) GetPrimaryListenerPort() int {
+func (a *AgentServiceConnectProxyConfig) GetPublicListenerPort() int {
 	if a.PublicListenerPort != 0 {
 		return a.PublicListenerPort
 	}

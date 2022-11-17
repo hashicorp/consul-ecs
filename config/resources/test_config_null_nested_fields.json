@@ -67,7 +67,7 @@
   },
   "proxy": {
     "config": null,
-    "publicListenerPort": 0,
+    "publicListenerPort": null,
     "upstreams": [
       {
         "destinationType": null,

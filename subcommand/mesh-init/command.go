@@ -475,7 +475,7 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServi
 	proxyRegistration.ID = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.ID)
 	proxyRegistration.Name = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Name)
 	proxyRegistration.Kind = api.ServiceKindConnectProxy
-	proxyRegistration.Port = c.config.Proxy.GetPrimaryListenerPort()
+	proxyRegistration.Port = c.config.Proxy.GetPublicListenerPort()
 	proxyRegistration.Meta = serviceRegistration.Meta
 	proxyRegistration.Tags = serviceRegistration.Tags
 	proxyRegistration.Proxy = c.config.Proxy.ToConsulType()

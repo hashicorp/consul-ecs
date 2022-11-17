@@ -35,7 +35,7 @@ jobs:
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v3
       with:
-        version: v1.45
+        version: v1.50.1
         args: |
           --verbose
         only-new-issues: false
@@ -51,11 +51,11 @@ jobs:
     strategy:
       matrix:
         consul-version:
-        - 1.12.0
-        - 1.12.0+ent
+        - 1.12.6
+        - 1.12.6+ent
     env:
       TEST_RESULTS_DIR: /tmp/test-results
-      GOTESTSUM_VERSION: 1.8.0
+      GOTESTSUM_VERSION: 1.8.2
     runs-on: ubuntu-latest
     steps:
     - name: Checkout

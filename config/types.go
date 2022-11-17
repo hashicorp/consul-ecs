@@ -119,10 +119,10 @@ func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
 // AgentServiceCheck configures a Consul Check.
 //
 // NOTE:
-// - The DockerContainerID and Shell fields are excluded. Shell is only used for Docker checks, and
-//   Docker checks won't work on ECS. They cannot work on Fargate, and require specific config to access
-//   the host's Docker daemon on the EC2 launch type.
-// - DeregisterCriticalServiceAfter is also excluded. We have health check support to handle service deregistration.
+//   - The DockerContainerID and Shell fields are excluded. Shell is only used for Docker checks, and
+//     Docker checks won't work on ECS. They cannot work on Fargate, and require specific config to access
+//     the host's Docker daemon on the EC2 launch type.
+//   - DeregisterCriticalServiceAfter is also excluded. We have health check support to handle service deregistration.
 type AgentServiceCheck struct {
 	CheckID                string              `json:"checkId,omitempty"`
 	Name                   string              `json:"name,omitempty"`
@@ -193,21 +193,22 @@ func (w *AgentWeights) ToConsulType() *api.AgentWeights {
 //
 // NOTE:
 // For the proxy registration request (api.AgentServiceRegistration in Consul),
-// - The Kind and Port are set by mesh-init, so these fields are not configurable.
-// - The ID, Name, Tags, Meta, EnableTagOverride, and Weights fields are inferred or copied
-//   from the service registration by mesh-init.
-// - The bind address is always localhost in ECS, so the Address and SocketPath are excluded.
-// - The Connect field is excluded. Since the sidecar proxy is being used, it's not a Connect-native
-//   service, and we don't need the nested proxy config included in the Connect field.
-// - The Partition field is excluded. mesh-init will use the partition from the service registration.
-// - The Namespace field is excluded. mesh-init will use the namespace from the service registration.
-// - There's not a use-case for specifying TaggedAddresses with Consul ECS, and Enable
+//   - The Kind and Port are set by mesh-init, so these fields are not configurable.
+//   - The ID, Name, Tags, Meta, EnableTagOverride, and Weights fields are inferred or copied
+//     from the service registration by mesh-init.
+//   - The bind address is always localhost in ECS, so the Address and SocketPath are excluded.
+//   - The Connect field is excluded. Since the sidecar proxy is being used, it's not a Connect-native
+//     service, and we don't need the nested proxy config included in the Connect field.
+//   - The Partition field is excluded. mesh-init will use the partition from the service registration.
+//   - The Namespace field is excluded. mesh-init will use the namespace from the service registration.
+//   - There's not a use-case for specifying TaggedAddresses with Consul ECS, and Enable
+//
 // For the proxy configuration (api.AgentServiceConnectProxyConfig in Consul),
-// - The DestinationServiceName, DestinationServiceId, LocalServiceAddress, and LocalServicePort
-//   are all set by mesh-init, based on the service configuration.
-// - The LocalServiceSocketPath is excluded, since it would conflict with the address/port set by mesh-init.
-// - Checks are excluded. mesh-init automatically configures useful checks for the proxy.
-// - TProxy is not supported on ECS, so the Mode and TransparentProxy fields are excluded.
+//   - The DestinationServiceName, DestinationServiceId, LocalServiceAddress, and LocalServicePort
+//     are all set by mesh-init, based on the service configuration.
+//   - The LocalServiceSocketPath is excluded, since it would conflict with the address/port set by mesh-init.
+//   - Checks are excluded. mesh-init automatically configures useful checks for the proxy.
+//   - TProxy is not supported on ECS, so the Mode and TransparentProxy fields are excluded.
 type AgentServiceConnectProxyConfig struct {
 	Config      map[string]interface{} `json:"config,omitempty"`
 	Upstreams   []Upstream             `json:"upstreams,omitempty"`
@@ -235,8 +236,8 @@ func (a *AgentServiceConnectProxyConfig) ToConsulType() *api.AgentServiceConnect
 // Upstream describes an upstream Consul Service.
 //
 // NOTE:
-// - The LocalBindSocketPath and LocalBindSocketMode are excluded. This level of control/restriction
-//   is not as relevant in ECS since each proxy runs in an isolated Docker container.
+//   - The LocalBindSocketPath and LocalBindSocketMode are excluded. This level of control/restriction
+//     is not as relevant in ECS since each proxy runs in an isolated Docker container.
 type Upstream struct {
 	DestinationType      api.UpstreamDestType   `json:"destinationType,omitempty"`
 	DestinationNamespace string                 `json:"destinationNamespace,omitempty"`

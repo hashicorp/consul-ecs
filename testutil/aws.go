@@ -73,15 +73,15 @@ func TaskMetaServer(t *testing.T, handler http.Handler) {
 }
 
 // AuthMethodInit sets up necessary pieces for the IAM auth method:
-// - Start a fake AWS server. This responds with an IAM role tagged with expectedServiceName.
-// - Configures an auth method + binding rule that uses the tagged service name from the IAM
-//   role for the service identity.
+//   - Start a fake AWS server. This responds with an IAM role tagged with expectedServiceName.
+//   - Configures an auth method + binding rule that uses the tagged service name from the IAM
+//     role for the service identity.
 //
 // When using this, you will also need to point the login command at the fake AWS server,
 // for example:
 //
-//    fakeAws := authMethodInit(...)
-//    consulLogin.ExtraLoginFlags = []string{"-aws-sts-endpoint", fakeAws.URL + "/sts"}
+//	fakeAws := authMethodInit(...)
+//	consulLogin.ExtraLoginFlags = []string{"-aws-sts-endpoint", fakeAws.URL + "/sts"}
 func AuthMethodInit(t *testing.T, consulClient *api.Client, expectedServiceName string) *httptest.Server {
 	arn := "arn:aws:iam::1234567890:role/my-role"
 	uniqueId := "AAAsomeuniqueid"

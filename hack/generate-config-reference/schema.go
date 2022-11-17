@@ -31,9 +31,9 @@ type Schema struct {
 }
 
 // DescriptionStr returns the description modified for consul.io docs:
-// - Remove "[Consul Enterprise]" and prefix a "<EnterpriseAlert inline />".
-// - Remove leading space as well, so that " [Consul Enterprise]." becomes "."
-//   at the end of a sentence.
+//   - Remove "[Consul Enterprise]" and prefix a "<EnterpriseAlert inline />".
+//   - Remove leading space as well, so that " [Consul Enterprise]." becomes "."
+//     at the end of a sentence.
 func (s *Schema) DescriptionStr() string {
 	modified := entTagRegex.ReplaceAllString(s.Description, "")
 	if modified != s.Description {

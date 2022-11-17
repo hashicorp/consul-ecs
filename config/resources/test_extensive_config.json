@@ -114,8 +114,8 @@
       }
     }
   },
-
   "proxy": {
+    "publicListenerPort": 21000,
     "config": {
       "data": "some-config-data"
     },

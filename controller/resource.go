@@ -393,7 +393,7 @@ func (s TaskStateLister) taskStateFromToken(token *api.ACLTokenListEntry) (*Task
 // This parses "metadata" set by `consul login -meta` which is included
 // as a JSON object in the the token description, ex:
 //
-//   token created via login: {"consul.hashicorp.com/cluster":"my-cluster","consul.hashicorp.com/task-id":"123456"}
+//	token created via login: {"consul.hashicorp.com/cluster":"my-cluster","consul.hashicorp.com/task-id":"123456"}
 func parseTokenDescription(d string) (tokenMeta, error) {
 	var meta tokenMeta
 	jsonStr := strings.Replace(d, "token created via login:", "", 1)

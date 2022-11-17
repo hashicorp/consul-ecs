@@ -16,8 +16,9 @@ import (
 
 // NewTestServer returns a fake AWS API server for local tests:
 // It supports the following paths:
-//   /sts returns STS API responses
-//   /iam returns IAM API responses
+//
+//	/sts returns STS API responses
+//	/iam returns IAM API responses
 func NewTestServer(t *testing.T, s *Server) *httptest.Server {
 	server := httptest.NewUnstartedServer(s)
 	t.Cleanup(server.Close)

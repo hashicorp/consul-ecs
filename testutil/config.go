@@ -2,7 +2,6 @@ package testutil
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"regexp"
 	"strings"
@@ -15,7 +14,7 @@ import (
 // TempDir creates a temporary directory. A test cleanup removes the directory
 // and its contents.
 func TempDir(t *testing.T) string {
-	dir, err := ioutil.TempDir("", "")
+	dir, err := os.MkdirTemp("", "")
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

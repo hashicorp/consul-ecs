@@ -1,5 +1,8 @@
 ## Unreleased
 
+FEATURES
+* mesh-init: Add `proxy.publicListenerPort` config option to set Envoy's public listener port.
+
 BREAKING CHANGES
 * Remove `consulLogin.extraLoginFields` config option. The Consul Login API is used directly instead
   of the `consul login` CLI command for logging into the AWS IAM auth method. Add `meta`, `region`,

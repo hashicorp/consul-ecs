@@ -6,10 +6,13 @@ BREAKING CHANGES
   `stsEndpoint`, and `serverIdHeaderValue` fields to the `consulLogin` config object.
   [[GH-115](https://github.com/hashicorp/consul-ecs/pull/115)]
 
-BUG FIXES
+## 0.5.1 (July 28, 2022)
+
+BUG FIXES:
 * Fix the description of the anonymous token policy so that it exactly matches the description
   created by `consul-k8s`. This fixes a connectivity issue that occurs when `consul-k8s` and
   `consul-ecs` deployments are connected to the same Consul datacenter.
+  [[GH-114](https://github.com/hashicorp/consul-ecs/pull/114)]
 
 ## 0.5.0 (June 21, 2022)
 

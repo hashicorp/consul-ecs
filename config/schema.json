@@ -245,6 +245,10 @@
           "description": "Object value that specifies an opaque JSON configuration. The JSON is stored and returned along with the service instance when called from the API.",
           "type": ["object", "null"]
         },
+        "publicListenerPort": {
+          "description": "The public listener port for Envoy used for service-to-service communication. Defaults to 20000.",
+          "type": ["integer", "null"]
+        },
         "upstreams": {
           "description": "The list of the upstream services that the proxy should create listeners for.",
           "type": ["array", "null"],

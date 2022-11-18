@@ -253,6 +253,7 @@ var (
 			Config: map[string]interface{}{
 				"data": "some-config-data",
 			},
+			PublicListenerPort: 21000,
 			Upstreams: []Upstream{
 				{
 					DestinationType:      api.UpstreamDestTypeService,
@@ -392,7 +393,8 @@ var (
 			Partition: "",
 		},
 		Proxy: &AgentServiceConnectProxyConfig{
-			Config: nil,
+			Config:             nil,
+			PublicListenerPort: 0,
 			Upstreams: []Upstream{
 				{
 					DestinationType:      "",
@@ -443,10 +445,11 @@ var (
 			Partition:         "",
 		},
 		Proxy: &AgentServiceConnectProxyConfig{
-			Config:      nil,
-			Upstreams:   nil,
-			MeshGateway: nil,
-			Expose:      nil,
+			Config:             nil,
+			PublicListenerPort: 0,
+			Upstreams:          nil,
+			MeshGateway:        nil,
+			Expose:             nil,
 		},
 	}
 )

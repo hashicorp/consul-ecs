@@ -75,15 +75,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-go-
 
-    # This is broken I guess:
-    #   Error: Failed to fetch version metadata file HttpClientError: unsupported media type
-    #   requested, only [application/vnd+hashicorp.releases-api.v0+json
-    #   application/vnd+hashicorp.releases-api.v1+json] are available
-    #- name: Install Consul
-    #  uses: nickethier/action-setup-hashicorp-tool@main #TODO: update action when migrated to hc org
-    #  with:
-    #    product: consul
-    #    version: ${{ matrix.consul-version }}
     - name: Install Consul
       shell: bash
       run: |

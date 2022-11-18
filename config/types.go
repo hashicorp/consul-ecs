@@ -21,6 +21,9 @@ const (
 	// DefaultGatewayPort (8443) is the default gateway registration port used by 'consul connect envoy -register'.
 	DefaultGatewayPort = 8443
 
+	// DefaultPublicListenerPort is the default public listener port for sidecar proxies.
+	DefaultPublicListenerPort = 20000
+
 	// TaggedAddressLAN is the map key for LAN tagged addresses.
 	TaggedAddressLAN = "lan"
 
@@ -191,8 +194,7 @@ func (w *AgentWeights) ToConsulType() *api.AgentWeights {
 
 // AgentServiceConnectProxyConfig defines the sidecar proxy configuration.
 //
-// NOTE:
-// For the proxy registration request (api.AgentServiceRegistration in Consul),
+// NOTE: For the proxy registration request (api.AgentServiceRegistration in Consul),
 //   - The Kind and Port are set by mesh-init, so these fields are not configurable.
 //   - The ID, Name, Tags, Meta, EnableTagOverride, and Weights fields are inferred or copied
 //     from the service registration by mesh-init.
@@ -210,10 +212,11 @@ func (w *AgentWeights) ToConsulType() *api.AgentWeights {
 //   - Checks are excluded. mesh-init automatically configures useful checks for the proxy.
 //   - TProxy is not supported on ECS, so the Mode and TransparentProxy fields are excluded.
 type AgentServiceConnectProxyConfig struct {
-	Config      map[string]interface{} `json:"config,omitempty"`
-	Upstreams   []Upstream             `json:"upstreams,omitempty"`
-	MeshGateway *MeshGatewayConfig     `json:"meshGateway,omitempty"`
-	Expose      *ExposeConfig          `json:"expose,omitempty"`
+	Config             map[string]interface{} `json:"config,omitempty"`
+	PublicListenerPort int                    `json:"publicListenerPort,omitempty"`
+	Upstreams          []Upstream             `json:"upstreams,omitempty"`
+	MeshGateway        *MeshGatewayConfig     `json:"meshGateway,omitempty"`
+	Expose             *ExposeConfig          `json:"expose,omitempty"`
 }
 
 func (a *AgentServiceConnectProxyConfig) ToConsulType() *api.AgentServiceConnectProxyConfig {
@@ -233,11 +236,18 @@ func (a *AgentServiceConnectProxyConfig) ToConsulType() *api.AgentServiceConnect
 	return result
 }
 
+func (a *AgentServiceConnectProxyConfig) GetPublicListenerPort() int {
+	if a.PublicListenerPort != 0 {
+		return a.PublicListenerPort
+	}
+	return DefaultPublicListenerPort
+
+}
+
 // Upstream describes an upstream Consul Service.
 //
-// NOTE:
-//   - The LocalBindSocketPath and LocalBindSocketMode are excluded. This level of control/restriction
-//     is not as relevant in ECS since each proxy runs in an isolated Docker container.
+// NOTE: The LocalBindSocketPath and LocalBindSocketMode are excluded. This level of control/restriction
+// is not as relevant in ECS since each proxy runs in an isolated Docker container.
 type Upstream struct {
 	DestinationType      api.UpstreamDestType   `json:"destinationType,omitempty"`
 	DestinationNamespace string                 `json:"destinationNamespace,omitempty"`

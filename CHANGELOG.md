@@ -1,3 +1,8 @@
+## Unreleased
+
+FEATURES
+* mesh-init: Add `proxy.publicListenerPort` config option to set Envoy's public listener port.
+
 ## 0.4.1 (April 08, 2022)
 
 This is a patch release that keeps the consul-ecs project in sync with the
@@ -23,7 +28,7 @@ FEATURES
   shutdown after receing a TERM signal to support graceful shutdown in ECS.
   [[GH-48](https://github.com/hashicorp/consul-ecs/pull/48)]
 * Update `github.com/hashicorp/consul/api` package to `v1.12.0` to support
-  passing service registration fields for admin partitions and h2ping checks. 
+  passing service registration fields for admin partitions and h2ping checks.
   [[GH-59](https://github.com/hashicorp/consul-ecs/pull/59)]
 
 ## 0.2.0 (November 16, 2021)

@@ -1,4 +1,4 @@
-## Unreleased
+## 0.5.2 (November 29, 2022)
 
 FEATURES
 * mesh-init: Add `proxy.publicListenerPort` config option to set Envoy's public listener port.

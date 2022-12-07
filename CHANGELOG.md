@@ -1,7 +1,10 @@
-## 0.5.2 (November 29, 2022)
+## Unreleased
 
 FEATURES
 * mesh-init: Add `proxy.publicListenerPort` config option to set Envoy's public listener port.
+
+IMPROVEMENTS
+* Support Consul 1.13 and 1.14
 
 ## 0.5.1 (July 28, 2022)
 

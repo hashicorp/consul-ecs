@@ -126,7 +126,7 @@ jobs:
             TEST_VERSION="$(docker run "${IMAGE_NAME}" version | awk '{print $2}')"
             echo "TEST_VERSION=${TEST_VERSION}"
             echo "version=${version}"
-            if [ "${TEST_VERSION}" != "${version}" ]; then
+            if [ "${TEST_VERSION}" != "v${version}" ]; then
               echo "Test FAILED"
               exit 1
             fi

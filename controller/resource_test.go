@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package controller
 
 // These tests can run against both OSS and Enterprise Consul.

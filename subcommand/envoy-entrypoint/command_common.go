@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 // Package envoyentrypoint
 //
 // This is intended to be used a Docker entrypoint for Envoy:

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 // Generate markdown from the JSON schema for the Consul ECS config.
 //
 // You can use the Makefile in the root of the repository to run this script.

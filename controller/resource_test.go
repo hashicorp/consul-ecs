@@ -345,6 +345,7 @@ func TestTaskStateReconcile(t *testing.T) {
 					Partition: exp.Partition,
 				})
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "ACL not found")
 				require.Nil(t, tok)
 			}
 			for _, exp := range c.expExist {

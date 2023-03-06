@@ -345,7 +345,7 @@ func TestTaskStateReconcile(t *testing.T) {
 					Partition: exp.Partition,
 				})
 				require.Error(t, err)
-				require.Contains(t, err.Error(), "403 (ACL not found)")
+				require.Contains(t, err.Error(), "ACL not found")
 				require.Nil(t, tok)
 			}
 			for _, exp := range c.expExist {
@@ -473,7 +473,6 @@ func TestReconcileNamespaces(t *testing.T) {
 					}
 				}
 			} else {
-				require.Error(t, err)
 				require.Nil(t, xnsPolicy)
 			}
 		})

@@ -306,10 +306,10 @@ func (c *Command) upsertConsulClientRole(consulClient *api.Client, roleName, pol
 // upsertClientPolicy creates the ACL policy for the Consul client, if the policy does not exist.
 func (c *Command) upsertClientPolicy(consulClient *api.Client, policyName string) error {
 	// If the policy already exists, we're done.
-	_, _, err := consulClient.ACL().PolicyReadByName(policyName, c.queryOptions())
+	policy, _, err := consulClient.ACL().PolicyReadByName(policyName, c.queryOptions())
 	if err != nil && !controller.IsACLNotFoundError(err) {
 		return fmt.Errorf("reading Consul client ACL policy: %w", err)
-	} else if err == nil {
+	} else if err == nil && policy != nil { // returns policy=nil and err=nil if not found
 		c.log.Info("ACL policy already exists; skipping policy creation", "name", policyName)
 		return nil
 	}
@@ -551,9 +551,11 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 
 	// Read the policy and create it in the default partition and namespace, if it does not exist.
 	policy, _, err := consulClient.ACL().PolicyReadByName(anonPolicyName, qopts)
-	if err == nil {
+	if err != nil && !controller.IsACLNotFoundError(err) {
+		return fmt.Errorf("failed to read anonymous token policy: %w", err)
+	} else if err == nil && policy != nil { // returns err=nil and policy!=nil if found
 		c.log.Info("Anonymous token policy already exists, skipping policy creation", "name", anonPolicyName)
-	} else if err != nil && controller.IsACLNotFoundError(err) {
+	} else {
 		// The policy is not found, so create it.
 		c.log.Info("creating ACL policy", "name", anonPolicyName)
 		rules, err := c.anonymousPolicyRules()
@@ -569,8 +571,6 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 			return fmt.Errorf("failed to create anonymous token policy: %w", err)
 		}
 		c.log.Info("ACL policy created successfully", "name", anonPolicyName)
-	} else {
-		return fmt.Errorf("failed to read anonymous token policy: %w", err)
 	}
 
 	// Attach the anonymous policy and update the token.

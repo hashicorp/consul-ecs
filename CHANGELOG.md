@@ -1,6 +1,8 @@
 ## Unreleased
 
 FEATURES
+* acl-controller: Add support for Consul 1.15.x.
+  [[GH-133]](https://github.com/hashicorp/consul-ecs/pull/133)
 * mesh-init: Add `proxy.publicListenerPort` config option to set Envoy's public listener port.
 
 BREAKING CHANGES

@@ -1,6 +1,9 @@
 ## Unreleased
 
 FEATURES
+* net-dial: Add new `consul-ecs net-dial` subcommand to support ECS health checks when `nc`
+  is not available in the container image.
+  [[GH-135]](https://github.com/hashicorp/consul-ecs/pull/135)
 * acl-controller: Add support for Consul 1.15.x.
   [[GH-133]](https://github.com/hashicorp/consul-ecs/pull/133)
 * mesh-init: Add `proxy.publicListenerPort` config option to set Envoy's public listener port.

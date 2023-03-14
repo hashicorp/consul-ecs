@@ -5,7 +5,6 @@ package netdial
 
 import (
 	"net"
-	"strings"
 	"testing"
 
 	"github.com/mitchellh/cli"
@@ -14,23 +13,30 @@ import (
 
 func TestNetDial(t *testing.T) {
 	cases := map[string]struct {
-		code int
+		host   string
+		code   int
+		errStr string
 	}{
-		"success": {code: 0},
-		"failure": {code: 1},
+		"success":              {host: "localhost", code: 0},
+		"failure no listener":  {host: "localhost", code: 2},
+		"failure invalid args": {code: 1},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}
 
-			l, err := net.Listen("tcp", "localhost:")
-			require.NoError(t, err)
-			args := strings.Split(l.Addr().String(), ":")
-			if c.code != 0 {
-				l.Close()
-			} else {
-				t.Cleanup(func() { l.Close() })
+			var args []string
+
+			if c.host != "" {
+				l, err := net.Listen("tcp", c.host+":")
+				require.NoError(t, err)
+				args = append(args, l.Addr().String())
+				if c.code != 0 {
+					l.Close()
+				} else {
+					t.Cleanup(func() { l.Close() })
+				}
 			}
 
 			require.Equal(t, c.code, cmd.Run(args))

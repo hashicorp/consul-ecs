@@ -1,4 +1,4 @@
-## Unreleased
+## 0.6.0 (Mar 15, 2023)
 
 FEATURES
 * net-dial: Add new `consul-ecs net-dial` subcommand to support ECS health checks when `nc`

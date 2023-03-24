@@ -14,7 +14,7 @@ project "consul-ecs" {
     repository = "consul-ecs"
     release_branches = [
       "main",
-      "release/0.6.x",
+      "release/**",
     ]
   }
 }

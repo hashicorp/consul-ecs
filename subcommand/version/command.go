@@ -12,6 +12,7 @@ import (
 type Command struct {
 	UI      cli.Ui
 	Version string
+	FIPS    string
 }
 
 func (c *Command) Run(_ []string) int {

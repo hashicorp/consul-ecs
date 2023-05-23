@@ -21,7 +21,7 @@ jobs:
         # version, because "goenv" can react to it automatically.
         run: |
           echo "Building with Go $(cat .go-version)"
-          echo "::set-output name=go-version::$(cat .go-version)"
+          echo "go-version=$(cat .go-version)" >> $GITHUB_OUTPUT
 
   get-product-version:
     runs-on: ubuntu-latest
@@ -35,9 +35,9 @@ jobs:
         id: get-product-version
         run: |
           make version
-          echo "::set-output name=product-version::$(make version)"
-          echo "::set-output name=git-short-sha::$(git rev-parse --short HEAD)"
-          echo "::set-output name=ldflags::-s -w -X github.com/hashicorp/consul-ecs/version.GitCommit=$(git rev-parse --short HEAD)"
+          echo "product-version=$(make version)" >> $GITHUB_OUTPUT
+          echo "git-short-sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "ldflags=-s -w -X github.com/hashicorp/consul-ecs/version.GitCommit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
   generate-metadata-file:
     needs: get-product-version
@@ -63,15 +63,20 @@ jobs:
     needs:
       - get-go-version
       - get-product-version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     strategy:
       matrix:
-        goos: [linux]
-        goarch: ["arm", "arm64", "386", "amd64"]
+        include:
+          - {goos: "linux", goarch: "arm"}
+          - {goos: "linux", goarch: "arm64"}
+          - {goos: "linux", goarch: "386"}
+          - {goos: "linux", goarch: "amd64"}
+          - {goos: "linux", goarch: "arm64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc", fips: "+fips1402" }
+          - {goos: "linux", goarch: "amd64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto", fips: "+fips1402"}
 
       fail-fast: true
 
-    name: Go ${{ needs.get-go-version.outputs.go-version }} ${{ matrix.goos }} ${{ matrix.goarch }} build
+    name: Go ${{ needs.get-go-version.outputs.go-version }} ${{ matrix.goos }} ${{ matrix.goarch }} ${{ matrix.fips }} build
 
     steps:
       - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
@@ -80,6 +85,11 @@ jobs:
         uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9 # v4.0.0
         with:
           go-version: ${{ needs.get-go-version.outputs.go-version }}
+
+      - name: CGO Dependencies
+        if: ${{ matrix.fips }} == "+fips1402" && ${{ matrix.goarch }} == "arm64"
+        run: |
+          sudo apt-get update --allow-releaseinfo-change-suite --allow-releaseinfo-change-version && sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build
         env:
@@ -90,8 +100,8 @@ jobs:
         run: |
           go env
           mkdir dist out
-          go build -ldflags="$LDFLAGS" -o dist/ .
-          zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/
+          ${{ matrix.env }} go build -tags=${{ matrix.gotags }} -ldflags="$LDFLAGS" -o dist/ .
+          zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/
           if [ "${{ matrix.goarch }}" = "amd64" ]; then
             bin=$(find dist -name consul-ecs)
             $bin version
@@ -99,8 +109,8 @@ jobs:
 
       - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
         with:
-          name: ${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip
-          path: out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip
+          name: ${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip
+          path: out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip
 
   build-docker-default:
     name: Docker ${{ matrix.arch }} default release build
@@ -120,8 +130,6 @@ jobs:
       - name: Docker Build (Action)
         uses: hashicorp/actions-docker-build@v1
         with:
-          # Add smoke test here. Below is a sample smoke test that runs the built image
-          # and validates the version.
           smoke_test: |
             TEST_VERSION="$(docker run "${IMAGE_NAME}" version | awk '{print $2}')"
             echo "TEST_VERSION=${TEST_VERSION}"
@@ -134,35 +142,51 @@ jobs:
           version: ${{ env.version }}
           target: release-default
           arch: ${{ matrix.arch }}
-          # The ECR tag used below is to allow us to test by pushing to a private ECR registry.
-          # If you want to pubish to ECR use the following syntax instead - public.ecr.aws/hashicorp/${{env.repo}}:${{env.version}}.
-          # Please note - if you haven't previously been publishing to ECR you will need to reach out to team-rel-eng
-          # - https://hashicorp.atlassian.net/wiki/spaces/RDXPOC/pages/2298218311/How+to+Push+a+Docker+image+to+ECR
           tags: |
             docker.io/hashicorp/${{ env.repo }}:${{ env.version }}
             public.ecr.aws/hashicorp/${{ env.repo }}:${{ env.version }}
-          # dev_tags are tags that get automatically pushed whenever successful
-          # builds make it to the stable channel. The intention is for these tags
-          # to be used for early testing of new code prior to official releases
-          # going out. The stable channel implies that all tests and scans have
-          # completed successfully, so these images should be _stable_ but are not
-          # intended for production use.
-          #
-          # Here we have two example dev tags. The first (ending -dev) is a tag
-          # that will be updated over-and-over as new builds arrive in stable.
-          #
-          # The second (using the git SHA) will produce a new separate tag for
-          # each commit that is built. (These can still be overridden if the same
-          # commit is built successfully a second time, but that is a less likely
-          # scenario.) These kinds of dev tags are useful if you want to be able
-          # to use Docker images built from those specific commits.
-          #
-          # NOTE: dev_tags MUST publish to the 'hashicorppreview' DockerHub org, it
-          # will fail to any other DockerHub org or registry. You can optionally
-          # prepend docker.io
           dev_tags: |
             hashicorppreview/${{ env.repo }}:${{ env.version }}
-            hashicorppreview/${{ env.repo }}:${{ env.version }}-${{ github.sha }}
+            docker.io/hashicorppreview/${{ env.repo }}:${{ env.version }}-${{ github.sha }}
+
+  build-docker-fips:
+    name: Docker ${{ matrix.arch }} FIPS release build
+    needs:
+      - get-product-version
+      - build-linux
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { arch: "arm64" }
+          - { arch: "amd64" }
+    env:
+      repo: ${{ github.event.repository.name }}
+      version: ${{ needs.get-product-version.outputs.product-version }}+fips1402
+
+    steps:
+      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
+      - name: Docker FIPS Build (Action)
+        uses: hashicorp/actions-docker-build@v1
+        with:
+          smoke_test: |
+            TEST_VERSION="$(docker run "${IMAGE_NAME}" version | awk '{print $2}')"
+            echo "TEST_VERSION=${TEST_VERSION}"
+            echo "version=${version}"
+            if [ "${TEST_VERSION}" != "v${version}" ]; then
+              echo "Test FAILED"
+              exit 1
+            fi
+            echo "Test PASSED"
+          version: ${{ env.version }}
+          target: release-fips-default
+          arch: ${{ matrix.arch }}
+          tags: |
+            docker.io/hashicorp/${{ env.repo }}-fips:${{ env.version }}
+            public.ecr.aws/hashicorp/${{ env.repo }}-fips:${{ env.version }}
+          dev_tags: |
+            hashicorppreview/${{ env.repo }}-fips:${{ env.version }}
+            docker.io/hashicorppreview/${{ env.repo }}-fips:${{ env.version }}${{ github.sha }}
 
   upload-dev-docker:
     name: Upload dev image (hashicorpdev/consul-ecs:<commit>)
@@ -190,10 +214,8 @@ jobs:
           TAG=hashicorpdev/${{ env.repo }}:${{ env.git-short-sha }}
           echo "==> Load docker image from tar archive"
           docker load -i "${{ env.repo }}_${{ env.target }}_linux_${{ matrix.arch }}_${{ env.version }}_${{ github.sha }}.docker.dev.tar"
-
           echo "==> Tag docker image $TAG"
           docker tag "hashicorppreview/${{ env.repo }}:${{ env.version }}-${{ github.sha }}" "$TAG"
-
           echo "==> Docker login"
           echo ${{ secrets.DOCKER_PASS }} | docker login -u=${{ secrets.DOCKER_USER }} --password-stdin
 

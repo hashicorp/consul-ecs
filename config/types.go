@@ -40,6 +40,8 @@ const (
 	GetEntityURLHeader     string = "X-Consul-IAM-GetEntity-URL"
 	GetEntityHeadersHeader string = "X-Consul-IAM-GetEntity-Headers"
 	GetEntityBodyHeader    string = "X-Consul-IAM-GetEntity-Body"
+
+	metaKeySyntheticNode = "synthetic-node"
 )
 
 // Config is the top-level config object.
@@ -53,6 +55,14 @@ type Config struct {
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
 	Gateway              *GatewayRegistration            `json:"gateway,omitempty"`
 	Service              ServiceRegistration             `json:"service"`
+	ConsulServers        ConsulServers                   `json:"consulServers"`
+	Controller           *Controller                     `json:"controller"`
+}
+
+type Controller struct {
+	IAMRolePath       string `json:"iamRolePath"`
+	PartitionsEnabled bool   `json:"partitionsEnabled"`
+	Partition         string `json:"partition"`
 }
 
 // ConsulLogin configures login options for the Consul IAM auth method.
@@ -70,6 +80,15 @@ type ConsulLogin struct {
 	// These are for unit tests. They are disallowed by the JSON schema.
 	AccessKeyID     string `json:"-"`
 	SecretAccessKey string `json:"-"`
+}
+
+type ConsulServers struct {
+	Hosts       string `json:"hosts"`
+	EnableHTTPS bool   `json:"https,omitempty"`
+	HTTPPort    int64  `json:"httpPort,omitempty"`
+	GRPCPort    int64  `json:"grpcPort,omitempty"`
+	CACertFile  string `json:"caCertFile,omitempty"`
+	TLS         bool   `json:"tls,omitempty"`
 }
 
 // UnmarshalJSON is a custom unmarshaller that defaults `includeEntity` to true
@@ -106,35 +125,39 @@ func (c *ConsulLogin) UnmarshalJSON(data []byte) error {
 //   - Proxy registration occurs in a separate request, so no need to inline the proxy config.
 //     See the SidecarProxyRegistration type.
 type ServiceRegistration struct {
-	Name              string              `json:"name"`
-	Tags              []string            `json:"tags,omitempty"`
-	Port              int                 `json:"port"`
-	EnableTagOverride bool                `json:"enableTagOverride,omitempty"`
-	Meta              map[string]string   `json:"meta,omitempty"`
-	Weights           *AgentWeights       `json:"weights,omitempty"`
-	Checks            []AgentServiceCheck `json:"checks,omitempty"`
-	Namespace         string              `json:"namespace,omitempty"`
-	Partition         string              `json:"partition,omitempty"`
+	Name              string            `json:"name"`
+	Tags              []string          `json:"tags,omitempty"`
+	Port              int               `json:"port"`
+	EnableTagOverride bool              `json:"enableTagOverride,omitempty"`
+	Meta              map[string]string `json:"meta,omitempty"`
+	Weights           *AgentWeights     `json:"weights,omitempty"`
+	Namespace         string            `json:"namespace,omitempty"`
+	Partition         string            `json:"partition,omitempty"`
 }
 
-func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
-	result := &api.AgentServiceRegistration{
-		Name:              r.Name,
-		Tags:              r.Tags,
-		Port:              r.Port,
-		EnableTagOverride: r.EnableTagOverride,
-		Meta:              r.Meta,
-		Weights:           nil,
-		Checks:            nil,
-		Namespace:         r.Namespace,
-		Partition:         r.Partition,
+func (r *ServiceRegistration) ToConsulType() *api.CatalogRegistration {
+	result := &api.CatalogRegistration{
+		NodeMeta: map[string]string{
+			metaKeySyntheticNode: "true",
+		},
+		Service: &api.AgentService{
+			Service:           r.Name,
+			Tags:              r.Tags,
+			Meta:              r.Meta,
+			Port:              r.Port,
+			Weights:           api.AgentWeights{},
+			EnableTagOverride: r.EnableTagOverride,
+			Namespace:         r.Namespace,
+			Partition:         r.Partition,
+		},
+		Partition: r.Partition,
 	}
 	if r.Weights != nil {
-		result.Weights = r.Weights.ToConsulType()
+		result.Service.Weights = *r.Weights.ToConsulType()
 	}
-	for _, check := range r.Checks {
-		result.Checks = append(result.Checks, check.ToConsulType())
-	}
+	// for _, check := range r.Checks {
+	// 	result.Checks = append(result.Checks, check.ToConsulType())
+	// }
 	return result
 
 }
@@ -353,19 +376,22 @@ type GatewayRegistration struct {
 	Proxy      *GatewayProxyConfig `json:"proxy,omitempty"`
 }
 
-func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
-	result := &api.AgentServiceRegistration{
-		Kind:      g.Kind,
-		Port:      DefaultGatewayPort,
-		Name:      g.Name,
-		Tags:      g.Tags,
-		Meta:      g.Meta,
-		Namespace: g.Namespace,
+func (g *GatewayRegistration) ToConsulType() *api.CatalogRegistration {
+	result := &api.CatalogRegistration{
+		Service: &api.AgentService{
+			Kind:      g.Kind,
+			Port:      DefaultGatewayPort,
+			Service:   g.Name,
+			Tags:      g.Tags,
+			Meta:      g.Meta,
+			Namespace: g.Namespace,
+			Partition: g.Partition,
+		},
 		Partition: g.Partition,
 	}
 
 	if g.Proxy != nil {
-		result.Proxy = g.Proxy.ToConsulType()
+		result.Service.Proxy = g.Proxy.ToConsulType()
 	}
 
 	return result

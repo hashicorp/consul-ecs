@@ -3,8 +3,8 @@ SHELL = /usr/bin/env bash -euo pipefail -c
 # ---------- CRT ----------
 BIN_NAME = consul-ecs
 
-ARCH     = $(shell A=$$(uname -m); [ $$A = x86_64 ] && A=amd64; echo $$A)
-OS       = $(shell uname | tr [[:upper:]] [[:lower:]])
+ARCH     = $(shell echo amd64)
+OS       = $(shell echo linux)
 PLATFORM = $(OS)/$(ARCH)
 DIST     = dist/$(PLATFORM)
 BIN      = $(DIST)/$(BIN_NAME)
@@ -42,7 +42,7 @@ FLAGS      = --target $(TARGET) --platform $(PLATFORM) --tag $(TAG) $(BA_FLAGS)
 docker: OS = linux
 docker: TARGET = release-default
 docker: dev
-	export DOCKER_BUILDKIT=1; docker build $(FLAGS) .
+	export DOCKER_BUILDKIT=1; docker build $(FLAGS) . -t ganeshrockz/dev-ecs
 .PHONY: docker
 
 # Generate reference config documentation.

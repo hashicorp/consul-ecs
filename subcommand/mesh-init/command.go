@@ -4,26 +4,35 @@
 package meshinit
 
 import (
+	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"net"
+	"io"
+	"net/http"
 	"os"
-	"os/exec"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/cenkalti/backoff/v4"
 	iamauth "github.com/hashicorp/consul-awsauth"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/logging"
+	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-multierror"
+	"github.com/hashicorp/go-rootcerts"
 	"github.com/mitchellh/cli"
 )
 
@@ -37,9 +46,28 @@ type Command struct {
 	UI     cli.Ui
 	config *config.Config
 	log    hclog.Logger
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	sigs   chan os.Signal
+	once   sync.Once
+
+	dataplaneContainerMonitor *DataplaneContainerMonitor
+}
+
+type CatalogServices struct {
+	ID        string
+	Name      string
+	Namespace string
+}
+
+func (c *Command) init() {
+	c.ctx, c.cancel = context.WithCancel(context.Background())
+	c.sigs = make(chan os.Signal, 1)
 }
 
 func (c *Command) Run(args []string) int {
+	c.once.Do(c.init)
 	if len(args) > 0 {
 		c.UI.Error(fmt.Sprintf("unexpected argument: %v", args[0]))
 		return 1
@@ -54,6 +82,7 @@ func (c *Command) Run(args []string) int {
 
 	c.log = logging.FromConfig(c.config).Logger()
 
+	c.dataplaneContainerMonitor = NewDataplaneContainerMonitor(c.log, c.ctx)
 	err = c.realRun()
 	if err != nil {
 		c.log.Error(err.Error())
@@ -63,7 +92,18 @@ func (c *Command) Run(args []string) int {
 }
 
 func (c *Command) realRun() error {
+	signal.Notify(c.sigs, syscall.SIGTERM)
+	defer c.cleanup()
+
+	// Let it monitor. It will only wake up for SIGTERMS
+	go c.dataplaneContainerMonitor.Run()
+
 	taskMeta, err := awsutil.ECSTaskMetadata()
+	if err != nil {
+		return err
+	}
+
+	clusterARN, err := taskMeta.ClusterARN()
 	if err != nil {
 		return err
 	}
@@ -85,78 +125,159 @@ func (c *Command) realRun() error {
 		}
 	}
 
-	consulClient, err := api.NewClient(cfg)
-	if err != nil {
-		return fmt.Errorf("constructing consul client: %s", err)
+	serverManagerConfig := discovery.Config{
+		Addresses: c.config.ConsulServers.Hosts,
 	}
 
-	var serviceRegistration, proxyRegistration *api.AgentServiceRegistration
+	c.UI.Info("Got the address of consul server " + c.config.ConsulServers.Hosts)
+
+	if c.config.ConsulServers.GRPCPort != 0 {
+		serverManagerConfig.GRPCPort = int(c.config.ConsulServers.GRPCPort)
+	}
+
+	if c.config.ConsulServers.TLS {
+		tlsConfig := &tls.Config{}
+		caCert := os.Getenv("CONSUL_CACERT_PEM")
+		if caCert != "" {
+			err := rootcerts.ConfigureTLS(tlsConfig, &rootcerts.Config{
+				CACertificate: []byte(caCert),
+			})
+			if err != nil {
+				return err
+			}
+		}
+		serverManagerConfig.TLS = tlsConfig
+	}
+
+	watcher, err := discovery.NewWatcher(c.ctx, serverManagerConfig, c.log)
+	if err != nil {
+		c.UI.Error(fmt.Sprintf("unable to create Consul server watcher: %s", err))
+		return err
+	}
+
+	go watcher.Run()
+	defer watcher.Stop()
+
+	state, err := watcher.State()
+	if err != nil {
+		c.UI.Error(fmt.Sprintf("unable to start Consul server watcher: %s", err))
+		return err
+	}
+
+	// Add Partition, Namespace, DC
+	apiCfg := &api.Config{
+		Scheme: "http",
+	}
+
+	if c.config.ConsulServers.EnableHTTPS {
+		apiCfg.Scheme = "https"
+		caCert := os.Getenv("CONSUL_CACERT_PEM")
+		if c.config.ConsulServers.TLS {
+			// !strings.HasPrefix(f.Addresses, "exec=")
+			apiCfg.TLSConfig = api.TLSConfig{
+				Address: c.config.ConsulServers.Hosts,
+				CAPem:   []byte(caCert),
+			}
+		}
+	}
+
+	apiCfg.Address = fmt.Sprintf("%s:%d", state.Address.IP.String(), c.config.ConsulServers.HTTPPort)
+
+	consulServerClient, err := api.NewClient(apiCfg)
+	if err != nil {
+		c.UI.Error(fmt.Sprintf("Error setting up consul server client: %s", err))
+		return err
+	}
+
+	consulServices, _, err := consulServerClient.Catalog().Services(nil)
+	if err != nil {
+		c.UI.Error(fmt.Sprintf("Error fetching services from consul server client: %s", err))
+		return err
+	}
+
+	c.UI.Info("Printing services from Consul server")
+	for k, _ := range consulServices {
+		c.UI.Info("Service Name " + k)
+	}
+
+	// consulClient, err := api.NewClient(cfg)
+	// if err != nil {
+	// 	return fmt.Errorf("constructing consul client: %s", err)
+	// }
+
+	var serviceRegistration *api.CatalogRegistration
+	var proxyRegistration *api.CatalogRegistration
+	// TODO: Revisit gateways
 	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
 		proxyRegistration = c.constructGatewayProxyRegistration(taskMeta)
 	} else {
-		serviceRegistration, err = c.constructServiceRegistration(taskMeta)
+		serviceRegistration, err = c.constructServiceRegistration(taskMeta, clusterARN)
 		if err != nil {
 			return err
 		}
-		proxyRegistration = c.constructProxyRegistration(serviceRegistration)
+		proxyRegistration = c.constructProxyRegistration(serviceRegistration, clusterARN, taskMeta.TaskID())
 	}
 
 	if serviceRegistration != nil {
 		// No need to register the service for gateways.
 		err = backoff.RetryNotify(func() error {
-			c.log.Info("registering service")
-			return consulClient.Agent().ServiceRegister(serviceRegistration)
+			c.log.Info("registering service with the server client")
+			_, regErr := consulServerClient.Catalog().Register(serviceRegistration, nil)
+			return regErr
 		}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 		if err != nil {
 			return err
 		}
 
-		c.log.Info("service registered successfully", "name", serviceRegistration.Name, "id", serviceRegistration.ID)
+		c.log.Info("service registered successfully", "name", serviceRegistration.Service.Service, "id", serviceRegistration.Service.ID)
 	}
 
 	// Register the proxy.
 	err = backoff.RetryNotify(func() error {
-		c.log.Info("registering proxy", "kind", proxyRegistration.Kind)
-		return consulClient.Agent().ServiceRegister(proxyRegistration)
+		c.log.Info("registering proxy", "kind", proxyRegistration.Service.Kind)
+		_, regErr := consulServerClient.Catalog().Register(proxyRegistration, nil)
+		return regErr
 	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
 
-	c.log.Info("proxy registered successfully", "name", proxyRegistration.Name, "id", proxyRegistration.ID)
+	c.log.Info("proxy registered successfully", "name", proxyRegistration.Service.Service, "id", proxyRegistration.Service.ID)
 
-	// Run consul envoy -bootstrap to generate bootstrap file.
-	cmdArgs := []string{
-		"consul", "connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502",
-	}
-	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
-		kind := strings.ReplaceAll(string(c.config.Gateway.Kind), "-gateway", "")
-		cmdArgs = append(cmdArgs, "-gateway", kind)
-	}
-	if c.config.ConsulLogin.Enabled {
-		cmdArgs = append(cmdArgs, "-token-file", cfg.TokenFile)
-	}
-	if proxyRegistration.Partition != "" {
-		// Partition/namespace support is enabled so augment the connect command.
-		cmdArgs = append(cmdArgs,
-			"-partition", proxyRegistration.Partition,
-			"-namespace", proxyRegistration.Namespace)
+	dataplaneConfigFile := path.Join(c.config.BootstrapDir, "dataplane.json")
+	dpCfg := &dataplaneConfig{
+		Addresses: c.config.ConsulServers.Hosts,
+		GRPCPort:  c.config.ConsulServers.GRPCPort,
+		NodeName:  clusterARN,
+		ServiceID: proxyRegistration.Service.ID,
 	}
 
-	c.log.Info("Running", "cmd", cmdArgs)
-	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
-	out, err := cmd.CombinedOutput()
+	if c.config.ConsulServers.TLS {
+		// Write the consul server cert pem to the volume
+		caCert := os.Getenv("CONSUL_CACERT_PEM")
+		certPEMFile := path.Join(c.config.BootstrapDir, "ca-cert.pem")
+		err = os.WriteFile(certPEMFile, []byte(caCert), 0444)
+		if err != nil {
+			return err
+		}
+		c.log.Info("copied binary", "file", certPEMFile)
+
+		dpCfg.TLS = &dataplaneTLSConfig{
+			disabled:    false,
+			caCertsPath: certPEMFile,
+		}
+	}
+
+	jsonData, err := dpCfg.GenerateJSON()
 	if err != nil {
-		return fmt.Errorf("%s: %s", err, string(out))
-	}
-
-	envoyBootstrapFile := path.Join(c.config.BootstrapDir, envoyBoostrapConfigFilename)
-	err = os.WriteFile(envoyBootstrapFile, out, 0444)
-	if err != nil {
+		c.UI.Error(fmt.Sprintf("Error in generating JSON %s", err.Error()))
 		return err
 	}
-
-	c.log.Info("envoy bootstrap config written", "file", envoyBootstrapFile)
+	err = os.WriteFile(dataplaneConfigFile, jsonData, 0444)
+	if err != nil {
+		c.UI.Error(fmt.Sprintf("Error writing to data plane config %s", err.Error()))
+		return err
+	}
 
 	// Copy this binary to a volume for use in the sidecar-proxy container.
 	// This copies to the same place as we write the envoy bootstrap file, for now.
@@ -175,7 +296,241 @@ func (c *Command) realRun() error {
 		return err
 	}
 	c.log.Info("copied binary", "file", copyConsulECSBinary)
-	return nil
+
+	currentStatuses := make(map[string]string)
+	parsedContainerNames := make([]string, 0)
+	parsedContainerNames = append(parsedContainerNames, "consul-dataplane")
+	parsedContainerNames = append(parsedContainerNames, c.config.HealthSyncContainers...)
+
+	checkIDToName := make(map[string]string, 0)
+	checksToVerify := make(api.HealthChecks, 0)
+	if serviceRegistration != nil {
+		checksToVerify = append(checksToVerify, serviceRegistration.Checks...)
+	}
+	if proxyRegistration != nil {
+		checksToVerify = append(checksToVerify, proxyRegistration.Checks...)
+	}
+	for _, check := range checksToVerify {
+		checkIDToName[check.CheckID] = check.Name
+	}
+
+	// Non blocking listen
+	go func() {
+		http.HandleFunc("/health", healthCheck)
+		http.ListenAndServe(":10000", nil)
+	}()
+
+	c.log.Info("Server listening to port 10000")
+
+	var (
+		serviceName      string
+		serviceID        string
+		serviceNamespace string
+	)
+	if serviceRegistration != nil {
+		serviceName = serviceRegistration.Service.Service
+		serviceID = serviceRegistration.Service.ID
+		serviceNamespace = serviceRegistration.Service.Namespace
+	} else if proxyRegistration != nil {
+		serviceName = proxyRegistration.Service.Service
+		serviceID = proxyRegistration.Service.ID
+		serviceNamespace = proxyRegistration.Service.Namespace
+	}
+
+	for {
+		select {
+		case <-time.After(1 * time.Second):
+			currentStatuses = c.syncChecks(consulServerClient, currentStatuses, serviceName, serviceID, serviceNamespace, clusterARN, parsedContainerNames, checkIDToName)
+		case sig := <-c.sigs:
+			switch sig {
+			case syscall.SIGTERM, syscall.SIGCHLD, syscall.SIGURG:
+				c.UI.Info("Received sigterm. Will set checks to critical and ignore the signal")
+				err := c.setChecksCritical(consulServerClient, taskMeta.TaskID(), serviceName, serviceID, serviceNamespace, clusterARN, parsedContainerNames, checkIDToName)
+				// if c.config.ConsulLogin.Enabled {
+				// 	// if err := c.logout(config.ServiceTokenFilename); err != nil {
+				// 	// 	result = multierror.Append(result, err)
+				// 	// }
+				// 	// if err := c.logout(config.ClientTokenFilename); err != nil {
+				// 	// 	result = multierror.Append(result, err)
+				// 	// }
+				// }
+				if err != nil {
+					c.UI.Error(fmt.Sprintf("Error setting checks to critical %s", err.Error()))
+				}
+			default:
+				// TODO: Identify what to do here
+				c.UI.Info("Got a non terminating signal")
+			}
+		case _, ok := <-c.dataplaneContainerMonitor.Done():
+			if ok {
+				c.UI.Info("Deregistering services and terminating control plane")
+
+				// Deregister service
+				if serviceRegistration != nil {
+					svcDeReg := &api.CatalogDeregistration{
+						Node:      clusterARN,
+						ServiceID: serviceRegistration.Service.ID,
+						Namespace: serviceRegistration.Service.Namespace,
+					}
+					_, err := consulServerClient.Catalog().Deregister(svcDeReg, nil)
+					if err != nil {
+						c.UI.Error(fmt.Sprintf("Error deregistering svc %s", err.Error()))
+					}
+				}
+
+				if proxyRegistration != nil {
+					proxySvcDeReg := &api.CatalogDeregistration{
+						Node:      clusterARN,
+						ServiceID: proxyRegistration.Service.ID,
+						Namespace: proxyRegistration.Service.Namespace,
+					}
+					_, err := consulServerClient.Catalog().Deregister(proxySvcDeReg, nil)
+					if err != nil {
+						c.UI.Error(fmt.Sprintf("Error deregistering proxy %s", err.Error()))
+					}
+				}
+			}
+			return nil
+		}
+	}
+}
+
+func (c *Command) cleanup() {
+	signal.Stop(c.sigs)
+	// Cancel background goroutines
+	c.cancel()
+}
+
+func healthCheck(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(200)
+	io.WriteString(w, "Healthy\n")
+}
+
+func (c *Command) syncChecks(consulClient *api.Client, currentStatuses map[string]string, serviceName, serviceID, namespace, clusterARN string, parsedContainerNames []string, checkIDToName map[string]string) map[string]string {
+	taskMeta, err := awsutil.ECSTaskMetadata()
+	if err != nil {
+		c.log.Error("unable to get task metadata", "err", err)
+		return currentStatuses
+	}
+
+	containersToSync, missingContainers := findContainersToSync(parsedContainerNames, taskMeta)
+	for _, name := range missingContainers {
+		c.UI.Info("Found missing container to sync " + name)
+		checkID := makeCheckID(serviceName, taskMeta.TaskID(), name)
+		c.log.Debug("marking container as unhealthy since it wasn't found in the task metadata", "name", name)
+		_, err = updateConsulHealthStatus(consulClient, serviceID, serviceName, namespace, clusterARN, checkID, ecs.HealthStatusUnhealthy, checkIDToName)
+		if err != nil {
+			c.log.Error("failed to update Consul health status for missing container", "err", err, "container", name)
+		} else {
+			c.log.Info("container health check updated in Consul for missing container", "container", name)
+			currentStatuses[name] = api.HealthCritical
+		}
+	}
+
+	for _, container := range containersToSync {
+		c.log.Debug("updating Consul TTL check from ECS container health",
+			"name", container.Name,
+			"status", container.Health.Status,
+			"statusSince", container.Health.StatusSince,
+			"exitCode", container.Health.ExitCode,
+		)
+
+		previousStatus := currentStatuses[container.Name]
+		if container.Health.Status != previousStatus {
+			checkID := makeCheckID(serviceName, taskMeta.TaskID(), container.Name)
+			c.UI.Info("FOund proper container to sync with check ID " + checkID)
+			_, err = updateConsulHealthStatus(consulClient, serviceID, serviceName, namespace, clusterARN, checkID, container.Health.Status, checkIDToName)
+
+			if err != nil {
+				c.log.Warn("failed to update Consul health status", "err", err)
+			} else {
+				c.log.Info("container health check updated in Consul",
+					"name", container.Name,
+					"status", container.Health.Status,
+					"statusSince", container.Health.StatusSince,
+					"exitCode", container.Health.ExitCode,
+				)
+				currentStatuses[container.Name] = container.Health.Status
+			}
+		}
+	}
+
+	return currentStatuses
+}
+
+// setChecksCritical sets checks for all of the containers to critical
+func (c *Command) setChecksCritical(consulClient *api.Client, taskID string, serviceName, serviceID, namespace, clusterARN string, parsedContainerNames []string, checkIDToName map[string]string) error {
+	var result error
+
+	for _, containerName := range parsedContainerNames {
+		checkID := makeCheckID(serviceName, taskID, containerName)
+		_, err := updateConsulHealthStatus(consulClient, serviceID, serviceName, namespace, clusterARN, checkID, api.HealthCritical, checkIDToName)
+
+		if err == nil {
+			c.log.Info("set Consul health status to critical",
+				"container", containerName)
+		} else {
+			c.log.Warn("failed to set Consul health status to critical",
+				"err", err,
+				"container", containerName)
+			result = multierror.Append(result, err)
+		}
+	}
+
+	return result
+}
+
+func findContainersToSync(containerNames []string, taskMeta awsutil.ECSTaskMeta) ([]awsutil.ECSTaskMetaContainer, []string) {
+	var ecsContainers []awsutil.ECSTaskMetaContainer
+	var missing []string
+
+	for _, container := range containerNames {
+		found := false
+		for _, ecsContainer := range taskMeta.Containers {
+			if ecsContainer.Name == container {
+				ecsContainers = append(ecsContainers, ecsContainer)
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, container)
+		}
+	}
+	return ecsContainers, missing
+}
+
+func ecsHealthToConsulHealth(ecsHealth string) string {
+	// `HEALTHY`, `UNHEALTHY`, and `UNKNOWN` are the valid ECS health statuses.
+	// This assumes that the only passing status is `HEALTHY`
+	if ecsHealth != ecs.HealthStatusHealthy {
+		return api.HealthCritical
+	}
+	return api.HealthPassing
+}
+
+func updateConsulHealthStatus(consulClient *api.Client, serviceID, serviceName, namespace, clusterARN, checkID, ecsHealthStatus string, checkIDToName map[string]string) (*api.WriteMeta, error) {
+	consulHealthStatus := ecsHealthToConsulHealth(ecsHealthStatus)
+
+	reason := fmt.Sprintf("ECS health status is %q for task %q", ecsHealthStatus, checkID)
+
+	reg := &api.CatalogRegistration{
+		Node:           clusterARN,
+		SkipNodeUpdate: true,
+		Checks: api.HealthChecks{
+			&api.HealthCheck{
+				Name:      checkIDToName[checkID],
+				Node:      clusterARN,
+				CheckID:   checkID,
+				ServiceID: serviceID,
+				Namespace: namespace,
+				Status:    consulHealthStatus,
+				Type:      "consul-ecs-readiness",
+				Output:    healthCheckOutputReason(consulHealthStatus, reason),
+			},
+		},
+	}
+	return consulClient.Catalog().Register(reg, nil)
 }
 
 // loginToAuthMethod runs a 'consul login' command to obtain a token.
@@ -397,22 +752,30 @@ func retryLogger(log hclog.Logger) backoff.Notify {
 	}
 }
 
-func constructChecks(serviceID string, checks []config.AgentServiceCheck, healthSyncContainers []string) ([]config.AgentServiceCheck, error) {
-	if len(checks) > 0 && len(healthSyncContainers) > 0 {
-		return nil, fmt.Errorf("only one of service.checks or healthSyncContainers should be set")
+func constructChecks(serviceID, serviceName, taskID, namespace string, healthSyncContainers []string) api.HealthChecks {
+	var checks api.HealthChecks
+	checks = make(api.HealthChecks, 0)
+	for _, containerName := range healthSyncContainers {
+		checks = append(checks, &api.HealthCheck{
+			CheckID:   makeCheckID(serviceName, taskID, containerName),
+			Name:      "consul ecs synced",
+			Notes:     fmt.Sprintf("consul-ecs created and updates this check because the %s container is essential and has an ECS health check.", containerName),
+			Type:      "consul-ecs-readiness",
+			ServiceID: serviceID,
+			Output:    healthCheckOutputReason("critical", serviceName),
+		})
 	}
 
-	if len(healthSyncContainers) > 0 {
-		for _, containerName := range healthSyncContainers {
-			checks = append(checks, config.AgentServiceCheck{
-				CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName),
-				Name:    "consul ecs synced",
-				Notes:   fmt.Sprintf("consul-ecs created and updates this check because the %s container is essential and has an ECS health check.", containerName),
-				TTL:     "100000h",
-			})
-		}
-	}
-	return checks, nil
+	checks = append(checks, &api.HealthCheck{
+		CheckID:   makeCheckID(serviceName, taskID, "consul-dataplane"),
+		Name:      "Consul dataplane readiness",
+		Type:      "consul-ecs-readiness",
+		ServiceID: serviceID,
+		Namespace: namespace,
+		Status:    "critical",
+		Output:    healthCheckOutputReason("critical", serviceName),
+	})
+	return checks
 }
 
 // constructServiceName returns the service name for registration with Consul.
@@ -446,14 +809,10 @@ func mergeMeta(m1, m2 map[string]string) map[string]string {
 
 // constructServiceRegistration returns the service registration request body.
 // May return an error due to invalid inputs from the config file.
-func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*api.AgentServiceRegistration, error) {
+func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clusterARN string) (*api.CatalogRegistration, error) {
 	serviceName := c.constructServiceName(taskMeta.Family)
 	taskID := taskMeta.TaskID()
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
-	checks, err := constructChecks(serviceID, c.config.Service.Checks, c.config.HealthSyncContainers)
-	if err != nil {
-		return nil, err
-	}
 
 	fullMeta := mergeMeta(map[string]string{
 		"task-id":  taskID,
@@ -462,49 +821,68 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*a
 	}, c.config.Service.Meta)
 
 	serviceRegistration := c.config.Service.ToConsulType()
-	serviceRegistration.ID = serviceID
-	serviceRegistration.Name = serviceName
-	serviceRegistration.Meta = fullMeta
-	serviceRegistration.Checks = nil
-	for _, check := range checks {
-		serviceRegistration.Checks = append(serviceRegistration.Checks, check.ToConsulType())
-	}
+	serviceRegistration.Node = clusterARN
+	serviceRegistration.Address = taskMeta.NodeIP()
+	serviceRegistration.Service.ID = serviceID
+	serviceRegistration.Service.Service = serviceName
+	serviceRegistration.Service.Meta = fullMeta
+	serviceRegistration.Checks = constructChecks(serviceID, serviceName, taskID, c.config.Service.Namespace, c.config.HealthSyncContainers)
 	return serviceRegistration, nil
 }
 
-// constructProxyRegistration returns the proxy registration request body.
-func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServiceRegistration) *api.AgentServiceRegistration {
-	proxyRegistration := &api.AgentServiceRegistration{}
-	proxyRegistration.ID = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.ID)
-	proxyRegistration.Name = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Name)
-	proxyRegistration.Kind = api.ServiceKindConnectProxy
-	proxyRegistration.Port = c.config.Proxy.GetPublicListenerPort()
-	proxyRegistration.Meta = serviceRegistration.Meta
-	proxyRegistration.Tags = serviceRegistration.Tags
-	proxyRegistration.Proxy = c.config.Proxy.ToConsulType()
-	proxyRegistration.Proxy.DestinationServiceName = serviceRegistration.Name
-	proxyRegistration.Proxy.DestinationServiceID = serviceRegistration.ID
-	proxyRegistration.Proxy.LocalServicePort = serviceRegistration.Port
-	proxyRegistration.Checks = []*api.AgentServiceCheck{
-		{
-			Name:                           "Proxy Public Listener",
-			TCP:                            fmt.Sprintf("127.0.0.1:%d", proxyRegistration.Port),
-			Interval:                       "10s",
-			DeregisterCriticalServiceAfter: "10m",
-		},
-		{
-			Name:         "Destination Alias",
-			AliasService: serviceRegistration.ID,
-		},
+func healthCheckOutputReason(status string, serviceName string) string {
+	if status == api.HealthPassing {
+		return "ECS health check passing"
 	}
+
+	return fmt.Sprintf("Service %s is not ready", serviceName)
+}
+
+// constructProxyRegistration returns the proxy registration request body.
+func (c *Command) constructProxyRegistration(serviceRegistration *api.CatalogRegistration, clusterARN, taskID string) *api.CatalogRegistration {
+	proxyRegistration := &api.CatalogRegistration{}
+	proxyRegistration.Service = &api.AgentService{
+		ID:                fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Service.ID),
+		Service:           fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Service.Service),
+		Kind:              api.ServiceKindConnectProxy,
+		Port:              c.config.Proxy.GetPublicListenerPort(),
+		Meta:              serviceRegistration.Service.Meta,
+		Tags:              serviceRegistration.Service.Tags,
+		Proxy:             c.config.Proxy.ToConsulType(),
+		Partition:         serviceRegistration.Service.Partition,
+		Namespace:         serviceRegistration.Service.Namespace,
+		Weights:           serviceRegistration.Service.Weights,
+		EnableTagOverride: serviceRegistration.Service.EnableTagOverride,
+	}
+
+	proxyRegistration.Service.Proxy.DestinationServiceName = serviceRegistration.Service.Service
+	proxyRegistration.Service.Proxy.DestinationServiceID = serviceRegistration.Service.ID
+	proxyRegistration.Service.Proxy.LocalServicePort = serviceRegistration.Service.Port
+	// proxyRegistration.Checks = api.HealthChecks{
+	// 	&api.HealthCheck{
+	// 		CheckID:   makeCheckID(proxyRegistration.Service.Service, taskID, "dataplane"),
+	// 		Name:      "Consul dataplane readiness",
+	// 		Type:      "consul-ecs-readiness",
+	// 		ServiceID: proxyRegistration.Service.ID,
+	// 		Namespace: serviceRegistration.Service.Namespace,
+	// 		Status:    "critical",
+	// 		Output:    healthCheckOutputReason("critical", proxyRegistration.Service.Service),
+	// 	},
+	// }
 	proxyRegistration.Partition = serviceRegistration.Partition
-	proxyRegistration.Namespace = serviceRegistration.Namespace
-	proxyRegistration.Weights = serviceRegistration.Weights
-	proxyRegistration.EnableTagOverride = serviceRegistration.EnableTagOverride
+	proxyRegistration.SkipNodeUpdate = true
+	proxyRegistration.NodeMeta = map[string]string{
+		"synthetic-node": "true",
+	}
+	proxyRegistration.Node = clusterARN
 	return proxyRegistration
 }
 
-func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta) *api.AgentServiceRegistration {
+func makeCheckID(serviceName string, taskID string, containerName string) string {
+	return fmt.Sprintf("%s-%s-%s-consul-ecs", serviceName, taskID, containerName)
+}
+
+func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta) *api.CatalogRegistration {
 	serviceName := c.config.Gateway.Name
 	if serviceName == "" {
 		serviceName = taskMeta.Family
@@ -514,9 +892,10 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
 
 	gwRegistration := c.config.Gateway.ToConsulType()
-	gwRegistration.ID = serviceID
-	gwRegistration.Name = serviceName
-	gwRegistration.Meta = mergeMeta(map[string]string{
+	gwRegistration.Address = taskMeta.NodeIP()
+	gwRegistration.Service.ID = serviceID
+	gwRegistration.Service.Service = serviceName
+	gwRegistration.Service.Meta = mergeMeta(map[string]string{
 		"task-id":  taskID,
 		"task-arn": taskMeta.TaskARN,
 		"source":   "consul-ecs",
@@ -525,16 +904,16 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 	taggedAddresses := make(map[string]api.ServiceAddress)
 
 	// Default the LAN port if it was not provided.
-	gwRegistration.Port = config.DefaultGatewayPort
+	gwRegistration.Service.Port = config.DefaultGatewayPort
 
 	if c.config.Gateway.LanAddress != nil {
 		lanAddr := c.config.Gateway.LanAddress.ToConsulType()
 		// If a LAN address is provided then use that and add the LAN address to the tagged addresses.
 		if lanAddr.Port > 0 {
-			gwRegistration.Port = lanAddr.Port
+			gwRegistration.Service.Port = lanAddr.Port
 		}
 		if lanAddr.Address != "" {
-			gwRegistration.Address = lanAddr.Address
+			gwRegistration.Service.Address = lanAddr.Address
 			taggedAddresses[config.TaggedAddressLAN] = lanAddr
 		}
 	}
@@ -545,30 +924,24 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 		wanAddr := c.config.Gateway.WanAddress.ToConsulType()
 		if wanAddr.Address != "" {
 			if wanAddr.Port == 0 {
-				wanAddr.Port = gwRegistration.Port
+				wanAddr.Port = gwRegistration.Service.Port
 			}
 			taggedAddresses[config.TaggedAddressWAN] = wanAddr
 		}
 	}
 	if len(taggedAddresses) > 0 {
-		gwRegistration.TaggedAddresses = taggedAddresses
+		gwRegistration.Service.TaggedAddresses = taggedAddresses
 	}
 
-	// Health check the task's IP, or the LAN address if specified.
-	healthCheckAddr := api.ServiceAddress{
-		Address: taskMeta.NodeIP(),
-		Port:    gwRegistration.Port,
-	}
-	if gwRegistration.Address != "" {
-		healthCheckAddr.Address = gwRegistration.Address
-	}
-
-	gwRegistration.Checks = []*api.AgentServiceCheck{
-		{
-			Name:                           fmt.Sprintf("%s listener", gwRegistration.Kind),
-			TCP:                            net.JoinHostPort(healthCheckAddr.Address, fmt.Sprint(healthCheckAddr.Port)),
-			Interval:                       "10s",
-			DeregisterCriticalServiceAfter: "10m",
+	gwRegistration.Checks = api.HealthChecks{
+		&api.HealthCheck{
+			CheckID:   makeCheckID(serviceName, taskID, "consul-dataplane"),
+			Name:      "Consul dataplane readiness",
+			Type:      "consul-ecs-readiness",
+			ServiceID: serviceID,
+			Namespace: gwRegistration.Service.Namespace,
+			Status:    "critical",
+			Output:    healthCheckOutputReason("critical", serviceName),
 		},
 	}
 	return gwRegistration

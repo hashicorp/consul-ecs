@@ -6,6 +6,7 @@ package aclcontroller
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"os"
@@ -17,19 +18,18 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
+	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/controller"
 	"github.com/hashicorp/consul-ecs/logging"
+	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-rootcerts"
 	"github.com/mitchellh/cli"
 	"github.com/mitchellh/mapstructure"
 )
 
 const (
-	flagIAMRolePath       = "iam-role-path"
-	flagPartition         = "partition"
-	flagPartitionsEnabled = "partitions-enabled"
-
 	consulCACertEnvVar = "CONSUL_CACERT_PEM"
 
 	// Binding rules don't support a '/' character, so we need compatible IAM role tag names.
@@ -43,10 +43,7 @@ const (
 )
 
 type Command struct {
-	UI                    cli.Ui
-	flagIAMRolePath       string
-	flagPartition         string
-	flagPartitionsEnabled bool
+	UI cli.Ui
 
 	log     hclog.Logger
 	flagSet *flag.FlagSet
@@ -54,13 +51,11 @@ type Command struct {
 	ctx     context.Context
 
 	logging.LogOpts
+	config *config.Config
 }
 
 func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
-	c.flagSet.StringVar(&c.flagIAMRolePath, flagIAMRolePath, "", "IAM roles at this path will be trusted by the IAM Auth method created by the controller")
-	c.flagSet.StringVar(&c.flagPartition, flagPartition, "", "The Consul partition name that the ACL controller will use for ACL resources. If not provided will default to the `default` partition [Consul Enterprise]")
-	c.flagSet.BoolVar(&c.flagPartitionsEnabled, flagPartitionsEnabled, false, "Enables support for Consul partitions and namespaces [Consul Enterprise]")
 
 	logging.Merge(c.flagSet, c.LogOpts.Flags())
 	c.ctx = context.Background()
@@ -73,9 +68,16 @@ func (c *Command) Run(args []string) int {
 		return 1
 	}
 
+	config, err := config.FromEnv()
+	if err != nil {
+		c.UI.Error(fmt.Sprintf("invalid config: %s", err))
+		return 1
+	}
+	c.config = config
+
 	c.log = c.LogOpts.Logger()
 
-	err := c.run()
+	err = c.run()
 	if err != nil {
 		c.log.Error(err.Error())
 		return 1
@@ -102,27 +104,79 @@ func (c *Command) run() error {
 	// Set up ECS client.
 	ecsClient := ecs.New(clientSession)
 
-	cfg := api.DefaultConfig()
-	if caCert := os.Getenv(consulCACertEnvVar); caCert != "" {
-		cfg.TLSConfig = api.TLSConfig{
-			CAPem: []byte(caCert),
-		}
+	serverManagerConfig := discovery.Config{
+		Addresses: c.config.ConsulServers.Hosts,
 	}
 
-	consulClient, err := api.NewClient(cfg)
+	c.UI.Info("Got the address of consul server " + c.config.ConsulServers.Hosts)
+
+	if c.config.ConsulServers.GRPCPort != 0 {
+		serverManagerConfig.GRPCPort = int(c.config.ConsulServers.GRPCPort)
+	}
+
+	if c.config.ConsulServers.TLS {
+		tlsConfig := &tls.Config{}
+		caCert := os.Getenv("CONSUL_CACERT_PEM")
+		if caCert != "" {
+			err := rootcerts.ConfigureTLS(tlsConfig, &rootcerts.Config{
+				CACertificate: []byte(caCert),
+			})
+			if err != nil {
+				return err
+			}
+		}
+		serverManagerConfig.TLS = tlsConfig
+	}
+
+	watcher, err := discovery.NewWatcher(c.ctx, serverManagerConfig, c.log)
 	if err != nil {
+		c.UI.Error(fmt.Sprintf("unable to create Consul server watcher: %s", err))
 		return err
 	}
 
-	if err := c.upsertConsulResources(consulClient, ecsMeta); err != nil {
+	go watcher.Run()
+	defer watcher.Stop()
+
+	state, err := watcher.State()
+	if err != nil {
+		c.UI.Error(fmt.Sprintf("unable to start Consul server watcher: %s", err))
+		return err
+	}
+
+	// Add Partition, Namespace, DC
+	apiCfg := &api.Config{
+		Scheme: "http",
+	}
+
+	if c.config.ConsulServers.EnableHTTPS {
+		apiCfg.Scheme = "https"
+		caCert := os.Getenv("CONSUL_CACERT_PEM")
+		if c.config.ConsulServers.TLS {
+			// !strings.HasPrefix(f.Addresses, "exec=")
+			apiCfg.TLSConfig = api.TLSConfig{
+				Address: c.config.ConsulServers.Hosts,
+				CAPem:   []byte(caCert),
+			}
+		}
+	}
+
+	apiCfg.Address = fmt.Sprintf("%s:%d", state.Address.IP.String(), c.config.ConsulServers.HTTPPort)
+
+	consulServerClient, err := api.NewClient(apiCfg)
+	if err != nil {
+		c.UI.Error(fmt.Sprintf("Error setting up consul server client: %s", err))
+		return err
+	}
+
+	if err := c.upsertConsulResources(consulServerClient, ecsMeta); err != nil {
 		return err
 	}
 
 	taskStateLister := &controller.TaskStateLister{
 		ECSClient:    ecsClient,
-		ConsulClient: consulClient,
+		ConsulClient: consulServerClient,
 		ClusterARN:   clusterArn,
-		Partition:    c.flagPartition,
+		Partition:    c.config.Controller.Partition,
 		Log:          c.log,
 	}
 	ctrl := controller.Controller{
@@ -154,23 +208,12 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 	if err != nil {
 		return err
 	}
-	path := strings.Trim(c.flagIAMRolePath, "/")
+	path := strings.Trim(c.config.Controller.IAMRolePath, "/")
 	if path != "" {
 		path += "/"
 	}
 	boundArnPattern := fmt.Sprintf("arn:aws:iam::%s:role/%s*", account, path)
 
-	clientAuthMethod := &api.ACLAuthMethod{
-		Name:        "iam-ecs-client-token",
-		Type:        "aws-iam",
-		Description: "AWS IAM auth method for ECS client tokens",
-		Config: map[string]interface{}{
-			// Trust a wildcard - any roles at a path.
-			"BoundIAMPrincipalARNs": []string{boundArnPattern},
-			// Must be true to use a wildcard
-			"EnableIAMEntityDetails": true,
-		},
-	}
 	serviceAuthMethod := &api.ACLAuthMethod{
 		Name:        "iam-ecs-service-token",
 		Type:        "aws-iam",
@@ -186,22 +229,13 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 			},
 		},
 	}
-	if c.flagPartitionsEnabled {
+	if c.config.Controller.PartitionsEnabled {
 		serviceAuthMethod.NamespaceRules = append(serviceAuthMethod.NamespaceRules,
 			&api.ACLAuthMethodNamespaceRule{
 				Selector:      fmt.Sprintf(`entity_tags["%s"] != ""`, authMethodNamespaceTag),
 				BindNamespace: fmt.Sprintf(`${entity_tags.%s}`, authMethodNamespaceTag),
 			},
 		)
-	}
-
-	roleName := "consul-ecs-client-role"
-	policyName := "consul-ecs-client-policy"
-	clientBindingRule := &api.ACLBindingRule{
-		Description: "Bind a policy for Consul clients on ECS",
-		AuthMethod:  clientAuthMethod.Name,
-		BindType:    api.BindingRuleBindTypeRole,
-		BindName:    roleName,
 	}
 
 	serviceBindingRule := &api.ACLBindingRule{
@@ -221,28 +255,19 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 		return fmt.Errorf("failed to decode Consul agent self config: %w", err)
 	}
 
-	if c.flagPartitionsEnabled {
-		if c.flagPartition == "" {
+	if c.config.Controller.PartitionsEnabled {
+		if c.config.Controller.Partition == "" {
 			// if an explicit partition was not provided use the default partition.
-			c.flagPartition = controller.DefaultPartition
+			c.config.Controller.Partition = controller.DefaultPartition
 		}
 		if err := c.upsertPartition(consulClient); err != nil {
 			return err
 		}
-	} else if c.flagPartition != "" {
+	} else if c.config.Controller.Partition != "" {
 		return fmt.Errorf("partition flag provided without partitions-enabled flag")
 	}
 
-	if err := c.upsertConsulClientRole(consulClient, roleName, policyName); err != nil {
-		return err
-	}
-	if err := c.upsertAuthMethod(consulClient, clientAuthMethod); err != nil {
-		return err
-	}
 	if err := c.upsertAuthMethod(consulClient, serviceAuthMethod); err != nil {
-		return err
-	}
-	if err := c.upsertBindingRule(consulClient, clientBindingRule); err != nil {
 		return err
 	}
 	if err := c.upsertBindingRule(consulClient, serviceBindingRule); err != nil {
@@ -266,17 +291,17 @@ func (c *Command) upsertPartition(consulClient *api.Client) error {
 		return fmt.Errorf("failed to list partitions: %s", err)
 	}
 	for _, p := range partitions {
-		if p.Name == c.flagPartition {
+		if p.Name == c.config.Controller.Partition {
 			c.log.Info("found existing partition", "partition", p.Name)
 			return nil
 		}
 	}
 	// the partition doesn't exist, so create it.
-	_, _, err = consulClient.Partitions().Create(c.ctx, &api.Partition{Name: c.flagPartition}, nil)
+	_, _, err = consulClient.Partitions().Create(c.ctx, &api.Partition{Name: c.config.Controller.Partition}, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create partition %s: %s", c.flagPartition, err)
+		return fmt.Errorf("failed to create partition %s: %s", c.config.Controller.Partition, err)
 	}
-	c.log.Info("created partition", "partition", c.flagPartition)
+	c.log.Info("created partition", "partition", c.config.Controller.Partition)
 	return nil
 }
 
@@ -317,9 +342,9 @@ func (c *Command) upsertClientPolicy(consulClient *api.Client, policyName string
 	// Otherwise, the policy is not found, so create it.
 	c.log.Info("creating ACL policy", "name", policyName)
 	rules := ossClientPolicy
-	if c.flagPartitionsEnabled {
+	if c.config.Controller.PartitionsEnabled {
 		// If partitions are enabled then create a policy that supports partitions
-		rules = fmt.Sprintf(partitionedClientPolicyTpl, c.flagPartition)
+		rules = fmt.Sprintf(partitionedClientPolicyTpl, c.config.Controller.Partition)
 	}
 	_, _, err = consulClient.ACL().PolicyCreate(&api.ACLPolicy{
 		Name:        policyName,
@@ -522,7 +547,7 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 	// mesh gateways actually work across partitions.
 	var qopts *api.QueryOptions
 	var wopts *api.WriteOptions
-	if c.flagPartitionsEnabled {
+	if c.config.Controller.PartitionsEnabled {
 		qopts = &api.QueryOptions{
 			Namespace: controller.DefaultPartition,
 			Partition: controller.DefaultNamespace,
@@ -585,15 +610,15 @@ func (c *Command) upsertAnonymousTokenPolicy(consulClient *api.Client, agentConf
 }
 
 func (c *Command) queryOptions() *api.QueryOptions {
-	if c.flagPartitionsEnabled {
-		return &api.QueryOptions{Partition: c.flagPartition}
+	if c.config.Controller.PartitionsEnabled {
+		return &api.QueryOptions{Partition: c.config.Controller.Partition}
 	}
 	return nil
 }
 
 func (c *Command) writeOptions() *api.WriteOptions {
-	if c.flagPartitionsEnabled {
-		return &api.WriteOptions{Partition: c.flagPartition}
+	if c.config.Controller.PartitionsEnabled {
+		return &api.WriteOptions{Partition: c.config.Controller.Partition}
 	}
 	return nil
 }
@@ -629,7 +654,7 @@ type templateData struct {
 }
 
 func (c *Command) templateData() templateData {
-	return templateData{Enterprise: c.flagPartitionsEnabled}
+	return templateData{Enterprise: c.config.Controller.PartitionsEnabled}
 }
 
 func (c *Command) anonymousPolicyRules() (string, error) {

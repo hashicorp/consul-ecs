@@ -30,6 +30,7 @@ type ECSTaskMeta struct {
 
 type ECSTaskMetaContainer struct {
 	Name          string               `json:"Name"`
+	DockerName    string               `json:"DockerName"`
 	Health        ECSTaskMetaHealth    `json:"Health"`
 	DesiredStatus string               `json:"DesiredStatus"`
 	KnownStatus   string               `json:"KnownStatus"`
@@ -100,6 +101,14 @@ func (e ECSTaskMeta) NodeIP() string {
 		ip = e.Containers[0].Networks[0].IPv4Addresses[0]
 	}
 	return ip
+}
+
+func (e ECSTaskMeta) NodeName() string {
+	name := "ecs-cluster-node" // default
+	if len(e.Containers) > 0 {
+		name = e.Containers[0].DockerName
+	}
+	return name
 }
 
 func ECSTaskMetadata() (ECSTaskMeta, error) {

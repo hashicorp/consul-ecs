@@ -1,0 +1,22 @@
+{
+  "consul": {
+    "addresses": "consul_server.dc1",
+    "grpcPort": 8502,
+    "serverWatchDisabled": false
+  },
+  "service": {
+    "nodeName": "test-node-1",
+    "serviceId": "frontend-service-sidecar-proxy",
+    "namespace": "default",
+    "partition": "default"
+  },
+  "envoy": {
+    "adminBindAddress": "127.0.0.1",
+    "adminBindPort": 19000
+  },
+  "logging": {
+    "name": "dp_",
+    "logLevel": "info",
+    "logJSON": false
+  }
+}

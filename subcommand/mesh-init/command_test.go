@@ -144,6 +144,7 @@ func TestRun(t *testing.T) {
 		},
 		"auth method enabled": {
 			consulLogin: config.ConsulLogin{
+				Method:        config.DefaultAuthMethodName,
 				Enabled:       true,
 				IncludeEntity: true,
 				Meta: map[string]string{
@@ -462,6 +463,7 @@ func TestGateway(t *testing.T) {
 		"mesh gateway with auth method enabled": {
 			config: &config.Config{
 				ConsulLogin: config.ConsulLogin{
+					Method:        config.DefaultAuthMethodName,
 					Enabled:       true,
 					IncludeEntity: true,
 				},

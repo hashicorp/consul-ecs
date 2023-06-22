@@ -44,7 +44,7 @@ func TestConfigValidation(t *testing.T) {
 		cmd := Command{UI: ui}
 		code := cmd.Run(nil)
 		require.Equal(t, code, 1)
-		require.Contains(t, ui.ErrorWriter.String(), "invalid config: 1 error occurred:")
+		require.Contains(t, ui.ErrorWriter.String(), "invalid config: 2 errors occurred:")
 	})
 }
 

@@ -76,38 +76,38 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				TLS:       &tls.Config{},
 			},
 		},
-		// "ACL Auth method": {
-		// 	cfg: &Config{
-		// 		ConsulServers: ConsulServers{
-		// 			Hosts: "consul.dc1.address",
-		// 		},
-		// 		ConsulLogin: ConsulLogin{
-		// 			Enabled:    true,
-		// 			Method:     "test-auth-method",
-		// 			Datacenter: "test-dc",
-		// 			Meta:       map[string]string{"key1": "value1", "key2": "value2"},
-		// 		},
-		// 	},
-		// 	taskMeta: awsutil.ECSTaskMeta{
-		// 		Cluster: "test-cluster",
-		// 		TaskARN: "arn:aws:ecs:us-east-1:123456789:task/test/abcdef",
-		// 		Family:  "family-service",
-		// 	},
-		// 	expConfig: discovery.Config{
-		// 		Addresses: "consul.address",
-		// 		Credentials: discovery.Credentials{
-		// 			Type: discovery.CredentialsTypeLogin,
-		// 			Login: discovery.LoginCredential{
-		// 				AuthMethod:  "test-auth-method",
-		// 				Namespace:   "default",
-		// 				Partition:   "default",
-		// 				Datacenter:  "test-dc",
-		// 				BearerToken: "bearer-token",
-		// 				Meta:        map[string]string{"key1": "value1", "key2": "value2"},
-		// 			},
-		// 		},
-		// 	},
-		// },
+		"ACL Auth method": {
+			cfg: &Config{
+				ConsulServers: ConsulServers{
+					Hosts: "consul.dc1.address",
+				},
+				ConsulLogin: ConsulLogin{
+					Enabled:    true,
+					Method:     "test-auth-method",
+					Datacenter: "test-dc",
+					Meta:       map[string]string{"key1": "value1", "key2": "value2"},
+				},
+			},
+			taskMeta: awsutil.ECSTaskMeta{
+				Cluster: "test-cluster",
+				TaskARN: "arn:aws:ecs:us-east-1:123456789:task/test/abcdef",
+				Family:  "family-service",
+			},
+			expConfig: discovery.Config{
+				Addresses: "consul.address",
+				Credentials: discovery.Credentials{
+					Type: discovery.CredentialsTypeLogin,
+					Login: discovery.LoginCredential{
+						AuthMethod:  "test-auth-method",
+						Namespace:   "default",
+						Partition:   "default",
+						Datacenter:  "test-dc",
+						BearerToken: "bearer-token",
+						Meta:        map[string]string{"key1": "value1", "key2": "value2"},
+					},
+				},
+			},
+		},
 	}
 
 	for name, c := range cases {

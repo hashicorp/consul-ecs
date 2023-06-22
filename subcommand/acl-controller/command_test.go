@@ -100,7 +100,7 @@ func testUpsertConsulResources(t *testing.T, cases map[string]iamAuthTestCase) {
 		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+			_, cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
 			if c.partitionsEnabled {
 				cfg.Partition = testPartitionName
 			}
@@ -336,7 +336,7 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, expPolicyRules
 
 func TestUpsertAuthMethod(t *testing.T) {
 	t.Parallel()
-	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+	_, cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
 	consulClient, err := api.NewClient(cfg)
 	require.NoError(t, err)
 
@@ -514,7 +514,7 @@ func testUpsertAnonymousTokenPolicy(t *testing.T, cases map[string]anonTokenTest
 	for name, c := range cases {
 		c := c
 		t.Run(name, func(t *testing.T) {
-			cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+			_, cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
 			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
 

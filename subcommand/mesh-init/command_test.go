@@ -206,7 +206,7 @@ func TestRun(t *testing.T) {
 			}
 
 			// Start a Consul server. This sets the CONSUL_HTTP_ADDR for `consul connect envoy -bootstrap`.
-			cfg := testutil.ConsulServer(t, srvConfig)
+			server, cfg := testutil.ConsulServer(t, srvConfig)
 			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
 
@@ -228,13 +228,18 @@ func TestRun(t *testing.T) {
 			envoyBootstrapFile := filepath.Join(envoyBootstrapDir, envoyBoostrapConfigFilename)
 			copyConsulECSBinary := filepath.Join(envoyBootstrapDir, "consul-ecs")
 
+			_, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
+			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
 			consulEcsConfig := config.Config{
 				LogLevel:             "DEBUG",
 				BootstrapDir:         envoyBootstrapDir,
 				HealthSyncContainers: nil,
 				ConsulLogin:          c.consulLogin,
 				ConsulServers: config.ConsulServers{
-					Hosts: "127.0.0.1",
+					Hosts:     "127.0.0.1",
+					GRPCPort:  serverGRPCPort,
+					HTTPPort:  serverHTTPPort,
+					EnableTLS: false,
 				},
 				Proxy: &config.AgentServiceConnectProxyConfig{
 					PublicListenerPort: c.proxyPort,
@@ -477,14 +482,19 @@ func TestGateway(t *testing.T) {
 				srvConfig = testutil.ConsulACLConfigFn
 			}
 
-			apiCfg := testutil.ConsulServer(t, srvConfig)
+			server, apiCfg := testutil.ConsulServer(t, srvConfig)
 			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataResponse))
 
 			consulClient, err := api.NewClient(apiCfg)
 			require.NoError(t, err)
 
+			_, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
+			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
 			c.config.ConsulServers = config.ConsulServers{
-				Hosts: "127.0.0.1",
+				Hosts:     "127.0.0.1",
+				GRPCPort:  serverGRPCPort,
+				HTTPPort:  serverHTTPPort,
+				EnableTLS: false,
 			}
 
 			c.config.BootstrapDir = testutil.TempDir(t)

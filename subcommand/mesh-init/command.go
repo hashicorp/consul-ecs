@@ -106,6 +106,8 @@ func (c *Command) realRun() error {
 		c.log.Info("successfully logged in", "token-file", tokenFile)
 	}
 
+	// Client config for the V2 client that talks directly to the
+	// server agent
 	consulClientCfg := c.config.ClientConfig()
 	consulClientCfg.Address = fmt.Sprintf("%s:%d", state.Address.IP.String(), c.config.ConsulServers.HTTPPort)
 	if state.Token != "" {

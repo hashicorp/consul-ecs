@@ -114,7 +114,7 @@ func (c *Config) getDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (discover
 
 	bearerToken, err := c.createAWSBearerToken(taskMeta)
 	if err != nil {
-		return discovery.Credentials{}, nil
+		return discovery.Credentials{}, err
 	}
 	cfg.Login.BearerToken = bearerToken
 

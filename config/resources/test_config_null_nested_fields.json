@@ -5,10 +5,18 @@
     "enabled": null,
     "method": null,
     "includeEntity": null,
+    "datacenter": null,
     "meta": null,
     "region": null,
     "stsEndpoint": null,
     "serverIdHeaderValue": null
+  },
+  "consulServers": {
+    "hosts": "",
+    "httpPort": null,
+    "grpcPort": null,
+    "caCertFile": null,
+    "tls": null
   },
   "service": {
     "name": null,

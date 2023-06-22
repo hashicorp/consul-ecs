@@ -4,6 +4,9 @@
   "consulHTTPAddr": "",
   "consulCACertFile": "",
   "consulLogin": {},
+  "consulServers": {
+    "hosts": ""
+  },
   "service": {
     "name": "",
     "tags": [],

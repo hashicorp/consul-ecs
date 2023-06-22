@@ -340,7 +340,7 @@ func TestLogoutSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	// Login to an auth method. We can only log out of tokens created by a login.
-	fakeAws := testutil.AuthMethodInit(t, client, "test-service")
+	fakeAws := testutil.AuthMethodInit(t, client, "test-service", config.DefaultAuthMethodName)
 
 	loginData, err := iamauth.GenerateLoginData(&iamauth.LoginInput{
 		Creds:                  credentials.NewStaticCredentials("fake-key-id", "fake-secret-key", ""),

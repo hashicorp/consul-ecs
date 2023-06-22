@@ -4,7 +4,7 @@
 package meshinit
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -14,14 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/cenkalti/backoff/v4"
-	iamauth "github.com/hashicorp/consul-awsauth"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/logging"
+	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
@@ -63,6 +60,9 @@ func (c *Command) Run(args []string) int {
 }
 
 func (c *Command) realRun() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	taskMeta, err := awsutil.ECSTaskMetadata()
 	if err != nil {
 		return err
@@ -70,24 +70,51 @@ func (c *Command) realRun() error {
 
 	cfg := api.DefaultConfig()
 
-	if c.config.ConsulLogin.Enabled {
-		// If enabled, login to the auth method to obtain an ACL token.
-		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
-		if err := c.loginToAuthMethod(tokenFile, taskMeta); err != nil {
-			return err
-		}
-		cfg.TokenFile = tokenFile
-
-		// The just-created token is not immediately replicated to Consul server followers.
-		// Mitigate against this by waiting for the token in stale consistency mode.
-		if err := c.waitForTokenReplication(tokenFile); err != nil {
-			return err
-		}
-	}
-
 	consulClient, err := api.NewClient(cfg)
 	if err != nil {
 		return fmt.Errorf("constructing consul client: %s", err)
+	}
+
+	serverConnMgrCfg, err := c.config.ConsulServerConnMgrConfig(taskMeta)
+	if err != nil {
+		return fmt.Errorf("constructing server connection manager config: %s", err)
+	}
+	serverConnMgrCfg.ServerWatchDisabled = false
+
+	watcher, err := discovery.NewWatcher(ctx, serverConnMgrCfg, c.log)
+	if err != nil {
+		return fmt.Errorf("unable to create consul server watcher: %s", err)
+	}
+
+	go watcher.Run()
+	defer watcher.Stop()
+
+	state, err := watcher.State()
+	if err != nil {
+		return fmt.Errorf("unable to fetch consul server watcher state: %s", err)
+	}
+
+	if c.config.ConsulLogin.Enabled {
+		// If enabled write the ACL token to a shared volume so that consul-dataplane
+		// can reuse it later on whenever it starts up
+		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
+		err = os.WriteFile(tokenFile, []byte(state.Token), 0644)
+		if err != nil {
+			return err
+		}
+
+		c.log.Info("successfully logged in", "token-file", tokenFile)
+	}
+
+	consulClientCfg := c.config.ClientConfig()
+	consulClientCfg.Address = fmt.Sprintf("%s:%d", state.Address.IP.String(), c.config.ConsulServers.HTTPPort)
+	if state.Token != "" {
+		consulClientCfg.Token = state.Token
+	}
+
+	_, err = api.NewClient(consulClientCfg)
+	if err != nil {
+		return fmt.Errorf("constructing consul client from config: %s", err)
 	}
 
 	var serviceRegistration, proxyRegistration *api.AgentServiceRegistration
@@ -175,211 +202,6 @@ func (c *Command) realRun() error {
 		return err
 	}
 	c.log.Info("copied binary", "file", copyConsulECSBinary)
-	return nil
-}
-
-// loginToAuthMethod runs a 'consul login' command to obtain a token.
-// The login command is skipped if LogintOptions is not set in the
-// consul-ecs config JSON, in order to support non-ACL deployments.
-func (c *Command) loginToAuthMethod(tokenFile string, taskMeta awsutil.ECSTaskMeta) error {
-	return backoff.RetryNotify(func() error {
-		c.log.Debug("login attempt")
-
-		// We need to retry creating the client here, because there's a race between this
-		// and the consul-client container writing the ca cert file.
-		cfg := api.DefaultConfig()
-		cfg.Address = c.config.ConsulHTTPAddr
-		cfg.TLSConfig.CAFile = c.config.ConsulCACertFile
-
-		client, err := api.NewClient(cfg)
-		if err != nil {
-			return err
-		}
-
-		// We rerun createAWSBearerToken every iteration of this loop to ensure we have a valid
-		// bearer token, since we retry forever and since the token may expire during that time.
-		//
-		// The bearer token includes signed AWS API request(s), and the signature expires after a
-		// short time (maybe 15 minutes). The AWS credentials used for signing also expire after
-		// some longer period (probably after a few hours after they are first generated). On ECS,
-		// credentials for the task IAM role are fetched from
-		// 169.254.170.2${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI} which caches and returns the same
-		// set of credentials until they expire, after which it returns new credentials.
-		//
-		// So we should be safe from accumulating a bunch of temporary tokens or other garbage.
-		bearerToken, err := c.createAWSBearerToken(taskMeta)
-		if err != nil {
-			return err
-		}
-
-		// We use this for gateways, too.
-		partition := c.config.Service.Partition
-		if partition == "" && c.config.Gateway != nil {
-			partition = c.config.Gateway.Partition
-		}
-
-		tok, _, err := client.ACL().Login(
-			c.constructLoginParams(bearerToken, taskMeta),
-			&api.WriteOptions{Partition: partition},
-		)
-		if err != nil {
-			c.log.Error(err.Error())
-			return err
-		}
-
-		err = os.WriteFile(tokenFile, []byte(tok.SecretID), 0644)
-		if err != nil {
-			return err
-		}
-
-		c.log.Info("login success", "accessor-id", tok.AccessorID, "token-file", tokenFile)
-		return nil
-	}, backoff.NewConstantBackOff(2*time.Second), retryLogger(c.log))
-}
-
-func (c *Command) constructLoginParams(bearerToken string, taskMeta awsutil.ECSTaskMeta) *api.ACLLoginParams {
-	method := c.config.ConsulLogin.Method
-	if method == "" {
-		method = config.DefaultAuthMethodName
-	}
-	meta := mergeMeta(
-		map[string]string{
-			"consul.hashicorp.com/task-id": taskMeta.TaskID(),
-			"consul.hashicorp.com/cluster": taskMeta.Cluster,
-		},
-		c.config.ConsulLogin.Meta,
-	)
-	return &api.ACLLoginParams{
-		AuthMethod:  method,
-		BearerToken: bearerToken,
-		Meta:        meta,
-	}
-}
-
-func (c *Command) createAWSBearerToken(taskMeta awsutil.ECSTaskMeta) (string, error) {
-	l := c.config.ConsulLogin
-
-	region := l.Region
-	if region == "" {
-		r, err := taskMeta.Region()
-		if err != nil {
-			return "", err
-		}
-		region = r
-	}
-
-	cfg := aws.Config{
-		Region: aws.String(region),
-		// More detailed error message to help debug credential discovery.
-		CredentialsChainVerboseErrors: aws.Bool(true),
-	}
-
-	// support explicit creds for unit tests
-	if l.AccessKeyID != "" {
-		cfg.Credentials = credentials.NewStaticCredentials(
-			l.AccessKeyID, l.SecretAccessKey, "",
-		)
-	}
-
-	// Session loads creds from standard sources (env vars, file, EC2 metadata, ...)
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config: cfg,
-		// Allow loading from config files by default:
-		//   ~/.aws/config or AWS_CONFIG_FILE
-		//   ~/.aws/credentials or AWS_SHARED_CREDENTIALS_FILE
-		SharedConfigState: session.SharedConfigEnable,
-	})
-	if err != nil {
-		return "", err
-	}
-
-	if sess.Config.Credentials == nil {
-		return "", fmt.Errorf("AWS credentials not found")
-	}
-
-	loginData, err := iamauth.GenerateLoginData(&iamauth.LoginInput{
-		Creds:                  sess.Config.Credentials,
-		IncludeIAMEntity:       l.IncludeEntity,
-		STSEndpoint:            l.STSEndpoint,
-		STSRegion:              region,
-		Logger:                 hclog.New(nil),
-		ServerIDHeaderValue:    l.ServerIDHeaderValue,
-		ServerIDHeaderName:     config.IAMServerIDHeaderName,
-		GetEntityMethodHeader:  config.GetEntityMethodHeader,
-		GetEntityURLHeader:     config.GetEntityURLHeader,
-		GetEntityHeadersHeader: config.GetEntityHeadersHeader,
-		GetEntityBodyHeader:    config.GetEntityBodyHeader,
-	})
-	if err != nil {
-		return "", err
-	}
-
-	loginDataJson, err := json.Marshal(loginData)
-	if err != nil {
-		return "", err
-	}
-	return string(loginDataJson), err
-}
-
-func (c *Command) waitForTokenReplication(tokenFile string) error {
-	// A workaround to check that the ACL token is replicated to other Consul servers.
-	// Code borrowed from: https://github.com/hashicorp/consul-k8s/pull/887
-	//
-	// This problem can potentially occur because of:
-	//
-	// - Replication lag: After a token is created on the Consul server leader it may take up to
-	//   100ms (typically) for the token to be replicated to server followers:
-	//   https://www.consul.io/docs/install/performance#read-write-tuning
-	// - Stale consistency mode: Consul clients may connect to a Consul server follower, which may
-	//   have stale state, in order to reduce load on the server leader.
-	// - Negative caching: When a Consul server validates a token, if the server does know about the
-	//   token (e.g. due to replication lag), then an "ACL not found" response is cached. By default,
-	//   the cache time is 30s: https://www.consul.io/docs/agent/config/config-files#acl_token_ttl.
-	// - Sticky connections: Consul clients maintain a connection to a single Consul server, and
-	//   these connections are only rebalanced every 2-3 mins.
-	//
-	// Therefore, an "ACL not found" error may be cached just after token creation. When this
-	// happens, the token will be unusable for the acl_token_ttl (30s by default). Retrying requests
-	// won't help since client likely won't change Consul servers for a potentially longer time
-	// (2-3 min). If you are running 3 Consul servers, you have a 2/3 chance to hit a follower and
-	// encounter this problem, so this is a potentially frequent problem.
-	//
-	// We don't want to delay start up by the "long" cache time (default 30s). Instead, we wait
-	// for the token to be read successfully in stale consistency mode, which should take <=100ms since
-	// that is the typical Raft replication time.
-	//
-	// The does not eliminate this problem completely. It's still possible for this call and the
-	// next call to reach different servers and those servers to have different states from each
-	// other, but this is unlikely since clients use sticky connections.
-
-	// Mesh-init talks to the local Consul client agent (for now). We need this to hit the Consul
-	// server(s) directly.
-	newCfg := api.DefaultConfig()
-	newCfg.Address = c.config.ConsulHTTPAddr
-	newCfg.TLSConfig.CAFile = c.config.ConsulCACertFile
-	newCfg.TokenFile = tokenFile
-
-	client, err := api.NewClient(newCfg)
-	if err != nil {
-		return err
-	}
-
-	c.log.Info("Checking that the ACL token exists when reading it in the stale consistency mode")
-	// Use raft timeout and polling interval to determine the number of retries.
-	numTokenReadRetries := uint64(raftReplicationTimeout.Milliseconds() / tokenReadPollingInterval.Milliseconds())
-	err = backoff.Retry(func() error {
-		_, _, err := client.ACL().TokenReadSelf(&api.QueryOptions{AllowStale: true})
-		if err != nil {
-			c.log.Error("Unable to read ACL token; retrying", "err", err)
-		}
-		return err
-	}, backoff.WithMaxRetries(backoff.NewConstantBackOff(tokenReadPollingInterval), numTokenReadRetries))
-	if err != nil {
-		c.log.Error("Unable to read ACL token from a Consul server; "+
-			"please check that your server cluster is healthy", "err", err)
-		return err
-	}
-	c.log.Info("Successfully read ACL token from the server")
 	return nil
 }
 

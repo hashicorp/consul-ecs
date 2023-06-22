@@ -68,6 +68,7 @@ func TestParseErrors(t *testing.T) {
 			filename: "resources/test_config_missing_fields.json",
 			expectedErrors: []string{
 				"bootstrapDir: String length must be greater than or equal to 1",
+				"consulServers is required",
 			},
 		},
 		"uppercase_service_names": {
@@ -122,8 +123,9 @@ var (
 	expectedConfig = &Config{
 		LogLevel: "",
 		ConsulLogin: ConsulLogin{
-			Enabled: false,
-			Method:  "",
+			Enabled:    false,
+			Method:     "",
+			Datacenter: "",
 			// Because ConsulLogin is not a pointer, when `consulLogin` is absent from
 			// the JSON, UnmarshalJSON is not called, so IncludeEntity is not defaulted
 			// to `true`. This is okay since if Enabled=false, IncludeEntity is not used.
@@ -132,6 +134,13 @@ var (
 			Region:              "",
 			STSEndpoint:         "",
 			ServerIDHeaderValue: "",
+		},
+		ConsulServers: ConsulServers{
+			GRPCPort:   8503,
+			Hosts:      "consul.dc1",
+			CACertFile: "",
+			HTTPPort:   8501,
+			EnableTLS:  true,
 		},
 		Service: ServiceRegistration{
 			Name: "blah",
@@ -157,9 +166,17 @@ var (
 		LogLevel:             "DEBUG",
 		ConsulHTTPAddr:       "consul.example.com",
 		ConsulCACertFile:     "/consul/consul-ca-cert.pem",
+		ConsulServers: ConsulServers{
+			GRPCPort:   8503,
+			Hosts:      "consul.dc1",
+			CACertFile: "/consul/ca-cert.pem",
+			HTTPPort:   8501,
+			EnableTLS:  true,
+		},
 		ConsulLogin: ConsulLogin{
 			Enabled:       true,
 			Method:        "my-auth-method",
+			Datacenter:    "dc1",
 			IncludeEntity: false,
 			Meta: map[string]string{
 				"tag-1": "val-1",
@@ -306,6 +323,13 @@ var (
 		LogLevel:             "",
 		ConsulHTTPAddr:       "",
 		ConsulCACertFile:     "",
+		ConsulServers: ConsulServers{
+			GRPCPort:   8503,
+			Hosts:      "",
+			CACertFile: "",
+			HTTPPort:   8501,
+			EnableTLS:  true,
+		},
 		ConsulLogin: ConsulLogin{
 			Enabled:             false,
 			Method:              "",
@@ -347,12 +371,20 @@ var (
 		ConsulCACertFile:     "",
 		ConsulLogin: ConsulLogin{
 			Enabled:             false,
+			Datacenter:          "",
 			Method:              "",
 			IncludeEntity:       true,
 			Meta:                nil,
 			Region:              "",
 			STSEndpoint:         "",
 			ServerIDHeaderValue: "",
+		},
+		ConsulServers: ConsulServers{
+			GRPCPort:   8503,
+			Hosts:      "",
+			CACertFile: "",
+			HTTPPort:   8501,
+			EnableTLS:  true,
 		},
 		Gateway: &GatewayRegistration{
 			Kind: "mesh-gateway",
@@ -442,6 +474,13 @@ var (
 			Region:              "",
 			STSEndpoint:         "",
 			ServerIDHeaderValue: "",
+		},
+		ConsulServers: ConsulServers{
+			GRPCPort:   8503,
+			Hosts:      "",
+			CACertFile: "",
+			HTTPPort:   8501,
+			EnableTLS:  true,
 		},
 		Gateway: &GatewayRegistration{
 			Kind:       "mesh-gateway",

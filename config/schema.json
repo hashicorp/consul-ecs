@@ -35,6 +35,10 @@
           "description": "The name of Consul auth method used in the login request. Defaults to `iam-ecs-service-token`.",
           "type": ["string", "null"]
         },
+        "datacenter": {
+          "description": "Auth method datacenter to use for login to Consul.",
+          "type": ["string", "null"]
+        },
         "includeEntity": {
           "description": "Enables IAM role details to be available to the login decision, such as the IAM role path and role tags. Defaults to `true`. This should only be set if the Consul AWS IAM auth method is configured with `EnableIAMEntityDetails=true`.",
           "type": ["boolean", "null"]
@@ -61,6 +65,34 @@
           "type": ["string", "null"]
         }
       },
+      "additionalProperties": false
+    },
+    "consulServers": {
+      "description": "Configuration for the Consul servers.",
+      "type": "object",
+      "properties": {
+        "hosts": {
+          "description": "The Consul server hosts. This can be an IP or hostname, or an exec command, such as `exec=<cmd>`. The exec command should return a list of IP addresses.",
+          "type": "string"
+        },
+        "httpPort": {
+          "description": "The Consul server HTTP(S) port. Defaults to 8501",
+          "type": ["integer", "null"]
+        },
+        "grpcPort": {
+          "description": "The Consul server gRPC port. Defaults to 8503",
+          "type": ["integer", "null"]
+        },
+        "caCertFile": {
+          "description": "The Consul server CA cert file for HTTPS and GRPC.",
+          "type": ["string", "null"]
+        },
+        "tls": {
+          "description": "Whether to enable tls for the HTTPS and GRPC traffic to the consul servers. Defaults to true",
+          "type": ["boolean", "null"]
+        }
+      },
+      "required": ["hosts"],
       "additionalProperties": false
     },
     "healthSyncContainers": {
@@ -449,6 +481,6 @@
       "additionalProperties": false
     }
   },
-  "required": ["bootstrapDir"],
+  "required": ["bootstrapDir", "consulServers"],
   "additionalProperties": false
 }

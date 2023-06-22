@@ -53,6 +53,7 @@ type Config struct {
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
 	Gateway              *GatewayRegistration            `json:"gateway,omitempty"`
 	Service              ServiceRegistration             `json:"service"`
+	ConsulServers        ConsulServers                   `json:"consulServers"`
 }
 
 // ConsulLogin configures login options for the Consul IAM auth method.
@@ -62,6 +63,7 @@ type ConsulLogin struct {
 	IncludeEntity bool              `json:"includeEntity"`
 	Meta          map[string]string `json:"meta"`
 	Region        string            `json:"region"`
+	Datacenter    string            `json:"datacenter"`
 
 	// These are passed through to the consul-awsauth library.
 	STSEndpoint         string `json:"stsEndpoint"`
@@ -92,6 +94,56 @@ func (c *ConsulLogin) UnmarshalJSON(data []byte) error {
 		c.IncludeEntity = true
 	} else {
 		c.IncludeEntity = *alias.RawIncludeEntity
+	}
+	return nil
+}
+
+// ConsulServers configures options that helps the ECS control plane discover
+// the consul servers.
+type ConsulServers struct {
+	Hosts      string `json:"hosts"`
+	HTTPPort   int    `json:"httpPort"`
+	GRPCPort   int    `json:"grpcPort"`
+	EnableTLS  bool   `json:"tls"`
+	CACertFile string `json:"caCertFile"`
+}
+
+// UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields
+func (c *ConsulServers) UnmarshalJSON(data []byte) error {
+	type Alias ConsulServers
+	alias := struct {
+		*Alias
+
+		RawHTTPPort  *int  `json:"httpPort"`
+		RawGRPCPort  *int  `json:"grpcPort"`
+		RawEnableTLS *bool `json:"tls"`
+	}{
+		Alias: (*Alias)(c), // Unmarshal other fields into *c
+	}
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Default EnableTLS to true
+	if alias.RawEnableTLS == nil {
+		c.EnableTLS = true
+	} else {
+		c.EnableTLS = *alias.RawEnableTLS
+	}
+
+	// Default HTTPPort to 8501
+	if alias.RawHTTPPort == nil {
+		c.HTTPPort = defaultHTTPPort
+	} else {
+		c.HTTPPort = *alias.RawHTTPPort
+	}
+
+	// Default GRPCPort to 8503
+	if alias.RawGRPCPort == nil {
+		c.GRPCPort = defaultGRPCPort
+	} else {
+		c.GRPCPort = *alias.RawGRPCPort
 	}
 	return nil
 }

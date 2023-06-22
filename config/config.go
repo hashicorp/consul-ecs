@@ -96,12 +96,17 @@ func (c *Config) getDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (discover
 	cfg := discovery.Credentials{
 		Type: discovery.CredentialsTypeLogin,
 		Login: discovery.LoginCredential{
-			AuthMethod: c.ConsulLogin.Method,
 			Datacenter: c.ConsulLogin.Datacenter,
 			Namespace:  c.getNamespace(),
 			Partition:  c.getPartition(),
 		},
 	}
+
+	authMethod := c.ConsulLogin.Method
+	if authMethod == "" {
+		authMethod = DefaultAuthMethodName
+	}
+	cfg.Login.AuthMethod = authMethod
 
 	meta := mergeMeta(
 		map[string]string{

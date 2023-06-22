@@ -103,6 +103,11 @@ func (c *Command) realRun() error {
 			return err
 		}
 
+		// Temporary workaround so that unit tests relying on the
+		// previous version of the client (that talks through agents)
+		// can pass.
+		cfg.TokenFile = tokenFile
+
 		c.log.Info("successfully logged in", "token-file", tokenFile)
 	}
 

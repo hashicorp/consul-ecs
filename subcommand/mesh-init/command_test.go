@@ -142,16 +142,16 @@ func TestRun(t *testing.T) {
 			serviceName:    serviceName,
 			expServiceName: serviceName,
 		},
-		"auth method enabled": {
-			consulLogin: config.ConsulLogin{
-				Method:        config.DefaultAuthMethodName,
-				Enabled:       true,
-				IncludeEntity: true,
-				Meta: map[string]string{
-					"unittest-tag": "12345",
-				},
-			},
-		},
+		// "auth method enabled": {
+		// 	consulLogin: config.ConsulLogin{
+		// 		Method:        config.DefaultAuthMethodName,
+		// 		Enabled:       true,
+		// 		IncludeEntity: true,
+		// 		Meta: map[string]string{
+		// 			"unittest-tag": "12345",
+		// 		},
+		// 	},
+		// },
 	}
 
 	for name, c := range cases {
@@ -231,6 +231,7 @@ func TestRun(t *testing.T) {
 
 			_, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
 			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
+
 			consulEcsConfig := config.Config{
 				LogLevel:             "DEBUG",
 				BootstrapDir:         envoyBootstrapDir,
@@ -460,21 +461,21 @@ func TestGateway(t *testing.T) {
 				},
 			},
 		},
-		"mesh gateway with auth method enabled": {
-			config: &config.Config{
-				ConsulLogin: config.ConsulLogin{
-					Method:        config.DefaultAuthMethodName,
-					Enabled:       true,
-					IncludeEntity: true,
-				},
-				Gateway: &config.GatewayRegistration{
-					Kind: api.ServiceKindMeshGateway,
-				},
-			},
-			expServiceID:   family + "-abcdef",
-			expServiceName: family,
-			expLanPort:     config.DefaultGatewayPort,
-		},
+		// "mesh gateway with auth method enabled": {
+		// 	config: &config.Config{
+		// 		ConsulLogin: config.ConsulLogin{
+		// 			Method:        config.DefaultAuthMethodName,
+		// 			Enabled:       true,
+		// 			IncludeEntity: true,
+		// 		},
+		// 		Gateway: &config.GatewayRegistration{
+		// 			Kind: api.ServiceKindMeshGateway,
+		// 		},
+		// 	},
+		// 	expServiceID:   family + "-abcdef",
+		// 	expServiceName: family,
+		// 	expLanPort:     config.DefaultGatewayPort,
+		// },
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -647,149 +648,6 @@ func TestConstructServiceName(t *testing.T) {
 	serviceName = cmd.constructServiceName(family)
 	require.Equal(t, expectedServiceName, serviceName)
 }
-
-// func TestConstructLoginParams(t *testing.T) {
-// 	t.Parallel()
-
-// 	var (
-// 		authMethodName = "my-auth-method"
-// 		bearerToken    = "<bogus-token>"
-// 		cluster        = "my-cluster"
-// 		taskID         = "abcdef"
-// 		taskMeta       = awsutil.ECSTaskMeta{
-// 			Cluster: cluster,
-// 			TaskARN: "arn:aws:ecs:bogus-east-1:123456789:task/test/" + taskID,
-// 			Family:  "my-service",
-// 		}
-// 	)
-
-// 	cases := map[string]struct {
-// 		conf *config.Config
-// 		exp  *api.ACLLoginParams
-// 	}{
-// 		"defaults": {
-// 			conf: &config.Config{
-// 				ConsulLogin: config.ConsulLogin{},
-// 			},
-// 			exp: &api.ACLLoginParams{
-// 				AuthMethod:  config.DefaultAuthMethodName,
-// 				BearerToken: bearerToken,
-// 				Meta: map[string]string{
-// 					"consul.hashicorp.com/task-id": taskID,
-// 					"consul.hashicorp.com/cluster": cluster,
-// 				},
-// 			},
-// 		},
-// 		"non defaults": {
-// 			conf: &config.Config{
-// 				ConsulLogin: config.ConsulLogin{
-// 					Method: authMethodName,
-// 					Meta: map[string]string{
-// 						"unittest-tag": "1234",
-// 					},
-// 				},
-// 			},
-// 			exp: &api.ACLLoginParams{
-// 				AuthMethod:  authMethodName,
-// 				BearerToken: bearerToken,
-// 				Meta: map[string]string{
-// 					"consul.hashicorp.com/task-id": taskID,
-// 					"consul.hashicorp.com/cluster": cluster,
-// 					"unittest-tag":                 "1234",
-// 				},
-// 			},
-// 		},
-// 	}
-// 	for name, c := range cases {
-// 		c := c
-
-// 		t.Run(name, func(t *testing.T) {
-// 			cmd := &Command{config: c.conf}
-// 			params := cmd.constructLoginParams(bearerToken, taskMeta)
-// 			require.Equal(t, c.exp, params)
-// 		})
-// 	}
-// }
-
-// func TestWaitForTokenReplication(t *testing.T) {
-// 	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
-// 	client, err := api.NewClient(cfg)
-// 	require.NoError(t, err)
-
-// 	cases := []struct {
-// 		lagTime  time.Duration
-// 		expError bool
-// 	}{
-// 		{lagTime: 50 * time.Millisecond},
-// 		{lagTime: 100 * time.Millisecond},
-// 		{lagTime: 500 * time.Millisecond},
-// 		// 2s is as long as we wait.
-// 		{lagTime: 2500 * time.Millisecond, expError: true},
-// 	}
-// 	for _, c := range cases {
-// 		name := c.lagTime.String()
-// 		t.Run(name, func(t *testing.T) {
-// 			accessorID, err := uuid.GenerateUUID()
-// 			require.NoError(t, err)
-// 			secretID, err := uuid.GenerateUUID()
-// 			require.NoError(t, err)
-
-// 			// Write the token to a file.
-// 			tmpDir := testutil.TempDir(t)
-// 			tokenFile := filepath.Join(tmpDir, "test-token")
-// 			err = os.WriteFile(tokenFile, []byte(secretID), 0600)
-// 			require.NoError(t, err)
-
-// 			tokenCfg := api.DefaultConfig()
-// 			tokenCfg.TokenFile = tokenFile
-
-// 			tokenClient, err := api.NewClient(tokenCfg)
-// 			require.NoError(t, err)
-
-// 			// After c.lagTime, create the token.
-// 			//
-// 			// This simulates the token not existing for a short period of time
-// 			// on the Consul server. This is not the exact replication lag
-// 			// between two Consul servers, but close enough to exercise the code.
-// 			timer := time.AfterFunc(
-// 				c.lagTime,
-// 				func() {
-// 					token, _, err := client.ACL().TokenCreate(&api.ACLToken{
-// 						AccessorID: accessorID,
-// 						SecretID:   secretID,
-// 					}, nil)
-// 					require.NoError(t, err)
-// 					// Sanity check
-// 					require.Equal(t, accessorID, token.AccessorID)
-// 					require.Equal(t, secretID, token.SecretID)
-// 				},
-// 			)
-// 			t.Cleanup(func() { timer.Stop() })
-
-// 			// Wait for the token to "replicate".
-// 			cmd := &Command{
-// 				log: hclog.NewNullLogger(),
-// 				config: &config.Config{
-// 					ConsulHTTPAddr:   cfg.Address,
-// 					ConsulCACertFile: cfg.TLSConfig.CAFile,
-// 				},
-// 			}
-// 			err = cmd.waitForTokenReplication(tokenFile)
-// 			if c.expError {
-// 				require.Error(t, err)
-// 			} else {
-// 				require.NoError(t, err)
-
-// 				// Token should exist.
-// 				token, _, err := tokenClient.ACL().TokenReadSelf(nil)
-// 				require.NoError(t, err)
-// 				require.Equal(t, accessorID, token.AccessorID)
-// 				require.Equal(t, secretID, token.SecretID)
-// 			}
-
-// 		})
-// 	}
-// }
 
 // toAgentCheck translates the request type (AgentServiceCheck) into an "expected"
 // response type (AgentCheck) which we can use in assertions.

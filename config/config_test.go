@@ -36,7 +36,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 	cases := map[string]struct {
 		cfg       *Config
 		taskMeta  awsutil.ECSTaskMeta
-		expConfig discovery.Config
+		expConfig func(awsutil.ECSTaskMeta) discovery.Config
 	}{
 		"basic flags without TLS or ACLs": {
 			cfg: &Config{
@@ -45,9 +45,11 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					GRPCPort: 8503,
 				},
 			},
-			expConfig: discovery.Config{
-				Addresses: "consul.dc1.address",
-				GRPCPort:  8503,
+			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+				return discovery.Config{
+					Addresses: "consul.dc1.address",
+					GRPCPort:  8503,
+				}
 			},
 		},
 		"basic flags without TLS or ACLs with custom gRPC port": {
@@ -57,9 +59,11 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					GRPCPort: 8502,
 				},
 			},
-			expConfig: discovery.Config{
-				Addresses: "consul.dc1.address",
-				GRPCPort:  8502,
+			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+				return discovery.Config{
+					Addresses: "consul.dc1.address",
+					GRPCPort:  8502,
+				}
 			},
 		},
 		"default TLS": {
@@ -70,10 +74,12 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					EnableTLS: true,
 				},
 			},
-			expConfig: discovery.Config{
-				Addresses: "consul.dc1.address",
-				GRPCPort:  8503,
-				TLS:       &tls.Config{},
+			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+				return discovery.Config{
+					Addresses: "consul.dc1.address",
+					GRPCPort:  8503,
+					TLS:       &tls.Config{},
+				}
 			},
 		},
 		"ACL Auth method": {
@@ -93,19 +99,23 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				TaskARN: "arn:aws:ecs:us-east-1:123456789:task/test/abcdef",
 				Family:  "family-service",
 			},
-			expConfig: discovery.Config{
-				Addresses: "consul.address",
-				Credentials: discovery.Credentials{
-					Type: discovery.CredentialsTypeLogin,
-					Login: discovery.LoginCredential{
-						AuthMethod:  "test-auth-method",
-						Namespace:   "default",
-						Partition:   "default",
-						Datacenter:  "test-dc",
-						BearerToken: "bearer-token",
-						Meta:        map[string]string{"key1": "value1", "key2": "value2"},
+			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+				return discovery.Config{
+					Addresses: "consul.dc1.address",
+					Credentials: discovery.Credentials{
+						Type: discovery.CredentialsTypeLogin,
+						Login: discovery.LoginCredential{
+							AuthMethod: "test-auth-method",
+							Datacenter: "test-dc",
+							Meta: map[string]string{
+								"key1":                         "value1",
+								"key2":                         "value2",
+								"consul.hashicorp.com/task-id": t.TaskID(),
+								"consul.hashicorp.com/cluster": t.Cluster,
+							},
+						},
 					},
-				},
+				}
 			},
 		},
 	}
@@ -114,6 +124,11 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var srvConfig testutil.ServerConfigCallback
 			if c.cfg.ConsulLogin.Enabled {
+				if testutil.EnterpriseFlag() {
+					c.cfg.Service.Namespace = "test-namespace"
+					c.cfg.Service.Partition = "test-partition"
+				}
+
 				// Enable ACLs to test with the auth method
 				srvConfig = testutil.ConsulACLConfigFn
 				apiCfg := testutil.ConsulServer(t, srvConfig)
@@ -127,7 +142,24 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 
 			cfg, err := c.cfg.ConsulServerConnMgrConfig(c.taskMeta)
 			require.NoError(t, err)
-			require.Equal(t, c.expConfig, cfg)
+
+			expectedCfg := c.expConfig(c.taskMeta)
+			if testutil.EnterpriseFlag() {
+				expectedCfg.Credentials.Login.Namespace = "test-namespace"
+				expectedCfg.Credentials.Login.Partition = "test-partition"
+			}
+
+			require.Equal(t, expectedCfg.Addresses, cfg.Addresses)
+
+			if c.cfg.ConsulLogin.Enabled {
+				require.Equal(t, expectedCfg.Credentials.Type, cfg.Credentials.Type)
+				require.Equal(t, expectedCfg.Credentials.Login.AuthMethod, cfg.Credentials.Login.AuthMethod)
+				require.Equal(t, expectedCfg.Credentials.Login.Namespace, cfg.Credentials.Login.Namespace)
+				require.Equal(t, expectedCfg.Credentials.Login.Partition, cfg.Credentials.Login.Partition)
+				require.Equal(t, expectedCfg.Credentials.Login.Meta, cfg.Credentials.Login.Meta)
+				require.Equal(t, expectedCfg.Credentials.Login.Datacenter, cfg.Credentials.Login.Datacenter)
+				require.NotEmpty(t, cfg.Credentials.Login.BearerToken)
+			}
 		})
 	}
 }

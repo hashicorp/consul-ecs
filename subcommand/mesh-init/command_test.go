@@ -233,6 +233,9 @@ func TestRun(t *testing.T) {
 				BootstrapDir:         envoyBootstrapDir,
 				HealthSyncContainers: nil,
 				ConsulLogin:          c.consulLogin,
+				ConsulServers: config.ConsulServers{
+					Hosts: "127.0.0.1",
+				},
 				Proxy: &config.AgentServiceConnectProxyConfig{
 					PublicListenerPort: c.proxyPort,
 					Upstreams:          c.upstreams,
@@ -479,6 +482,10 @@ func TestGateway(t *testing.T) {
 
 			consulClient, err := api.NewClient(apiCfg)
 			require.NoError(t, err)
+
+			c.config.ConsulServers = config.ConsulServers{
+				Hosts: "127.0.0.1",
+			}
 
 			c.config.BootstrapDir = testutil.TempDir(t)
 			if c.config.ConsulLogin.Enabled {

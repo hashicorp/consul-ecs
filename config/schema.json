@@ -90,6 +90,14 @@
         "tls": {
           "description": "Whether to enable tls for the HTTPS and GRPC traffic to the consul servers. Defaults to true",
           "type": ["boolean", "null"]
+        },
+        "tlsServerName": {
+          "description": "The server name to use as the SNI host when connecting via TLS.",
+          "type": ["string", "null"]
+        },
+        "skipServerWatch": {
+          "description": "If true, the dataplane skips watching upstream server changes. Useful when servers are behind a load balancer. Defaults to false",
+          "type": ["boolean", "null"]
         }
       },
       "required": ["hosts"],

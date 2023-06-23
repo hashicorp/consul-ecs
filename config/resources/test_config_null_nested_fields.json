@@ -16,7 +16,9 @@
     "httpPort": null,
     "grpcPort": null,
     "caCertFile": null,
-    "tls": null
+    "tls": null,
+    "tlsServerName": null,
+    "skipServerWatch": null
   },
   "service": {
     "name": null,

@@ -42,20 +42,6 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
 					Hosts:    "consul.dc1.address",
-					GRPCPort: 8503,
-				},
-			},
-			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
-				return discovery.Config{
-					Addresses: "consul.dc1.address",
-					GRPCPort:  8503,
-				}
-			},
-		},
-		"basic flags without TLS or ACLs with custom gRPC port": {
-			cfg: &Config{
-				ConsulServers: ConsulServers{
-					Hosts:    "consul.dc1.address",
 					GRPCPort: 8502,
 				},
 			},
@@ -66,7 +52,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				}
 			},
 		},
-		"default TLS": {
+		"TLS enabled": {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
 					Hosts:     "consul.dc1.address",
@@ -82,6 +68,27 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				}
 			},
 		},
+		"TLS enabled with TLS Server Name and server watch disabled": {
+			cfg: &Config{
+				ConsulServers: ConsulServers{
+					Hosts:           "exec=/usr/local/bin/discover-servers",
+					GRPCPort:        8503,
+					EnableTLS:       true,
+					TLSServerName:   "consul.dc1.address",
+					SkipServerWatch: true,
+				},
+			},
+			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+				return discovery.Config{
+					Addresses: "exec=/usr/local/bin/discover-servers",
+					GRPCPort:  8503,
+					TLS: &tls.Config{
+						ServerName: "consul.dc1.address",
+					},
+					ServerWatchDisabled: true,
+				}
+			},
+		},
 		"ACL Auth method": {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
@@ -92,6 +99,10 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					Method:     "test-auth-method",
 					Datacenter: "test-dc",
 					Meta:       map[string]string{"key1": "value1", "key2": "value2"},
+				},
+				Service: ServiceRegistration{
+					Namespace: "test-ns",
+					Partition: "test-ns",
 				},
 			},
 			taskMeta: awsutil.ECSTaskMeta{
@@ -124,11 +135,6 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var srvConfig testutil.ServerConfigCallback
 			if c.cfg.ConsulLogin.Enabled {
-				if testutil.EnterpriseFlag() {
-					c.cfg.Service.Namespace = "test-namespace"
-					c.cfg.Service.Partition = "test-partition"
-				}
-
 				// Enable ACLs to test with the auth method
 				srvConfig = testutil.ConsulACLConfigFn
 				_, apiCfg := testutil.ConsulServer(t, srvConfig)
@@ -165,17 +171,11 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 }
 
 func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
-	caFile, err := os.CreateTemp("", "")
-	t.Cleanup(func() {
-		_ = os.RemoveAll(caFile.Name())
-	})
-	require.NoError(t, err)
-	_, err = caFile.WriteString(testCA)
-	require.NoError(t, err)
+	caFile := writeCAFile(t)
 
 	cases := map[string]struct {
 		cfg        *Config
-		setupEnv   func() error
+		setupEnv   func(*testing.T)
 		cleanupEnv func() error
 	}{
 		"TLS with CACertFile": {
@@ -188,8 +188,8 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 			},
 		},
 		"TLS with CACertPEM": {
-			setupEnv: func() error {
-				return os.Setenv(consulCACertPemEnvVar, testCA)
+			setupEnv: func(t *testing.T) {
+				t.Setenv(consulCACertPemEnvVar, testCA)
 			},
 			cfg: &Config{
 				ConsulServers: ConsulServers{
@@ -206,7 +206,7 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			if c.setupEnv != nil {
-				require.NoError(t, c.setupEnv())
+				c.setupEnv(t)
 				t.Cleanup(func() {
 					require.NoError(t, c.cleanupEnv())
 				})
@@ -220,18 +220,11 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 }
 
 func TestClientConfig(t *testing.T) {
-	caFile, err := os.CreateTemp("", "")
-	t.Cleanup(func() {
-		_ = os.RemoveAll(caFile.Name())
-	})
-	require.NoError(t, err)
-	_, err = caFile.WriteString(testCA)
-	require.NoError(t, err)
-
+	caFile := writeCAFile(t)
 	cases := map[string]struct {
 		cfg        *Config
 		expConfig  *api.Config
-		setupEnv   func() error
+		setupEnv   func(*testing.T)
 		cleanupEnv func() error
 	}{
 		"basic flags without TLS": {
@@ -270,6 +263,7 @@ func TestClientConfig(t *testing.T) {
 					Name:      "test-service",
 					Namespace: "test-ns",
 					Partition: "test-par",
+					Kind:      api.ServiceKindMeshGateway,
 				},
 			},
 			expConfig: &api.Config{
@@ -295,8 +289,8 @@ func TestClientConfig(t *testing.T) {
 			},
 		},
 		"TLS with CaCertPEM": {
-			setupEnv: func() error {
-				return os.Setenv(consulCACertPemEnvVar, testCA)
+			setupEnv: func(t *testing.T) {
+				t.Setenv(consulCACertPemEnvVar, testCA)
 			},
 			cfg: &Config{
 				ConsulServers: ConsulServers{
@@ -320,7 +314,7 @@ func TestClientConfig(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			if c.setupEnv != nil {
-				require.NoError(t, c.setupEnv())
+				c.setupEnv(t)
 				t.Cleanup(func() {
 					require.NoError(t, c.cleanupEnv())
 				})
@@ -330,4 +324,16 @@ func TestClientConfig(t *testing.T) {
 			require.Equal(t, c.expConfig, cfg)
 		})
 	}
+}
+
+func writeCAFile(t *testing.T) *os.File {
+	caFile, err := os.CreateTemp("", "")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = os.RemoveAll(caFile.Name())
+	})
+
+	_, err = caFile.WriteString(testCA)
+	require.NoError(t, err)
+	return caFile
 }

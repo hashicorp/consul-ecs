@@ -43,8 +43,7 @@ func SetECSConfigEnvVar(t *testing.T, val interface{}) {
 		_ = os.Unsetenv(configEnvVar)
 	})
 
-	err = os.Setenv(configEnvVar, string(configBytes))
-	require.NoError(t, err)
+	t.Setenv(configEnvVar, string(configBytes))
 
 	t.Logf("%s=%s", configEnvVar, os.Getenv(configEnvVar))
 }

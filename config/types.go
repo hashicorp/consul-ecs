@@ -101,11 +101,13 @@ func (c *ConsulLogin) UnmarshalJSON(data []byte) error {
 // ConsulServers configures options that helps the ECS control plane discover
 // the consul servers.
 type ConsulServers struct {
-	Hosts      string `json:"hosts"`
-	HTTPPort   int    `json:"httpPort"`
-	GRPCPort   int    `json:"grpcPort"`
-	EnableTLS  bool   `json:"tls"`
-	CACertFile string `json:"caCertFile"`
+	Hosts           string `json:"hosts"`
+	HTTPPort        int    `json:"httpPort"`
+	GRPCPort        int    `json:"grpcPort"`
+	EnableTLS       bool   `json:"tls"`
+	CACertFile      string `json:"caCertFile"`
+	TLSServerName   string `json:"tlsServerName"`
+	SkipServerWatch bool   `json:"skipServerWatch"`
 }
 
 // UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields

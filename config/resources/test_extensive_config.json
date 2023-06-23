@@ -24,7 +24,9 @@
     "httpPort": 8501,
     "grpcPort": 8503,
     "caCertFile": "/consul/ca-cert.pem",
-    "tls": true
+    "tls": true,
+    "tlsServerName": "consul.dc1",
+    "skipServerWatch": true
   },
   "service": {
     "name": "frontend",

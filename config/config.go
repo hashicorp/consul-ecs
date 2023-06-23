@@ -52,6 +52,7 @@ func (c *Config) ConsulServerConnMgrConfig(taskMeta awsutil.ECSTaskMeta) (discov
 		}
 
 		cfg.TLS = tlsConfig
+		cfg.TLS.ServerName = c.ConsulServers.TLSServerName
 	}
 
 	if c.ConsulLogin.Enabled {
@@ -61,6 +62,10 @@ func (c *Config) ConsulServerConnMgrConfig(taskMeta awsutil.ECSTaskMeta) (discov
 		}
 
 		cfg.Credentials = credentials
+	}
+
+	if c.ConsulServers.SkipServerWatch {
+		cfg.ServerWatchDisabled = true
 	}
 
 	return cfg, nil
@@ -86,6 +91,8 @@ func (c *Config) ClientConfig() *api.Config {
 
 		if !strings.HasPrefix(c.ConsulServers.Hosts, "exec=") {
 			cfg.TLSConfig.Address = c.ConsulServers.Hosts
+		} else if c.ConsulServers.TLSServerName != "" {
+			cfg.TLSConfig.Address = c.ConsulServers.TLSServerName
 		}
 	}
 
@@ -97,8 +104,6 @@ func (c *Config) getDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (discover
 		Type: discovery.CredentialsTypeLogin,
 		Login: discovery.LoginCredential{
 			Datacenter: c.ConsulLogin.Datacenter,
-			Namespace:  c.getNamespace(),
-			Partition:  c.getPartition(),
 		},
 	}
 
@@ -127,21 +132,19 @@ func (c *Config) getDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (discover
 }
 
 func (c *Config) getNamespace() string {
-	namespace := c.Service.Namespace
-	if namespace == "" && c.Gateway != nil {
-		namespace = c.Gateway.Namespace
+	if c.isGateway() {
+		return c.Gateway.Namespace
 	}
 
-	return namespace
+	return c.Service.Namespace
 }
 
 func (c *Config) getPartition() string {
-	partition := c.Service.Partition
-	if partition == "" && c.Gateway != nil {
-		partition = c.Gateway.Partition
+	if c.isGateway() {
+		return c.Gateway.Partition
 	}
 
-	return partition
+	return c.Service.Partition
 }
 
 func (c *Config) createAWSBearerToken(taskMeta awsutil.ECSTaskMeta) (string, error) {
@@ -207,6 +210,10 @@ func (c *Config) createAWSBearerToken(taskMeta awsutil.ECSTaskMeta) (string, err
 		return "", err
 	}
 	return string(loginDataJson), err
+}
+
+func (c *Config) isGateway() bool {
+	return c.Gateway != nil && c.Gateway.Kind != ""
 }
 
 func mergeMeta(m1, m2 map[string]string) map[string]string {

@@ -142,6 +142,9 @@ func TestRun(t *testing.T) {
 			serviceName:    serviceName,
 			expServiceName: serviceName,
 		},
+		// TODO: revisit these tests when service registration happens via the
+		// client that talks directly to the server and not the client agent
+		//
 		// "auth method enabled": {
 		// 	consulLogin: config.ConsulLogin{
 		// 		Enabled:       true,
@@ -460,6 +463,9 @@ func TestGateway(t *testing.T) {
 				},
 			},
 		},
+		// TODO: revisit these tests when service registration happens via the
+		// client that talks directly to the server and not the client agent
+		//
 		// "mesh gateway with auth method enabled": {
 		// 	config: &config.Config{
 		// 		ConsulLogin: config.ConsulLogin{

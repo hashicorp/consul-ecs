@@ -70,6 +70,8 @@ func (c *Command) realRun() error {
 
 	cfg := api.DefaultConfig()
 
+	// TODO: This client needs to be removed when we start
+	// registering services directly talking to the server
 	consulClient, err := api.NewClient(cfg)
 	if err != nil {
 		return fmt.Errorf("constructing consul client: %s", err)
@@ -79,7 +81,6 @@ func (c *Command) realRun() error {
 	if err != nil {
 		return fmt.Errorf("constructing server connection manager config: %s", err)
 	}
-	serverConnMgrCfg.ServerWatchDisabled = false
 
 	watcher, err := discovery.NewWatcher(ctx, serverConnMgrCfg, c.log)
 	if err != nil {
@@ -106,9 +107,10 @@ func (c *Command) realRun() error {
 		// Temporary workaround so that unit tests relying on the
 		// previous version of the client (that talks through agents)
 		// can pass.
+		// TODO: Remove this after getting rid of the older version of the client
 		cfg.TokenFile = tokenFile
 
-		c.log.Info("successfully logged in", "token-file", tokenFile)
+		c.log.Info("wrote ACL token to shared volume", "token-file", tokenFile)
 	}
 
 	// Client config for the V2 client that talks directly to the
@@ -116,6 +118,10 @@ func (c *Command) realRun() error {
 	consulClientCfg := c.config.ClientConfig()
 	consulClientCfg.Address = fmt.Sprintf("%s:%d", state.Address.IP.String(), c.config.ConsulServers.HTTPPort)
 	if state.Token != "" {
+		// In case the token is not replicated across the consul server followers, we might get a
+		// `ACL token not found` error till the replication completes. Server connection manager
+		// already implements a sleep that should mitigate this. If not, we should reintroduce the
+		// `waitForReplication` method removed in https://github.com/hashicorp/consul-ecs/pull/143
 		consulClientCfg.Token = state.Token
 	}
 

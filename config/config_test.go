@@ -150,11 +150,6 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 			require.NoError(t, err)
 
 			expectedCfg := c.expConfig(c.taskMeta)
-			if testutil.EnterpriseFlag() {
-				expectedCfg.Credentials.Login.Namespace = "test-namespace"
-				expectedCfg.Credentials.Login.Partition = "test-partition"
-			}
-
 			require.Equal(t, expectedCfg.Addresses, cfg.Addresses)
 
 			if c.cfg.ConsulLogin.Enabled {

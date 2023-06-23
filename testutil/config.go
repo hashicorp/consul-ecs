@@ -39,10 +39,6 @@ func SetECSConfigEnvVar(t *testing.T, val interface{}) {
 	configBytes, err := json.MarshalIndent(val, "", "  ")
 	require.NoError(t, err)
 
-	t.Cleanup(func() {
-		_ = os.Unsetenv(configEnvVar)
-	})
-
 	t.Setenv(configEnvVar, string(configBytes))
 
 	t.Logf("%s=%s", configEnvVar, os.Getenv(configEnvVar))

@@ -4,9 +4,9 @@
 package testutil
 
 import (
+	"net"
 	"os"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/hashicorp/consul/api"
@@ -61,15 +61,15 @@ func ConsulACLConfigFn(c *testutil.TestServerConfig) {
 }
 
 func GetHostAndPortFromAddress(address string) (string, int) {
-	splitAddr := strings.Split(address, ":")
-	if len(splitAddr) != 2 {
-		return "", 0
-	}
-
-	port, err := strconv.ParseInt(splitAddr[1], 10, 0)
+	host, portStr, err := net.SplitHostPort(address)
 	if err != nil {
 		return "", 0
 	}
 
-	return splitAddr[0], int(port)
+	port, err := strconv.ParseInt(portStr, 10, 0)
+	if err != nil {
+		return "", 0
+	}
+
+	return host, int(port)
 }

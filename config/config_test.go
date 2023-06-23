@@ -102,7 +102,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				},
 				Service: ServiceRegistration{
 					Namespace: "test-ns",
-					Partition: "test-ns",
+					Partition: "test-partition",
 				},
 			},
 			taskMeta: awsutil.ECSTaskMeta{
@@ -118,6 +118,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 						Login: discovery.LoginCredential{
 							AuthMethod: "test-auth-method",
 							Datacenter: "test-dc",
+							Partition:  "test-partition",
 							Meta: map[string]string{
 								"key1":                         "value1",
 								"key2":                         "value2",
@@ -152,6 +153,10 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 			expectedCfg := c.expConfig(c.taskMeta)
 			require.Equal(t, expectedCfg.Addresses, cfg.Addresses)
 
+			if testutil.EnterpriseFlag() {
+				expectedCfg.Credentials.Login.Partition = "test-partition"
+			}
+
 			if c.cfg.ConsulLogin.Enabled {
 				require.Equal(t, expectedCfg.Credentials.Type, cfg.Credentials.Type)
 				require.Equal(t, expectedCfg.Credentials.Login.AuthMethod, cfg.Credentials.Login.AuthMethod)
@@ -169,9 +174,8 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 	caFile := writeCAFile(t)
 
 	cases := map[string]struct {
-		cfg        *Config
-		setupEnv   func(*testing.T)
-		cleanupEnv func() error
+		cfg      *Config
+		setupEnv func(*testing.T)
 	}{
 		"TLS with CACertFile": {
 			cfg: &Config{
@@ -184,16 +188,13 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 		},
 		"TLS with CACertPEM": {
 			setupEnv: func(t *testing.T) {
-				t.Setenv(consulCACertPemEnvVar, testCA)
+				t.Setenv(consulGRPCCACertPemEnvVar, testCA)
 			},
 			cfg: &Config{
 				ConsulServers: ConsulServers{
 					Hosts:     "consul.dc1.address",
 					EnableTLS: true,
 				},
-			},
-			cleanupEnv: func() error {
-				return os.Unsetenv(consulCACertPemEnvVar)
 			},
 		},
 	}
@@ -202,9 +203,6 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if c.setupEnv != nil {
 				c.setupEnv(t)
-				t.Cleanup(func() {
-					require.NoError(t, c.cleanupEnv())
-				})
 			}
 			cfg, err := c.cfg.ConsulServerConnMgrConfig(awsutil.ECSTaskMeta{})
 			require.NoError(t, err)
@@ -217,10 +215,9 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 func TestClientConfig(t *testing.T) {
 	caFile := writeCAFile(t)
 	cases := map[string]struct {
-		cfg        *Config
-		expConfig  *api.Config
-		setupEnv   func(*testing.T)
-		cleanupEnv func() error
+		cfg       *Config
+		expConfig *api.Config
+		setupEnv  func(*testing.T)
 	}{
 		"basic flags without TLS": {
 			cfg: &Config{
@@ -294,9 +291,6 @@ func TestClientConfig(t *testing.T) {
 					TLSServerName: "consul.dc1.address",
 				},
 			},
-			cleanupEnv: func() error {
-				return os.Unsetenv(consulHTTPSCertPemEnvVar)
-			},
 			expConfig: &api.Config{
 				Scheme: "https",
 				TLSConfig: api.TLSConfig{
@@ -311,9 +305,6 @@ func TestClientConfig(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if c.setupEnv != nil {
 				c.setupEnv(t)
-				t.Cleanup(func() {
-					require.NoError(t, c.cleanupEnv())
-				})
 			}
 
 			cfg := c.cfg.ClientConfig()

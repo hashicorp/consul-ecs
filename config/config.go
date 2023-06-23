@@ -23,7 +23,7 @@ const (
 	defaultHTTPPort = 8501
 
 	// Cert used for internal RPC communication to the servers
-	consulCACertPemEnvVar = "CONSUL_CACERT_PEM"
+	consulGRPCCACertPemEnvVar = "CONSUL_GRPC_CACERT_PEM"
 
 	// Cert used for securing HTTP traffic towards the server
 	consulHTTPSCertPemEnvVar = "CONSUL_HTTPS_CACERT_PEM"
@@ -38,7 +38,7 @@ func (c *Config) ConsulServerConnMgrConfig(taskMeta awsutil.ECSTaskMeta) (discov
 	if c.ConsulServers.EnableTLS {
 		tlsConfig := &tls.Config{}
 
-		caCert := os.Getenv(consulCACertPemEnvVar)
+		caCert := os.Getenv(consulGRPCCACertPemEnvVar)
 		if caCert != "" {
 			err := rootcerts.ConfigureTLS(tlsConfig, &rootcerts.Config{
 				CACertificate: []byte(caCert),
@@ -93,10 +93,10 @@ func (c *Config) ClientConfig() *api.Config {
 			cfg.TLSConfig.CAFile = c.ConsulServers.HTTPSCACertFile
 		}
 
-		if !strings.HasPrefix(c.ConsulServers.Hosts, "exec=") {
-			cfg.TLSConfig.Address = c.ConsulServers.Hosts
-		} else if c.ConsulServers.TLSServerName != "" {
+		if c.ConsulServers.TLSServerName != "" {
 			cfg.TLSConfig.Address = c.ConsulServers.TLSServerName
+		} else if !strings.HasPrefix(c.ConsulServers.Hosts, "exec=") {
+			cfg.TLSConfig.Address = c.ConsulServers.Hosts
 		}
 	}
 
@@ -108,6 +108,7 @@ func (c *Config) getDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (discover
 		Type: discovery.CredentialsTypeLogin,
 		Login: discovery.LoginCredential{
 			Datacenter: c.ConsulLogin.Datacenter,
+			Partition:  c.getPartition(),
 		},
 	}
 
@@ -117,14 +118,13 @@ func (c *Config) getDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (discover
 	}
 	cfg.Login.AuthMethod = authMethod
 
-	meta := mergeMeta(
+	cfg.Login.Meta = mergeMeta(
 		map[string]string{
 			"consul.hashicorp.com/task-id": taskMeta.TaskID(),
 			"consul.hashicorp.com/cluster": taskMeta.Cluster,
 		},
 		c.ConsulLogin.Meta,
 	)
-	cfg.Login.Meta = meta
 
 	bearerToken, err := c.createAWSBearerToken(taskMeta)
 	if err != nil {

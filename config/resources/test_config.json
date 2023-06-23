@@ -1,4 +1,7 @@
 {
+  "consulServers": {
+    "hosts": "consul.dc1"
+  },
   "service": {
     "name": "blah",
     "tags": [

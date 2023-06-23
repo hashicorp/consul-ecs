@@ -14,9 +14,21 @@
       "tag-1": "val-1",
       "tag-2": "val-2"
     },
+    "datacenter": "dc1",
     "region": "bogus-east-2",
     "stsEndpoint": "https://sts.bogus-east-2.example.com",
     "serverIdHeaderValue": "my.consul.example.com"
+  },
+  "consulServers": {
+    "hosts": "consul.dc1",
+    "https": true,
+    "httpPort": 8501,
+    "grpcPort": 8503,
+    "httpsCACertFile": "/consul/ca-https-cert.pem",
+    "caCertFile": "/consul/ca-cert.pem",
+    "tls": true,
+    "tlsServerName": "consul.dc1",
+    "skipServerWatch": true
   },
   "service": {
     "name": "frontend",

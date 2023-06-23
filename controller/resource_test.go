@@ -481,7 +481,7 @@ func TestReconcileNamespaces(t *testing.T) {
 
 // helper func that initializes a Consul test server and returns a Consul API client.
 func initConsul(t *testing.T) *api.Client {
-	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+	_, cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
 	client, err := api.NewClient(cfg)
 	require.NoError(t, err)
 	return client

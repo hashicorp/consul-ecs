@@ -208,7 +208,7 @@ func TestRunWithContainerNames(t *testing.T) {
 			var initialStage atomic.Value
 			initialStage.Store(true)
 
-			cfg := testutil.ConsulServer(t, nil)
+			_, cfg := testutil.ConsulServer(t, nil)
 			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
 
@@ -335,12 +335,12 @@ func TestLogoutSuccess(t *testing.T) {
 	tokenPath := filepath.Join(bootstrapDir, tokenFilename)
 
 	// Start Consul server.
-	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+	_, cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
 	client, err := api.NewClient(cfg)
 	require.NoError(t, err)
 
 	// Login to an auth method. We can only log out of tokens created by a login.
-	fakeAws := testutil.AuthMethodInit(t, client, "test-service")
+	fakeAws := testutil.AuthMethodInit(t, client, "test-service", config.DefaultAuthMethodName)
 
 	loginData, err := iamauth.GenerateLoginData(&iamauth.LoginInput{
 		Creds:                  credentials.NewStaticCredentials("fake-key-id", "fake-secret-key", ""),
@@ -405,7 +405,7 @@ func TestLogoutFailure(t *testing.T) {
 	tokenFilename := "test-token"
 	tokenPath := filepath.Join(bootstrapDir, tokenFilename)
 
-	cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+	_, cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
 	cmd := &Command{
 		UI:  cli.NewMockUi(),
 		log: hclog.NewNullLogger(),

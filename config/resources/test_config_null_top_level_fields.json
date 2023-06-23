@@ -5,6 +5,17 @@
   "consulHTTPAddr": null,
   "consulCACertFile": null,
   "consulLogin": null,
+  "consulServers": {
+    "hosts": "",
+    "https": null,
+    "httpPort": null,
+    "grpcPort": null,
+    "httpsCACertFile": null,
+    "caCertFile": null,
+    "tls": null,
+    "tlsServerName": null,
+    "skipServerWatch": null
+  },
   "service": {
     "name": null,
     "tags": null,

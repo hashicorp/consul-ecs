@@ -10,8 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/consul-ecs/config"
 	"github.com/stretchr/testify/require"
+)
+
+const (
+	configEnvVar = "CONSUL_ECS_CONFIG_JSON"
 )
 
 // TempDir creates a temporary directory. A test cleanup removes the directory
@@ -36,14 +39,9 @@ func SetECSConfigEnvVar(t *testing.T, val interface{}) {
 	configBytes, err := json.MarshalIndent(val, "", "  ")
 	require.NoError(t, err)
 
-	t.Cleanup(func() {
-		_ = os.Unsetenv(config.ConfigEnvironmentVariable)
-	})
+	t.Setenv(configEnvVar, string(configBytes))
 
-	err = os.Setenv(config.ConfigEnvironmentVariable, string(configBytes))
-	require.NoError(t, err)
-
-	t.Logf("%s=%s", config.ConfigEnvironmentVariable, os.Getenv(config.ConfigEnvironmentVariable))
+	t.Logf("%s=%s", configEnvVar, os.Getenv(configEnvVar))
 }
 
 // EnterpriseFlag indicates whether or not the test was invoked with the -enterprise

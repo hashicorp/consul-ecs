@@ -87,6 +87,113 @@ func TestConsulLoginIncludeEntity(t *testing.T) {
 
 }
 
+func TestConsulServersHoldsDefaultValues(t *testing.T) {
+	type TestStruct struct {
+		Key1          string        `json:"key1"`
+		ConsulServers ConsulServers `json:"consulServers"`
+	}
+
+	cases := map[string]struct {
+		data                    string
+		expectedConsulServerCfg ConsulServers
+	}{
+		"all non required fields are empty": {
+			data: `{
+				"key1": "value1",
+				"consulServers": {
+					"hosts": "consul.dc1"
+				}
+			}`,
+			expectedConsulServerCfg: ConsulServers{
+				Hosts:       "consul.dc1",
+				EnableTLS:   true,
+				EnableHTTPS: true,
+				HTTPPort:    8501,
+				GRPCPort:    8503,
+			},
+		},
+		"Empty HTTPS input": {
+			data: `{
+				"key1": "value1",
+				"consulServers": {
+					"hosts": "consul.dc1",
+					"httpPort": 8501,
+					"grpcPort": 8502,
+					"tls": false
+				}
+			}`,
+			expectedConsulServerCfg: ConsulServers{
+				Hosts:       "consul.dc1",
+				EnableTLS:   false,
+				HTTPPort:    8501,
+				GRPCPort:    8502,
+				EnableHTTPS: true,
+			},
+		},
+		"Empty TLS input": {
+			data: `{
+				"key1": "value1",
+				"consulServers": {
+					"hosts": "consul.dc1",
+					"httpPort": 8500,
+					"grpcPort": 8502,
+					"https": false
+				}
+			}`,
+			expectedConsulServerCfg: ConsulServers{
+				Hosts:       "consul.dc1",
+				EnableTLS:   true,
+				EnableHTTPS: false,
+				HTTPPort:    8500,
+				GRPCPort:    8502,
+			},
+		},
+		"Empty HTTP port input": {
+			data: `{
+				"key1": "value1",
+				"consulServers": {
+					"hosts": "consul.dc1",
+					"tls": false,
+					"grpcPort": 8502
+				}
+			}`,
+			expectedConsulServerCfg: ConsulServers{
+				Hosts:       "consul.dc1",
+				EnableTLS:   false,
+				EnableHTTPS: true,
+				HTTPPort:    8501,
+				GRPCPort:    8502,
+			},
+		},
+		"Empty GRPC port input": {
+			data: `{
+				"key1": "value1",
+				"consulServers": {
+					"hosts": "consul.dc1",
+					"tls": true,
+					"httpPort": 8501
+				}
+			}`,
+			expectedConsulServerCfg: ConsulServers{
+				Hosts:       "consul.dc1",
+				EnableTLS:   true,
+				EnableHTTPS: true,
+				HTTPPort:    8501,
+				GRPCPort:    8503,
+			},
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var unmarshalledCfg TestStruct
+			err := json.Unmarshal([]byte(c.data), &unmarshalledCfg)
+			require.NoError(t, err)
+			require.Equal(t, c.expectedConsulServerCfg, unmarshalledCfg.ConsulServers)
+		})
+	}
+}
+
 var (
 	testCheck = AgentServiceCheck{
 		CheckID:  "check-1",

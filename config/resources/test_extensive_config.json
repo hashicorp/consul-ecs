@@ -21,8 +21,10 @@
   },
   "consulServers": {
     "hosts": "consul.dc1",
+    "https": true,
     "httpPort": 8501,
     "grpcPort": 8503,
+    "httpsCACertFile": "/consul/ca-https-cert.pem",
     "caCertFile": "/consul/ca-cert.pem",
     "tls": true,
     "tlsServerName": "consul.dc1",

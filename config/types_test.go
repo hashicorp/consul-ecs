@@ -105,10 +105,29 @@ func TestConsulServersHoldsDefaultValues(t *testing.T) {
 				}
 			}`,
 			expectedConsulServerCfg: ConsulServers{
-				Hosts:     "consul.dc1",
-				EnableTLS: true,
-				HTTPPort:  8501,
-				GRPCPort:  8503,
+				Hosts:       "consul.dc1",
+				EnableTLS:   true,
+				EnableHTTPS: true,
+				HTTPPort:    8501,
+				GRPCPort:    8503,
+			},
+		},
+		"Empty HTTPS input": {
+			data: `{
+				"key1": "value1",
+				"consulServers": {
+					"hosts": "consul.dc1",
+					"httpPort": 8501,
+					"grpcPort": 8502,
+					"tls": false
+				}
+			}`,
+			expectedConsulServerCfg: ConsulServers{
+				Hosts:       "consul.dc1",
+				EnableTLS:   false,
+				HTTPPort:    8501,
+				GRPCPort:    8502,
+				EnableHTTPS: true,
 			},
 		},
 		"Empty TLS input": {
@@ -117,14 +136,16 @@ func TestConsulServersHoldsDefaultValues(t *testing.T) {
 				"consulServers": {
 					"hosts": "consul.dc1",
 					"httpPort": 8500,
-					"grpcPort": 8502
+					"grpcPort": 8502,
+					"https": false
 				}
 			}`,
 			expectedConsulServerCfg: ConsulServers{
-				Hosts:     "consul.dc1",
-				EnableTLS: true,
-				HTTPPort:  8500,
-				GRPCPort:  8502,
+				Hosts:       "consul.dc1",
+				EnableTLS:   true,
+				EnableHTTPS: false,
+				HTTPPort:    8500,
+				GRPCPort:    8502,
 			},
 		},
 		"Empty HTTP port input": {
@@ -137,10 +158,11 @@ func TestConsulServersHoldsDefaultValues(t *testing.T) {
 				}
 			}`,
 			expectedConsulServerCfg: ConsulServers{
-				Hosts:     "consul.dc1",
-				EnableTLS: false,
-				HTTPPort:  8501,
-				GRPCPort:  8502,
+				Hosts:       "consul.dc1",
+				EnableTLS:   false,
+				EnableHTTPS: true,
+				HTTPPort:    8501,
+				GRPCPort:    8502,
 			},
 		},
 		"Empty GRPC port input": {
@@ -153,10 +175,11 @@ func TestConsulServersHoldsDefaultValues(t *testing.T) {
 				}
 			}`,
 			expectedConsulServerCfg: ConsulServers{
-				Hosts:     "consul.dc1",
-				EnableTLS: true,
-				HTTPPort:  8501,
-				GRPCPort:  8503,
+				Hosts:       "consul.dc1",
+				EnableTLS:   true,
+				EnableHTTPS: true,
+				HTTPPort:    8501,
+				GRPCPort:    8503,
 			},
 		},
 	}

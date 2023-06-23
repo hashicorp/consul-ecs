@@ -22,7 +22,11 @@ const (
 	defaultGRPCPort = 8503
 	defaultHTTPPort = 8501
 
+	// Cert used for internal RPC communication to the servers
 	consulCACertPemEnvVar = "CONSUL_CACERT_PEM"
+
+	// Cert used for securing HTTP traffic towards the server
+	consulHTTPSCertPemEnvVar = "CONSUL_HTTPS_CACERT_PEM"
 )
 
 func (c *Config) ConsulServerConnMgrConfig(taskMeta awsutil.ECSTaskMeta) (discovery.Config, error) {
@@ -78,15 +82,15 @@ func (c *Config) ClientConfig() *api.Config {
 		Scheme:    "http",
 	}
 
-	if c.ConsulServers.EnableTLS {
+	if c.ConsulServers.EnableHTTPS {
 		cfg.Scheme = "https"
 		cfg.TLSConfig = api.TLSConfig{}
 
-		caCert := os.Getenv(consulCACertPemEnvVar)
+		caCert := os.Getenv(consulHTTPSCertPemEnvVar)
 		if caCert != "" {
 			cfg.TLSConfig.CAPem = []byte(caCert)
-		} else if c.ConsulServers.CACertFile != "" {
-			cfg.TLSConfig.CAFile = c.ConsulServers.CACertFile
+		} else if c.ConsulServers.HTTPSCACertFile != "" {
+			cfg.TLSConfig.CAFile = c.ConsulServers.HTTPSCACertFile
 		}
 
 		if !strings.HasPrefix(c.ConsulServers.Hosts, "exec=") {

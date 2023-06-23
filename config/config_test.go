@@ -275,9 +275,9 @@ func TestClientConfig(t *testing.T) {
 		"TLS with CaCertFile": {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
-					Hosts:      "consul.dc1.address",
-					EnableTLS:  true,
-					CACertFile: caFile.Name(),
+					Hosts:           "consul.dc1.address",
+					EnableHTTPS:     true,
+					HTTPSCACertFile: caFile.Name(),
 				},
 			},
 			expConfig: &api.Config{
@@ -290,16 +290,17 @@ func TestClientConfig(t *testing.T) {
 		},
 		"TLS with CaCertPEM": {
 			setupEnv: func(t *testing.T) {
-				t.Setenv(consulCACertPemEnvVar, testCA)
+				t.Setenv(consulHTTPSCertPemEnvVar, testCA)
 			},
 			cfg: &Config{
 				ConsulServers: ConsulServers{
-					Hosts:     "consul.dc1.address",
-					EnableTLS: true,
+					Hosts:         "exec=/usr/local/bin/query-servers",
+					EnableHTTPS:   true,
+					TLSServerName: "consul.dc1.address",
 				},
 			},
 			cleanupEnv: func() error {
-				return os.Unsetenv(consulCACertPemEnvVar)
+				return os.Unsetenv(consulHTTPSCertPemEnvVar)
 			},
 			expConfig: &api.Config{
 				Scheme: "https",

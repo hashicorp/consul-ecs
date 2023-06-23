@@ -136,11 +136,13 @@ var (
 			ServerIDHeaderValue: "",
 		},
 		ConsulServers: ConsulServers{
-			GRPCPort:   8503,
-			Hosts:      "consul.dc1",
-			CACertFile: "",
-			HTTPPort:   8501,
-			EnableTLS:  true,
+			GRPCPort:        8503,
+			Hosts:           "consul.dc1",
+			CACertFile:      "",
+			HTTPPort:        8501,
+			EnableTLS:       true,
+			EnableHTTPS:     true,
+			HTTPSCACertFile: "",
 		},
 		Service: ServiceRegistration{
 			Name: "blah",
@@ -174,6 +176,8 @@ var (
 			EnableTLS:       true,
 			SkipServerWatch: true,
 			TLSServerName:   "consul.dc1",
+			EnableHTTPS:     true,
+			HTTPSCACertFile: "/consul/ca-https-cert.pem",
 		},
 		ConsulLogin: ConsulLogin{
 			Enabled:       true,
@@ -333,6 +337,8 @@ var (
 			EnableTLS:       true,
 			TLSServerName:   "",
 			SkipServerWatch: false,
+			EnableHTTPS:     true,
+			HTTPSCACertFile: "",
 		},
 		ConsulLogin: ConsulLogin{
 			Enabled:             false,
@@ -391,6 +397,8 @@ var (
 			EnableTLS:       true,
 			SkipServerWatch: false,
 			TLSServerName:   "",
+			EnableHTTPS:     true,
+			HTTPSCACertFile: "",
 		},
 		Gateway: &GatewayRegistration{
 			Kind: "mesh-gateway",
@@ -489,6 +497,8 @@ var (
 			EnableTLS:       true,
 			SkipServerWatch: false,
 			TLSServerName:   "",
+			EnableHTTPS:     true,
+			HTTPSCACertFile: "",
 		},
 		Gateway: &GatewayRegistration{
 			Kind:       "mesh-gateway",

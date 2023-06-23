@@ -7,8 +7,10 @@
   "consulLogin": null,
   "consulServers": {
     "hosts": "",
+    "https": null,
     "httpPort": null,
     "grpcPort": null,
+    "httpsCACertFile": null,
     "caCertFile": null,
     "tls": null,
     "tlsServerName": null,

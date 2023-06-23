@@ -102,9 +102,11 @@ func (c *ConsulLogin) UnmarshalJSON(data []byte) error {
 // the consul servers.
 type ConsulServers struct {
 	Hosts           string `json:"hosts"`
+	EnableHTTPS     bool   `json:"https"`
 	HTTPPort        int    `json:"httpPort"`
 	GRPCPort        int    `json:"grpcPort"`
 	EnableTLS       bool   `json:"tls"`
+	HTTPSCACertFile string `json:"httpsCACertFile"`
 	CACertFile      string `json:"caCertFile"`
 	TLSServerName   string `json:"tlsServerName"`
 	SkipServerWatch bool   `json:"skipServerWatch"`
@@ -116,15 +118,23 @@ func (c *ConsulServers) UnmarshalJSON(data []byte) error {
 	alias := struct {
 		*Alias
 
-		RawHTTPPort  *int  `json:"httpPort"`
-		RawGRPCPort  *int  `json:"grpcPort"`
-		RawEnableTLS *bool `json:"tls"`
+		RawEnableHTTPS *bool `json:"https"`
+		RawHTTPPort    *int  `json:"httpPort"`
+		RawGRPCPort    *int  `json:"grpcPort"`
+		RawEnableTLS   *bool `json:"tls"`
 	}{
 		Alias: (*Alias)(c), // Unmarshal other fields into *c
 	}
 
 	if err := json.Unmarshal(data, &alias); err != nil {
 		return err
+	}
+
+	// Default RawEnableHTTPS to true
+	if alias.RawEnableHTTPS == nil {
+		c.EnableHTTPS = true
+	} else {
+		c.EnableHTTPS = *alias.RawEnableHTTPS
 	}
 
 	// Default EnableTLS to true

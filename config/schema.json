@@ -75,6 +75,10 @@
           "description": "The Consul server hosts. This can be an IP or hostname, or an exec command, such as `exec=<cmd>`. The exec command should return a list of IP addresses.",
           "type": "string"
         },
+        "https": {
+          "description": "Whether to use HTTPS connections to the `consulServers.hosts`. Defaults to true.",
+          "type": ["boolean", "null"]
+        },
         "httpPort": {
           "description": "The Consul server HTTP(S) port. Defaults to 8501",
           "type": ["integer", "null"]
@@ -84,11 +88,15 @@
           "type": ["integer", "null"]
         },
         "caCertFile": {
-          "description": "The Consul server CA cert file for HTTPS and GRPC.",
+          "description": "The Consul server CA cert file for internal gRPC communication.",
+          "type": ["string", "null"]
+        },
+        "httpsCACertFile": {
+          "description": "The CA certificate file for Consul's internal HTTP interface.",
           "type": ["string", "null"]
         },
         "tls": {
-          "description": "Whether to enable tls for the HTTPS and GRPC traffic to the consul servers. Defaults to true",
+          "description": "Whether to enable tls for internal RPC traffic to the consul servers. Defaults to true",
           "type": ["boolean", "null"]
         },
         "tlsServerName": {

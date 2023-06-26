@@ -44,7 +44,8 @@ const (
 	GetEntityHeadersHeader string = "X-Consul-IAM-GetEntity-Headers"
 	GetEntityBodyHeader    string = "X-Consul-IAM-GetEntity-Body"
 
-	SyntheticNode string = "synthetic-node"
+	SyntheticNode    string = "synthetic-node"
+	ECSSyntheticNode string = "ecs-synthetic-node"
 )
 
 // Config is the top-level config object.

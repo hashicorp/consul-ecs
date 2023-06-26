@@ -319,6 +319,7 @@ func (c *Command) constructCatalogRegistrationPayload(service *api.AgentService,
 
 func getNodeMeta() map[string]string {
 	return map[string]string{
-		config.SyntheticNode: "true",
+		config.SyntheticNode:    "true",
+		config.ECSSyntheticNode: "true",
 	}
 }

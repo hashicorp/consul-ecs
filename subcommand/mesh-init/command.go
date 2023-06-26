@@ -194,20 +194,6 @@ func (c *Command) constructServiceName(family string) string {
 	return configName
 }
 
-func mergeMeta(m1, m2 map[string]string) map[string]string {
-	result := make(map[string]string)
-
-	for k, v := range m1 {
-		result[k] = v
-	}
-
-	for k, v := range m2 {
-		result[k] = v
-	}
-
-	return result
-}
-
 // constructServiceRegistration returns the service registration request body.
 // May return an error due to invalid inputs from the config file.
 func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clusterARN string) *api.CatalogRegistration {
@@ -322,4 +308,18 @@ func getNodeMeta() map[string]string {
 		config.SyntheticNode:    "true",
 		config.ECSSyntheticNode: "true",
 	}
+}
+
+func mergeMeta(m1, m2 map[string]string) map[string]string {
+	result := make(map[string]string)
+
+	for k, v := range m1 {
+		result[k] = v
+	}
+
+	for k, v := range m2 {
+		result[k] = v
+	}
+
+	return result
 }

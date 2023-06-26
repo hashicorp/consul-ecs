@@ -6,9 +6,11 @@ package meshinit
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,7 +99,7 @@ func (c *Command) realRun() error {
 
 	// Client config for the client that talks directly to the server agent
 	cfg := c.config.ClientConfig()
-	cfg.Address = fmt.Sprintf("%s:%d", state.Address.IP.String(), c.config.ConsulServers.HTTPPort)
+	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTPPort), 10))
 	if state.Token != "" {
 		// In case the token is not replicated across the consul server followers, we might get a
 		// `ACL token not found` error till the replication completes. Server connection manager
@@ -305,8 +307,7 @@ func (c *Command) constructCatalogRegistrationPayload(service *api.AgentService,
 
 func getNodeMeta() map[string]string {
 	return map[string]string{
-		config.SyntheticNode:    "true",
-		config.ECSSyntheticNode: "true",
+		config.SyntheticNode: "true",
 	}
 }
 

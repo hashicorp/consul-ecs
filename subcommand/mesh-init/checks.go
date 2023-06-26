@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	consulECSCheckType = "consul-ecs-readiness"
+	consulECSCheckType = "consul-ecs-health-check"
 
 	consulHealthSyncCheckName = "Consul ECS health check synced"
 
@@ -27,7 +27,7 @@ func (c *Command) constructChecks(service *api.AgentService) api.HealthChecks {
 				Namespace: service.Namespace,
 				Status:    api.HealthCritical,
 				Output:    healthCheckOutputReason(api.HealthCritical, service.Service),
-				Notes:     fmt.Sprintf("consul-ecs created and updates this check because the %s container is essential and has an ECS health check.", containerName),
+				Notes:     fmt.Sprintf("consul-ecs created and updates this check because the %s container has an ECS health check.", containerName),
 			})
 		}
 	}

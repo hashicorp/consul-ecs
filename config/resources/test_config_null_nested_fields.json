@@ -29,33 +29,6 @@
     "enableTagOverride": null,
     "meta": null,
     "weights": null,
-    "checks": [
-      {
-        "name": "check-null",
-        "checkId": null,
-        "args": null,
-        "interval": null,
-        "timeout": null,
-        "ttl": null,
-        "http": null,
-        "header": null,
-        "method": null,
-        "body": null,
-        "tcp": null,
-        "status": null,
-        "notes": null,
-        "tlsServerName": null,
-        "tlsSkipVerify": null,
-        "grpc": null,
-        "grpcUseTls": null,
-        "h2ping": null,
-        "h2pingUseTls": null,
-        "aliasNode": null,
-        "aliasService": null,
-        "successBeforePassing": null,
-        "failuresBeforeCritical": null
-      }
-    ],
     "namespace": null
   },
   "gateway": {

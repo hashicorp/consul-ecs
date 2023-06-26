@@ -226,15 +226,7 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clu
 	service.Service = serviceName
 	service.Meta = fullMeta
 
-	return &api.CatalogRegistration{
-		NodeMeta:       getNodeMeta(),
-		Node:           clusterARN,
-		Address:        taskMeta.NodeIP(),
-		Service:        service,
-		Checks:         c.constructChecks(service),
-		Partition:      service.Partition,
-		SkipNodeUpdate: true,
-	}
+	return c.constructCatalogRegistrationPayload(service, taskMeta, clusterARN)
 }
 
 // constructProxyRegistration returns the proxy registration request body.
@@ -257,16 +249,7 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.CatalogReg
 	proxyService.Proxy.DestinationServiceName = serviceRegistration.Service.Service
 	proxyService.Proxy.LocalServicePort = serviceRegistration.Service.Port
 
-	proxyRegistration := &api.CatalogRegistration{
-		NodeMeta:       getNodeMeta(),
-		Node:           clusterARN,
-		Address:        taskMeta.NodeIP(),
-		Service:        proxyService,
-		Checks:         c.constructChecks(proxyService),
-		Partition:      serviceRegistration.Partition,
-		SkipNodeUpdate: true,
-	}
-	return proxyRegistration
+	return c.constructCatalogRegistrationPayload(proxyService, taskMeta, clusterARN)
 }
 
 func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta, clusterARN string) *api.CatalogRegistration {
@@ -319,13 +302,17 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 		gatewaySvc.TaggedAddresses = taggedAddresses
 	}
 
+	return c.constructCatalogRegistrationPayload(gatewaySvc, taskMeta, clusterARN)
+}
+
+func (c *Command) constructCatalogRegistrationPayload(service *api.AgentService, taskMeta awsutil.ECSTaskMeta, clusterARN string) *api.CatalogRegistration {
 	return &api.CatalogRegistration{
 		Node:           clusterARN,
 		NodeMeta:       getNodeMeta(),
 		Address:        taskMeta.NodeIP(),
-		Service:        gatewaySvc,
-		Checks:         c.constructChecks(gatewaySvc),
-		Partition:      gatewaySvc.Partition,
+		Service:        service,
+		Checks:         c.constructChecks(service),
+		Partition:      service.Partition,
 		SkipNodeUpdate: true,
 	}
 }

@@ -28,35 +28,35 @@ type GetDataplaneConfigJSONInput struct {
 // (after writing it to a shared volume) can be used to start consul-dataplane
 func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 	cfg := &dataplaneConfig{
-		consul: consulConfig{
-			addresses:       i.ConsulServerConfig.Hosts,
-			grpcPort:        i.ConsulServerConfig.GRPCPort,
-			skipServerWatch: i.ConsulServerConfig.SkipServerWatch,
+		Consul: ConsulConfig{
+			Addresses:       i.ConsulServerConfig.Hosts,
+			GRPCPort:        i.ConsulServerConfig.GRPCPort,
+			SkipServerWatch: i.ConsulServerConfig.SkipServerWatch,
 		},
-		service: serviceConfig{
-			nodeName:       i.ProxyRegistration.Node,
-			proxyServiceID: i.ProxyRegistration.Service.ID,
-			namespace:      i.ProxyRegistration.Service.Namespace,
-			partition:      i.ProxyRegistration.Service.Partition,
+		Service: ServiceConfig{
+			NodeName:       i.ProxyRegistration.Node,
+			ProxyServiceID: i.ProxyRegistration.Service.ID,
+			Namespace:      i.ProxyRegistration.Service.Namespace,
+			Partition:      i.ProxyRegistration.Service.Partition,
 		},
-		xdsServer: xdsServerConfig{
-			address: localhostAddr,
-			port:    20000,
+		XDSServer: XDSServerConfig{
+			Address: localhostAddr,
+			Port:    20000,
 		},
 	}
 
 	if i.ConsulServerConfig.EnableTLS {
-		cfg.consul.tls = &tlsConfig{
-			grpcCACertPath: i.ConsulServerConfig.CACertFile,
-			tlsServerName:  i.ConsulServerConfig.TLSServerName,
+		cfg.Consul.TLS = &TLSConfig{
+			GRPCCACertPath: i.ConsulServerConfig.CACertFile,
+			TLSServerName:  i.ConsulServerConfig.TLSServerName,
 		}
 	}
 
 	if i.ConsulToken != "" {
-		cfg.consul.credentials = &credentialsConfig{
-			credentialType: "static",
-			static: staticCredentialConfig{
-				token: i.ConsulToken,
+		cfg.Consul.Credentials = &CredentialsConfig{
+			CredentialType: "static",
+			Static: StaticCredentialConfig{
+				Token: i.ConsulToken,
 			},
 		}
 	}

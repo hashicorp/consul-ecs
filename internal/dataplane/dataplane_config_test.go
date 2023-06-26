@@ -43,20 +43,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				  "namespace": "%s",
 				  "partition": "%s"
 				},
-				"logging": {
-				  "logLevel": "INFO",
-				  "logJSON": false
-				},
 				"xdsServer": {
 				  "bindAddress": "127.0.0.1",
 				  "bindPort": 20000
-				},
-				"envoy": {
-				  "adminBindAddress": "127.0.0.1",
-				  "adminBindPort": 19000
-				},
-				"telemetry": {
-				  "useCentralConfig": false
 				}
 			}`,
 		},
@@ -96,20 +85,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				  "namespace": "%s",
 				  "partition": "%s"
 				},
-				"logging": {
-				  "logLevel": "INFO",
-				  "logJSON": false
-				},
 				"xdsServer": {
 				  "bindAddress": "127.0.0.1",
 				  "bindPort": 20000
-				},
-				"envoy": {
-				  "adminBindAddress": "127.0.0.1",
-				  "adminBindPort": 19000
-				},
-				"telemetry": {
-				  "useCentralConfig": false
 				}
 			}`,
 		},
@@ -149,20 +127,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				  "namespace": "%s",
 				  "partition": "%s"
 				},
-				"logging": {
-				  "logLevel": "INFO",
-				  "logJSON": false
-				},
 				"xdsServer": {
 				  "bindAddress": "127.0.0.1",
 				  "bindPort": 20000
-				},
-				"envoy": {
-				  "adminBindAddress": "127.0.0.1",
-				  "adminBindPort": 19000
-				},
-				"telemetry": {
-				  "useCentralConfig": false
 				}
 			}`,
 		},
@@ -209,20 +176,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				  "namespace": "%s",
 				  "partition": "%s"
 				},
-				"logging": {
-				  "logLevel": "INFO",
-				  "logJSON": false
-				},
 				"xdsServer": {
 				  "bindAddress": "127.0.0.1",
 				  "bindPort": 20000
-				},
-				"envoy": {
-				  "adminBindAddress": "127.0.0.1",
-				  "adminBindPort": 19000
-				},
-				"telemetry": {
-				  "useCentralConfig": false
 				}
 			}`,
 		},

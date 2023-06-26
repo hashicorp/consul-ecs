@@ -7,8 +7,6 @@ import (
 
 const (
 	localhostAddr = "127.0.0.1"
-
-	defaultLogLevel = "INFO"
 )
 
 // GetDataplaneConfigJSONInputs are the inputs needed to
@@ -44,17 +42,6 @@ func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 		xdsServer: xdsServerConfig{
 			address: localhostAddr,
 			port:    20000,
-		},
-		envoy: envoyConfig{
-			adminBindAddress: localhostAddr,
-			adminBindPort:    19000,
-		},
-		logging: loggingConfig{
-			json:  false,
-			level: defaultLogLevel,
-		},
-		telemetry: telemetryConfig{
-			useCentralConfig: false,
 		},
 	}
 

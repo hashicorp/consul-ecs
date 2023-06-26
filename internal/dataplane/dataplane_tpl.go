@@ -10,19 +10,13 @@ import (
 type dataplaneConfig struct {
 	consul    consulConfig
 	service   serviceConfig
-	logging   loggingConfig
 	xdsServer xdsServerConfig
-	envoy     envoyConfig
-	telemetry telemetryConfig
 }
 
 type dataplaneConfigTmplArgs struct {
 	ConsulJSON    string
 	ServiceJSON   string
-	LoggingJSON   string
 	XDSServerJSON string
-	EnvoyJSON     string
-	TelemetryJSON string
 }
 
 func (d *dataplaneConfig) generateJSON() ([]byte, error) {
@@ -35,9 +29,6 @@ func (d *dataplaneConfig) generateJSON() ([]byte, error) {
 	}
 
 	dpCfgTmplArgs.ServiceJSON = d.service.generateJSON()
-	dpCfgTmplArgs.LoggingJSON = d.logging.generateJSON()
-	dpCfgTmplArgs.TelemetryJSON = d.telemetry.generateJSON()
-	dpCfgTmplArgs.EnvoyJSON = d.envoy.generateJSON()
 	dpCfgTmplArgs.XDSServerJSON = d.xdsServer.generateJSON()
 
 	t, err := template.New("dataplane").Parse(dataplaneConfigTemplate)
@@ -63,10 +54,7 @@ func (d *dataplaneConfig) generateJSON() ([]byte, error) {
 const dataplaneConfigTemplate = `{
 	"consul": {{ .ConsulJSON }},
 	"service": {{ .ServiceJSON }},
-	"logging": {{ .LoggingJSON }},
-	"xdsServer": {{ .XDSServerJSON }},
-	"envoy": {{ .EnvoyJSON }},
-	"telemetry": {{ .TelemetryJSON }}
+	"xdsServer": {{ .XDSServerJSON }}
 }`
 
 type consulConfig struct {
@@ -179,18 +167,6 @@ func (s serviceConfig) generateJSON() string {
 	}`
 }
 
-type loggingConfig struct {
-	json  bool
-	level string
-}
-
-func (l loggingConfig) generateJSON() string {
-	return `{
-		"logLevel": "` + l.level + `",
-		"logJSON": ` + strconv.FormatBool(l.json) + `
-	}`
-}
-
 type xdsServerConfig struct {
 	address string
 	port    int
@@ -200,27 +176,5 @@ func (x xdsServerConfig) generateJSON() string {
 	return `{
 		"bindAddress": "` + x.address + `",
 		"bindPort": ` + strconv.FormatInt(int64(x.port), 10) + `
-	}`
-}
-
-type envoyConfig struct {
-	adminBindAddress string
-	adminBindPort    int
-}
-
-func (e envoyConfig) generateJSON() string {
-	return `{
-		"adminBindAddress": "` + e.adminBindAddress + `",
-		"adminBindPort": ` + strconv.FormatInt(int64(e.adminBindPort), 10) + `
-	}`
-}
-
-type telemetryConfig struct {
-	useCentralConfig bool
-}
-
-func (t telemetryConfig) generateJSON() string {
-	return `{
-		"useCentralConfig": ` + strconv.FormatBool(t.useCentralConfig) + `
 	}`
 }

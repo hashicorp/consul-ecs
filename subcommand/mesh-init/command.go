@@ -115,10 +115,7 @@ func (c *Command) realRun() error {
 	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
 		proxyRegistration = c.constructGatewayProxyRegistration(taskMeta, clusterARN)
 	} else {
-		serviceRegistration, err = c.constructServiceRegistration(taskMeta, clusterARN)
-		if err != nil {
-			return err
-		}
+		serviceRegistration = c.constructServiceRegistration(taskMeta, clusterARN)
 		proxyRegistration = c.constructProxyRegistration(serviceRegistration, taskMeta, clusterARN)
 	}
 
@@ -213,7 +210,7 @@ func mergeMeta(m1, m2 map[string]string) map[string]string {
 
 // constructServiceRegistration returns the service registration request body.
 // May return an error due to invalid inputs from the config file.
-func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clusterARN string) (*api.CatalogRegistration, error) {
+func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clusterARN string) *api.CatalogRegistration {
 	serviceName := c.constructServiceName(taskMeta.Family)
 	taskID := taskMeta.TaskID()
 	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
@@ -237,7 +234,7 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clu
 		Checks:         c.constructChecks(service),
 		Partition:      service.Partition,
 		SkipNodeUpdate: true,
-	}, nil
+	}
 }
 
 // constructProxyRegistration returns the proxy registration request body.

@@ -179,7 +179,7 @@
         }
       },
       "required": ["port"],
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "proxy": {
       "description": "Configuration for the sidecar proxy registration with Consul.",

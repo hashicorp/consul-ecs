@@ -78,6 +78,12 @@ func TestParseErrors(t *testing.T) {
 				"service.name: Does not match pattern",
 			},
 		},
+		"service_with_additional_properties": {
+			filename: "resources/test_config_additional_properties_service.json",
+			expectedErrors: []string{
+				"service: Additional property checks is not allowed",
+			},
+		},
 	}
 	for name, c := range cases {
 		c := c

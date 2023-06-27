@@ -31,7 +31,7 @@ func TestConstructChecks(t *testing.T) {
 					ServiceID: "test-service-1234",
 					Status:    api.HealthCritical,
 					Output:    "Service test-service is not ready",
-					Notes:     "consul-ecs created and updates this check because the container1 container is essential and has an ECS health check.",
+					Notes:     "consul-ecs created and updates this check because the container1 container has an ECS health check.",
 				},
 				&api.HealthCheck{
 					CheckID:   constructCheckID("test-service-1234", "container2"),
@@ -40,7 +40,7 @@ func TestConstructChecks(t *testing.T) {
 					ServiceID: "test-service-1234",
 					Status:    api.HealthCritical,
 					Output:    "Service test-service is not ready",
-					Notes:     "consul-ecs created and updates this check because the container2 container is essential and has an ECS health check.",
+					Notes:     "consul-ecs created and updates this check because the container2 container has an ECS health check.",
 				},
 				&api.HealthCheck{
 					CheckID:   constructCheckID("test-service-1234", config.ConsulDataplaneContainerName),

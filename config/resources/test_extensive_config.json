@@ -45,60 +45,6 @@
       "passing": 6,
       "warning": 5
     },
-    "checks": [
-      {
-        "checkId": "frontend-http",
-        "name": "frontend-http",
-        "http": "http://localhost:8080/health",
-        "method": "POST",
-        "body": "{\"method\": \"health\"}",
-        "notes": "Health check for the frontend service",
-        "header": {
-          "Content-Type": [
-            "application/json"
-          ]
-        },
-        "interval": "30s",
-        "timeout": "10s",
-        "successBeforePassing": 3,
-        "failuresBeforeCritical": 4
-      },
-      {
-        "checkId": "frontend-tcp",
-        "name": "frontend-tcp",
-        "tcp": "localhost:8080",
-        "interval": "15s",
-        "timeout": "5s"
-      },
-      {
-        "checkId": "frontend-grpc",
-        "name": "frontend-grpc",
-        "grpc": "localhost:8080",
-        "grpcUseTls": true,
-        "interval": "20s",
-        "timeout": "5s"
-      },
-      {
-        "checkId": "frontend-ttl",
-        "name": "frontend-ttl",
-        "ttl": "10m",
-        "status": "passing"
-      },
-      {
-        "checkId": "frontend-h2ping",
-        "name": "frontend-h2ping",
-        "h2ping": "localhost:2222",
-        "h2pingUseTls": true,
-        "interval": "30s",
-        "timeout": "9s"
-      },
-      {
-        "checkId": "frontend-backend-alias",
-        "name": "frontend-backend-alias",
-        "aliasNode": "backend-node",
-        "aliasService": "backend"
-      }
-    ],
     "namespace": "test-ns",
     "partition": "test-partition"
   },

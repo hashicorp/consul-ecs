@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,12 +22,6 @@ import (
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
-)
-
-const (
-	envoyBoostrapConfigFilename = "envoy-bootstrap.json"
-	raftReplicationTimeout      = 2 * time.Second
-	tokenReadPollingInterval    = 100 * time.Millisecond
 )
 
 type Command struct {
@@ -68,13 +62,9 @@ func (c *Command) realRun() error {
 		return err
 	}
 
-	cfg := api.DefaultConfig()
-
-	// TODO: This client needs to be removed when we start
-	// registering services directly talking to the server
-	consulClient, err := api.NewClient(cfg)
+	clusterARN, err := taskMeta.ClusterARN()
 	if err != nil {
-		return fmt.Errorf("constructing consul client: %s", err)
+		return err
 	}
 
 	serverConnMgrCfg, err := c.config.ConsulServerConnMgrConfig(taskMeta)
@@ -104,99 +94,58 @@ func (c *Command) realRun() error {
 			return err
 		}
 
-		// Temporary workaround so that unit tests relying on the
-		// previous version of the client (that talks through agents)
-		// can pass.
-		// TODO: Remove this after getting rid of the older version of the client
-		cfg.TokenFile = tokenFile
-
 		c.log.Info("wrote ACL token to shared volume", "token-file", tokenFile)
 	}
 
-	// Client config for the V2 client that talks directly to the
-	// server agent
-	consulClientCfg := c.config.ClientConfig()
-	consulClientCfg.Address = fmt.Sprintf("%s:%d", state.Address.IP.String(), c.config.ConsulServers.HTTPPort)
+	// Client config for the client that talks directly to the server agent
+	cfg := c.config.ClientConfig()
+	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTPPort), 10))
 	if state.Token != "" {
 		// In case the token is not replicated across the consul server followers, we might get a
 		// `ACL token not found` error till the replication completes. Server connection manager
 		// already implements a sleep that should mitigate this. If not, we should reintroduce the
 		// `waitForReplication` method removed in https://github.com/hashicorp/consul-ecs/pull/143
-		consulClientCfg.Token = state.Token
+		cfg.Token = state.Token
 	}
 
-	_, err = api.NewClient(consulClientCfg)
+	consulClient, err := api.NewClient(cfg)
 	if err != nil {
 		return fmt.Errorf("constructing consul client from config: %s", err)
 	}
 
-	var serviceRegistration, proxyRegistration *api.AgentServiceRegistration
+	var serviceRegistration, proxyRegistration *api.CatalogRegistration
 	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
-		proxyRegistration = c.constructGatewayProxyRegistration(taskMeta)
+		proxyRegistration = c.constructGatewayProxyRegistration(taskMeta, clusterARN)
 	} else {
-		serviceRegistration, err = c.constructServiceRegistration(taskMeta)
-		if err != nil {
-			return err
-		}
-		proxyRegistration = c.constructProxyRegistration(serviceRegistration)
+		serviceRegistration = c.constructServiceRegistration(taskMeta, clusterARN)
+		proxyRegistration = c.constructProxyRegistration(serviceRegistration, taskMeta, clusterARN)
 	}
 
 	if serviceRegistration != nil {
 		// No need to register the service for gateways.
 		err = backoff.RetryNotify(func() error {
 			c.log.Info("registering service")
-			return consulClient.Agent().ServiceRegister(serviceRegistration)
+			_, regErr := consulClient.Catalog().Register(serviceRegistration, nil)
+			return regErr
 		}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 		if err != nil {
 			return err
 		}
 
-		c.log.Info("service registered successfully", "name", serviceRegistration.Name, "id", serviceRegistration.ID)
+		c.log.Info("service registered successfully", "name", serviceRegistration.Service.Service, "id", serviceRegistration.Service.ID)
 	}
 
 	// Register the proxy.
 	err = backoff.RetryNotify(func() error {
-		c.log.Info("registering proxy", "kind", proxyRegistration.Kind)
-		return consulClient.Agent().ServiceRegister(proxyRegistration)
+		c.log.Info("registering proxy", "kind", proxyRegistration.Service.Kind)
+		_, regErr := consulClient.Catalog().Register(proxyRegistration, nil)
+		return regErr
 	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
 
-	c.log.Info("proxy registered successfully", "name", proxyRegistration.Name, "id", proxyRegistration.ID)
-
-	// Run consul envoy -bootstrap to generate bootstrap file.
-	cmdArgs := []string{
-		"consul", "connect", "envoy", "-proxy-id", proxyRegistration.ID, "-bootstrap", "-grpc-addr=localhost:8502",
-	}
-	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
-		kind := strings.ReplaceAll(string(c.config.Gateway.Kind), "-gateway", "")
-		cmdArgs = append(cmdArgs, "-gateway", kind)
-	}
-	if c.config.ConsulLogin.Enabled {
-		cmdArgs = append(cmdArgs, "-token-file", cfg.TokenFile)
-	}
-	if proxyRegistration.Partition != "" {
-		// Partition/namespace support is enabled so augment the connect command.
-		cmdArgs = append(cmdArgs,
-			"-partition", proxyRegistration.Partition,
-			"-namespace", proxyRegistration.Namespace)
-	}
-
-	c.log.Info("Running", "cmd", cmdArgs)
-	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s: %s", err, string(out))
-	}
-
-	envoyBootstrapFile := path.Join(c.config.BootstrapDir, envoyBoostrapConfigFilename)
-	err = os.WriteFile(envoyBootstrapFile, out, 0444)
-	if err != nil {
-		return err
-	}
-
-	c.log.Info("envoy bootstrap config written", "file", envoyBootstrapFile)
+	c.log.Info("proxy registered successfully", "name", proxyRegistration.Service.Service, "id", proxyRegistration.Service.ID)
 
 	// Copy this binary to a volume for use in the sidecar-proxy container.
 	// This copies to the same place as we write the envoy bootstrap file, for now.
@@ -232,24 +181,6 @@ func retryLogger(log hclog.Logger) backoff.Notify {
 	}
 }
 
-func constructChecks(serviceID string, checks []config.AgentServiceCheck, healthSyncContainers []string) ([]config.AgentServiceCheck, error) {
-	if len(checks) > 0 && len(healthSyncContainers) > 0 {
-		return nil, fmt.Errorf("only one of service.checks or healthSyncContainers should be set")
-	}
-
-	if len(healthSyncContainers) > 0 {
-		for _, containerName := range healthSyncContainers {
-			checks = append(checks, config.AgentServiceCheck{
-				CheckID: fmt.Sprintf("%s-%s-consul-ecs", serviceID, containerName),
-				Name:    "consul ecs synced",
-				Notes:   fmt.Sprintf("consul-ecs created and updates this check because the %s container is essential and has an ECS health check.", containerName),
-				TTL:     "100000h",
-			})
-		}
-	}
-	return checks, nil
-}
-
 // constructServiceName returns the service name for registration with Consul.
 // This will use the config-provided name or, if not specified, default to the task family name.
 // A lower case service name is required since the auth method relies on tokens with a service identity,
@@ -265,6 +196,121 @@ func (c *Command) constructServiceName(family string) string {
 	return configName
 }
 
+// constructServiceRegistration returns the service registration request body.
+// May return an error due to invalid inputs from the config file.
+func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clusterARN string) *api.CatalogRegistration {
+	serviceName := c.constructServiceName(taskMeta.Family)
+	taskID := taskMeta.TaskID()
+	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
+
+	fullMeta := mergeMeta(map[string]string{
+		"task-id":  taskID,
+		"task-arn": taskMeta.TaskARN,
+		"source":   "consul-ecs",
+	}, c.config.Service.Meta)
+
+	service := c.config.Service.ToConsulType()
+	service.ID = serviceID
+	service.Service = serviceName
+	service.Meta = fullMeta
+
+	return c.constructCatalogRegistrationPayload(service, taskMeta, clusterARN)
+}
+
+// constructProxyRegistration returns the proxy registration request body.
+func (c *Command) constructProxyRegistration(serviceRegistration *api.CatalogRegistration, taskMeta awsutil.ECSTaskMeta, clusterARN string) *api.CatalogRegistration {
+	proxyService := &api.AgentService{
+		ID:                fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Service.ID),
+		Service:           fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Service.Service),
+		Kind:              api.ServiceKindConnectProxy,
+		Port:              c.config.Proxy.GetPublicListenerPort(),
+		Meta:              serviceRegistration.Service.Meta,
+		Tags:              serviceRegistration.Service.Tags,
+		Proxy:             c.config.Proxy.ToConsulType(),
+		Partition:         serviceRegistration.Service.Partition,
+		Namespace:         serviceRegistration.Service.Namespace,
+		Weights:           serviceRegistration.Service.Weights,
+		EnableTagOverride: serviceRegistration.Service.EnableTagOverride,
+	}
+
+	proxyService.Proxy.DestinationServiceID = serviceRegistration.Service.ID
+	proxyService.Proxy.DestinationServiceName = serviceRegistration.Service.Service
+	proxyService.Proxy.LocalServicePort = serviceRegistration.Service.Port
+
+	return c.constructCatalogRegistrationPayload(proxyService, taskMeta, clusterARN)
+}
+
+func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta, clusterARN string) *api.CatalogRegistration {
+	serviceName := c.config.Gateway.Name
+	if serviceName == "" {
+		serviceName = taskMeta.Family
+	}
+
+	taskID := taskMeta.TaskID()
+	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
+
+	gatewaySvc := c.config.Gateway.ToConsulType()
+	gatewaySvc.ID = serviceID
+	gatewaySvc.Service = serviceName
+	gatewaySvc.Meta = mergeMeta(map[string]string{
+		"task-id":  taskID,
+		"task-arn": taskMeta.TaskARN,
+		"source":   "consul-ecs",
+	}, c.config.Gateway.Meta)
+
+	taggedAddresses := make(map[string]api.ServiceAddress)
+
+	// Default the LAN port if it was not provided.
+	gatewaySvc.Port = config.DefaultGatewayPort
+
+	if c.config.Gateway.LanAddress != nil {
+		lanAddr := c.config.Gateway.LanAddress.ToConsulType()
+		// If a LAN address is provided then use that and add the LAN address to the tagged addresses.
+		if lanAddr.Port > 0 {
+			gatewaySvc.Port = lanAddr.Port
+		}
+		if lanAddr.Address != "" {
+			gatewaySvc.Address = lanAddr.Address
+			taggedAddresses[config.TaggedAddressLAN] = lanAddr
+		}
+	}
+
+	// TODO if assign_public_ip is set and the WAN address is not provided then
+	// we need to find the Public IP of the task (or LB) and use that for the WAN address.
+	if c.config.Gateway.WanAddress != nil {
+		wanAddr := c.config.Gateway.WanAddress.ToConsulType()
+		if wanAddr.Address != "" {
+			if wanAddr.Port == 0 {
+				wanAddr.Port = gatewaySvc.Port
+			}
+			taggedAddresses[config.TaggedAddressWAN] = wanAddr
+		}
+	}
+	if len(taggedAddresses) > 0 {
+		gatewaySvc.TaggedAddresses = taggedAddresses
+	}
+
+	return c.constructCatalogRegistrationPayload(gatewaySvc, taskMeta, clusterARN)
+}
+
+func (c *Command) constructCatalogRegistrationPayload(service *api.AgentService, taskMeta awsutil.ECSTaskMeta, clusterARN string) *api.CatalogRegistration {
+	return &api.CatalogRegistration{
+		Node:           clusterARN,
+		NodeMeta:       getNodeMeta(),
+		Address:        taskMeta.NodeIP(),
+		Service:        service,
+		Checks:         c.constructChecks(service),
+		Partition:      service.Partition,
+		SkipNodeUpdate: true,
+	}
+}
+
+func getNodeMeta() map[string]string {
+	return map[string]string{
+		config.SyntheticNode: "true",
+	}
+}
+
 func mergeMeta(m1, m2 map[string]string) map[string]string {
 	result := make(map[string]string)
 
@@ -277,134 +323,4 @@ func mergeMeta(m1, m2 map[string]string) map[string]string {
 	}
 
 	return result
-}
-
-// constructServiceRegistration returns the service registration request body.
-// May return an error due to invalid inputs from the config file.
-func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta) (*api.AgentServiceRegistration, error) {
-	serviceName := c.constructServiceName(taskMeta.Family)
-	taskID := taskMeta.TaskID()
-	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
-	checks, err := constructChecks(serviceID, c.config.Service.Checks, c.config.HealthSyncContainers)
-	if err != nil {
-		return nil, err
-	}
-
-	fullMeta := mergeMeta(map[string]string{
-		"task-id":  taskID,
-		"task-arn": taskMeta.TaskARN,
-		"source":   "consul-ecs",
-	}, c.config.Service.Meta)
-
-	serviceRegistration := c.config.Service.ToConsulType()
-	serviceRegistration.ID = serviceID
-	serviceRegistration.Name = serviceName
-	serviceRegistration.Meta = fullMeta
-	serviceRegistration.Checks = nil
-	for _, check := range checks {
-		serviceRegistration.Checks = append(serviceRegistration.Checks, check.ToConsulType())
-	}
-	return serviceRegistration, nil
-}
-
-// constructProxyRegistration returns the proxy registration request body.
-func (c *Command) constructProxyRegistration(serviceRegistration *api.AgentServiceRegistration) *api.AgentServiceRegistration {
-	proxyRegistration := &api.AgentServiceRegistration{}
-	proxyRegistration.ID = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.ID)
-	proxyRegistration.Name = fmt.Sprintf("%s-sidecar-proxy", serviceRegistration.Name)
-	proxyRegistration.Kind = api.ServiceKindConnectProxy
-	proxyRegistration.Port = c.config.Proxy.GetPublicListenerPort()
-	proxyRegistration.Meta = serviceRegistration.Meta
-	proxyRegistration.Tags = serviceRegistration.Tags
-	proxyRegistration.Proxy = c.config.Proxy.ToConsulType()
-	proxyRegistration.Proxy.DestinationServiceName = serviceRegistration.Name
-	proxyRegistration.Proxy.DestinationServiceID = serviceRegistration.ID
-	proxyRegistration.Proxy.LocalServicePort = serviceRegistration.Port
-	proxyRegistration.Checks = []*api.AgentServiceCheck{
-		{
-			Name:                           "Proxy Public Listener",
-			TCP:                            fmt.Sprintf("127.0.0.1:%d", proxyRegistration.Port),
-			Interval:                       "10s",
-			DeregisterCriticalServiceAfter: "10m",
-		},
-		{
-			Name:         "Destination Alias",
-			AliasService: serviceRegistration.ID,
-		},
-	}
-	proxyRegistration.Partition = serviceRegistration.Partition
-	proxyRegistration.Namespace = serviceRegistration.Namespace
-	proxyRegistration.Weights = serviceRegistration.Weights
-	proxyRegistration.EnableTagOverride = serviceRegistration.EnableTagOverride
-	return proxyRegistration
-}
-
-func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta) *api.AgentServiceRegistration {
-	serviceName := c.config.Gateway.Name
-	if serviceName == "" {
-		serviceName = taskMeta.Family
-	}
-
-	taskID := taskMeta.TaskID()
-	serviceID := fmt.Sprintf("%s-%s", serviceName, taskID)
-
-	gwRegistration := c.config.Gateway.ToConsulType()
-	gwRegistration.ID = serviceID
-	gwRegistration.Name = serviceName
-	gwRegistration.Meta = mergeMeta(map[string]string{
-		"task-id":  taskID,
-		"task-arn": taskMeta.TaskARN,
-		"source":   "consul-ecs",
-	}, c.config.Gateway.Meta)
-
-	taggedAddresses := make(map[string]api.ServiceAddress)
-
-	// Default the LAN port if it was not provided.
-	gwRegistration.Port = config.DefaultGatewayPort
-
-	if c.config.Gateway.LanAddress != nil {
-		lanAddr := c.config.Gateway.LanAddress.ToConsulType()
-		// If a LAN address is provided then use that and add the LAN address to the tagged addresses.
-		if lanAddr.Port > 0 {
-			gwRegistration.Port = lanAddr.Port
-		}
-		if lanAddr.Address != "" {
-			gwRegistration.Address = lanAddr.Address
-			taggedAddresses[config.TaggedAddressLAN] = lanAddr
-		}
-	}
-
-	// TODO if assign_public_ip is set and the WAN address is not provided then
-	// we need to find the Public IP of the task (or LB) and use that for the WAN address.
-	if c.config.Gateway.WanAddress != nil {
-		wanAddr := c.config.Gateway.WanAddress.ToConsulType()
-		if wanAddr.Address != "" {
-			if wanAddr.Port == 0 {
-				wanAddr.Port = gwRegistration.Port
-			}
-			taggedAddresses[config.TaggedAddressWAN] = wanAddr
-		}
-	}
-	if len(taggedAddresses) > 0 {
-		gwRegistration.TaggedAddresses = taggedAddresses
-	}
-
-	// Health check the task's IP, or the LAN address if specified.
-	healthCheckAddr := api.ServiceAddress{
-		Address: taskMeta.NodeIP(),
-		Port:    gwRegistration.Port,
-	}
-	if gwRegistration.Address != "" {
-		healthCheckAddr.Address = gwRegistration.Address
-	}
-
-	gwRegistration.Checks = []*api.AgentServiceCheck{
-		{
-			Name:                           fmt.Sprintf("%s listener", gwRegistration.Kind),
-			TCP:                            net.JoinHostPort(healthCheckAddr.Address, fmt.Sprint(healthCheckAddr.Port)),
-			Interval:                       "10s",
-			DeregisterCriticalServiceAfter: "10m",
-		},
-	}
-	return gwRegistration
 }

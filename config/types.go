@@ -33,6 +33,9 @@ const (
 	// TaggedAddressWAN is the map key for WAN tagged addresses.
 	TaggedAddressWAN = "wan"
 
+	// Name of the dataplane's container
+	ConsulDataplaneContainerName = "consul-dataplane"
+
 	// Match Consul: https://github.com/hashicorp/consul/blob/68e79b8180ca89e8cfca291b40a30d943039bd49/agent/consul/authmethod/awsauth/aws.go#L16-L20
 	AuthMethodType         string = "aws-iam"
 	IAMServerIDHeaderName  string = "X-Consul-IAM-ServerID"
@@ -40,6 +43,8 @@ const (
 	GetEntityURLHeader     string = "X-Consul-IAM-GetEntity-URL"
 	GetEntityHeadersHeader string = "X-Consul-IAM-GetEntity-Headers"
 	GetEntityBodyHeader    string = "X-Consul-IAM-GetEntity-Body"
+
+	SyntheticNode string = "synthetic-node"
 )
 
 // Config is the top-level config object.
@@ -170,98 +175,33 @@ func (c *ConsulServers) UnmarshalJSON(data []byte) error {
 //   - Proxy registration occurs in a separate request, so no need to inline the proxy config.
 //     See the SidecarProxyRegistration type.
 type ServiceRegistration struct {
-	Name              string              `json:"name"`
-	Tags              []string            `json:"tags,omitempty"`
-	Port              int                 `json:"port"`
-	EnableTagOverride bool                `json:"enableTagOverride,omitempty"`
-	Meta              map[string]string   `json:"meta,omitempty"`
-	Weights           *AgentWeights       `json:"weights,omitempty"`
-	Checks            []AgentServiceCheck `json:"checks,omitempty"`
-	Namespace         string              `json:"namespace,omitempty"`
-	Partition         string              `json:"partition,omitempty"`
+	Name              string            `json:"name"`
+	Tags              []string          `json:"tags,omitempty"`
+	Port              int               `json:"port"`
+	EnableTagOverride bool              `json:"enableTagOverride,omitempty"`
+	Meta              map[string]string `json:"meta,omitempty"`
+	Weights           *AgentWeights     `json:"weights,omitempty"`
+	Namespace         string            `json:"namespace,omitempty"`
+	Partition         string            `json:"partition,omitempty"`
 }
 
-func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
-	result := &api.AgentServiceRegistration{
-		Name:              r.Name,
+func (r *ServiceRegistration) ToConsulType() *api.AgentService {
+	result := &api.AgentService{
+		Service:           r.Name,
 		Tags:              r.Tags,
-		Port:              r.Port,
-		EnableTagOverride: r.EnableTagOverride,
 		Meta:              r.Meta,
-		Weights:           nil,
-		Checks:            nil,
+		Port:              r.Port,
+		Weights:           api.AgentWeights{},
+		EnableTagOverride: r.EnableTagOverride,
 		Namespace:         r.Namespace,
 		Partition:         r.Partition,
 	}
+
 	if r.Weights != nil {
 		result.Weights = r.Weights.ToConsulType()
 	}
-	for _, check := range r.Checks {
-		result.Checks = append(result.Checks, check.ToConsulType())
-	}
+
 	return result
-
-}
-
-// AgentServiceCheck configures a Consul Check.
-//
-// NOTE:
-//   - The DockerContainerID and Shell fields are excluded. Shell is only used for Docker checks, and
-//     Docker checks won't work on ECS. They cannot work on Fargate, and require specific config to access
-//     the host's Docker daemon on the EC2 launch type.
-//   - DeregisterCriticalServiceAfter is also excluded. We have health check support to handle service deregistration.
-type AgentServiceCheck struct {
-	CheckID                string              `json:"checkId,omitempty"`
-	Name                   string              `json:"name,omitempty"`
-	Args                   []string            `json:"args,omitempty"`
-	Interval               string              `json:"interval,omitempty"`
-	Timeout                string              `json:"timeout,omitempty"`
-	TTL                    string              `json:"ttl,omitempty"`
-	HTTP                   string              `json:"http,omitempty"`
-	Header                 map[string][]string `json:"header,omitempty"`
-	Method                 string              `json:"method,omitempty"`
-	Body                   string              `json:"body,omitempty"`
-	TCP                    string              `json:"tcp,omitempty"`
-	Status                 string              `json:"status,omitempty"`
-	Notes                  string              `json:"notes,omitempty"`
-	TLSServerName          string              `json:"tlsServerName,omitempty"`
-	TLSSkipVerify          bool                `json:"tlsSkipVerify,omitempty"`
-	GRPC                   string              `json:"grpc,omitempty"`
-	GRPCUseTLS             bool                `json:"grpcUseTls,omitempty"`
-	H2PPING                string              `json:"h2ping,omitempty"`
-	H2PingUseTLS           bool                `json:"h2pingUseTLS,omitempty"`
-	AliasNode              string              `json:"aliasNode,omitempty"`
-	AliasService           string              `json:"aliasService,omitempty"`
-	SuccessBeforePassing   int                 `json:"successBeforePassing,omitempty"`
-	FailuresBeforeCritical int                 `json:"failuresBeforeCritical,omitempty"`
-}
-
-func (c *AgentServiceCheck) ToConsulType() *api.AgentServiceCheck {
-	return &api.AgentServiceCheck{
-		CheckID:                c.CheckID,
-		Name:                   c.Name,
-		Args:                   c.Args,
-		Interval:               c.Interval,
-		Timeout:                c.Timeout,
-		TTL:                    c.TTL,
-		HTTP:                   c.HTTP,
-		Header:                 c.Header,
-		Method:                 c.Method,
-		Body:                   c.Body,
-		TCP:                    c.TCP,
-		Status:                 c.Status,
-		Notes:                  c.Notes,
-		TLSServerName:          c.TLSServerName,
-		TLSSkipVerify:          c.TLSSkipVerify,
-		GRPC:                   c.GRPC,
-		GRPCUseTLS:             c.GRPCUseTLS,
-		H2PING:                 c.H2PPING,
-		H2PingUseTLS:           c.H2PingUseTLS,
-		AliasNode:              c.AliasNode,
-		AliasService:           c.AliasService,
-		SuccessBeforePassing:   c.SuccessBeforePassing,
-		FailuresBeforeCritical: c.FailuresBeforeCritical,
-	}
 }
 
 type AgentWeights struct {
@@ -269,8 +209,8 @@ type AgentWeights struct {
 	Warning int `json:"warning"`
 }
 
-func (w *AgentWeights) ToConsulType() *api.AgentWeights {
-	return &api.AgentWeights{
+func (w *AgentWeights) ToConsulType() api.AgentWeights {
+	return api.AgentWeights{
 		Passing: w.Passing,
 		Warning: w.Warning,
 	}
@@ -417,11 +357,11 @@ type GatewayRegistration struct {
 	Proxy      *GatewayProxyConfig `json:"proxy,omitempty"`
 }
 
-func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
-	result := &api.AgentServiceRegistration{
+func (g *GatewayRegistration) ToConsulType() *api.AgentService {
+	result := &api.AgentService{
 		Kind:      g.Kind,
 		Port:      DefaultGatewayPort,
-		Name:      g.Name,
+		Service:   g.Name,
 		Tags:      g.Tags,
 		Meta:      g.Meta,
 		Namespace: g.Namespace,

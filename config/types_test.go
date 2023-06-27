@@ -195,34 +195,6 @@ func TestConsulServersHoldsDefaultValues(t *testing.T) {
 }
 
 var (
-	testCheck = AgentServiceCheck{
-		CheckID:  "check-1",
-		Name:     "test-check",
-		Args:     []string{"x", "y"},
-		Interval: "30s",
-		Timeout:  "5s",
-		TTL:      "30s",
-		HTTP:     "http://localhost:5000/health",
-		Header: map[string][]string{
-			"Content-Type": {"application/json"},
-		},
-		Method:                 "POST",
-		Body:                   `{"data": "abc123"}"`,
-		TCP:                    "localhost:5000",
-		Status:                 "204",
-		Notes:                  "A test check",
-		TLSServerName:          "test.example.com",
-		TLSSkipVerify:          true,
-		GRPC:                   "127.0.0.1:5000",
-		GRPCUseTLS:             true,
-		H2PPING:                "localhost:2222",
-		H2PingUseTLS:           true,
-		AliasNode:              "node-1",
-		AliasService:           "service-1",
-		SuccessBeforePassing:   5,
-		FailuresBeforeCritical: 3,
-	}
-
 	expectedConsulCheck = &api.AgentServiceCheck{
 		CheckID:           "check-1",
 		Name:              "test-check",
@@ -263,15 +235,14 @@ var (
 			Passing: 3,
 			Warning: 2,
 		},
-		Checks:    []AgentServiceCheck{testCheck},
 		Namespace: "test-ns",
 		Partition: "test-partition",
 	}
 
-	expectedConsulServiceRegistration = &api.AgentServiceRegistration{
+	expectedConsulServiceRegistration = &api.AgentService{
 		Kind:              "",
 		ID:                "",
-		Name:              "service-1",
+		Service:           "service-1",
 		Tags:              []string{"tag1", "tag2"},
 		Port:              1234,
 		Address:           "",
@@ -279,12 +250,10 @@ var (
 		TaggedAddresses:   nil,
 		EnableTagOverride: true,
 		Meta:              map[string]string{"env": "test", "version": "x.y.z"},
-		Weights: &api.AgentWeights{
+		Weights: api.AgentWeights{
 			Passing: 3,
 			Warning: 2,
 		},
-		Check:     nil,
-		Checks:    api.AgentServiceChecks{expectedConsulCheck},
 		Proxy:     nil,
 		Connect:   nil,
 		Namespace: "test-ns",

@@ -103,6 +103,10 @@ func (c *Config) ClientConfig() *api.Config {
 	return cfg
 }
 
+func (c *Config) IsGateway() bool {
+	return c.Gateway != nil && c.Gateway.Kind != ""
+}
+
 func (c *Config) getDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (discovery.Credentials, error) {
 	cfg := discovery.Credentials{
 		Type: discovery.CredentialsTypeLogin,
@@ -136,7 +140,7 @@ func (c *Config) getDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (discover
 }
 
 func (c *Config) getNamespace() string {
-	if c.isGateway() {
+	if c.IsGateway() {
 		return c.Gateway.Namespace
 	}
 
@@ -144,7 +148,7 @@ func (c *Config) getNamespace() string {
 }
 
 func (c *Config) getPartition() string {
-	if c.isGateway() {
+	if c.IsGateway() {
 		return c.Gateway.Partition
 	}
 
@@ -214,10 +218,6 @@ func (c *Config) createAWSBearerToken(taskMeta awsutil.ECSTaskMeta) (string, err
 		return "", err
 	}
 	return string(loginDataJson), err
-}
-
-func (c *Config) isGateway() bool {
-	return c.Gateway != nil && c.Gateway.Kind != ""
 }
 
 func mergeMeta(m1, m2 map[string]string) map[string]string {

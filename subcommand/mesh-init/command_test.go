@@ -730,13 +730,6 @@ func TestGateway(t *testing.T) {
 				c.config.ConsulLogin.STSEndpoint = fakeAws.URL + "/sts"
 			}
 
-			var partition, namespace string
-			// if testutil.EnterpriseFlag() {
-			// 	partition = "default"
-			// 	namespace = "default"
-			// }
-			// c.config.Gateway.Namespace = namespace
-			// c.config.Gateway.Partition = partition
 			testutil.SetECSConfigEnvVar(t, c.config)
 
 			ui := cli.NewMockUi()
@@ -758,6 +751,13 @@ func TestGateway(t *testing.T) {
 			// We wait till the control plane registers the proxy
 			// to Consul before entering into the checks reconcilation loop
 			<-cmd.doneChan
+
+			var partition, namespace string
+			if testutil.EnterpriseFlag() {
+				// TODO add enterprise tests
+				partition = "default"
+				namespace = "default"
+			}
 
 			expectedService := &api.CatalogService{
 				Node:                   "arn:aws:ecs:us-east-1:123456789:cluster/test",

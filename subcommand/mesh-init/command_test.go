@@ -85,6 +85,7 @@ func TestRun(t *testing.T) {
 		healthSyncContainers            map[string]healthSyncContainerMetaData
 		missingDataplaneContainer       bool
 		shouldMissingContainersReappear bool
+		expectedDataplaneConfigJSON     string
 
 		consulLogin config.ConsulLogin
 	}{
@@ -284,6 +285,7 @@ func TestRun(t *testing.T) {
 
 			envoyBootstrapDir := testutil.TempDir(t)
 			copyConsulECSBinary := filepath.Join(envoyBootstrapDir, "consul-ecs")
+			dataplaneConfigJSONFile := filepath.Join(envoyBootstrapDir, dataplaneConfigFileName)
 
 			_, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
 			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
@@ -444,6 +446,16 @@ func TestRun(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "consul-ecs", copyConsulEcsStat.Name())
 			require.Equal(t, os.FileMode(0755), copyConsulEcsStat.Mode())
+
+			dataplaneConfig, err := os.Stat(dataplaneConfigJSONFile)
+			require.NoError(t, err)
+			require.Equal(t, dataplaneConfigFileName, dataplaneConfig.Name())
+			require.Equal(t, os.FileMode(0444), dataplaneConfig.Mode())
+
+			expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), serverGRPCPort, expectedProxy.ServiceID, expectedNamespace, expectedPartition)
+			actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
+			require.NoError(t, err)
+			require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
 
 			// Set up ECS container metadata server. This sets ECS_CONTAINER_METADATA_URI_V4.
 			err = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
@@ -711,6 +723,7 @@ func TestGateway(t *testing.T) {
 			}
 
 			c.config.BootstrapDir = testutil.TempDir(t)
+			dataplaneConfigJSONFile := filepath.Join(c.config.BootstrapDir, dataplaneConfigFileName)
 			if c.config.ConsulLogin.Enabled {
 				fakeAws := testutil.AuthMethodInit(t, consulClient, c.expServiceName, config.DefaultAuthMethodName)
 				// Use the fake local AWS server.
@@ -791,6 +804,16 @@ func TestGateway(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, len(checks), 1)
 			require.Empty(t, cmp.Diff(checks[0], expectedCheck, cmpopts.IgnoreFields(api.HealthCheck{}, ignoredChecksFields...)))
+
+			dataplaneConfig, err := os.Stat(dataplaneConfigJSONFile)
+			require.NoError(t, err)
+			require.Equal(t, dataplaneConfigFileName, dataplaneConfig.Name())
+			require.Equal(t, os.FileMode(0444), dataplaneConfig.Mode())
+
+			expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), serverGRPCPort, expectedService.ServiceID, namespace, partition)
+			actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
+			require.NoError(t, err)
+			require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
 
 			// Signals control plane to enter into a state where it
 			// periodically sync checks back to Consul
@@ -886,4 +909,24 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 		require.Equal(r, 1, len(checks))
 		require.Equal(r, expectedProxyCheck.Status, checks[0].Status)
 	})
+}
+
+func getExpectedDataplaneCfgJSON() string {
+	return `{
+	"consul": {
+	  "addresses": "127.0.0.1",
+	  "grpcPort": %d,
+	  "serverWatchDisabled": false
+	},
+	"service": {
+	  "nodeName": "arn:aws:ecs:us-east-1:123456789:cluster/test",
+	  "serviceID": "%s",
+	  "namespace": "%s",
+	  "partition": "%s"
+	},
+	"xdsServer": {
+	  "bindAddress": "127.0.0.1",
+	  "bindPort": 20000
+	}
+  }`
 }

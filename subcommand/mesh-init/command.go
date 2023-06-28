@@ -21,6 +21,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
+	"github.com/hashicorp/consul-ecs/internal/dataplane"
 	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
@@ -57,6 +58,10 @@ type Command struct {
 	// Health check address assigned via unit tests
 	healthCheckListenerAddr string
 }
+
+const (
+	dataplaneConfigFileName = "consul-dataplane.json"
+)
 
 func (c *Command) init() {
 	c.ctx, c.cancel = context.WithCancel(context.Background())
@@ -188,6 +193,11 @@ func (c *Command) realRun() error {
 	c.log.Info("proxy registered successfully", "name", proxyRegistration.Service.Service, "id", proxyRegistration.Service.ID)
 
 	err = c.copyECSBinaryToSharedVolume()
+	if err != nil {
+		return err
+	}
+
+	err = c.generateAndWriteDataplaneConfig(proxyRegistration, state.Token)
 	if err != nil {
 		return err
 	}
@@ -423,6 +433,30 @@ func (c *Command) copyECSBinaryToSharedVolume() error {
 		return err
 	}
 	c.log.Info("copied binary", "file", copyConsulECSBinary)
+	return nil
+}
+
+// generateAndWriteDataplaneConfig generates the configuration json
+// needed for dataplane to configure itself and writes it to a shared
+// volume.
+func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.CatalogRegistration, consulToken string) error {
+	input := &dataplane.GetDataplaneConfigJSONInput{
+		ProxyRegistration:  proxyRegistration,
+		ConsulServerConfig: c.config.ConsulServers,
+		ConsulToken:        consulToken,
+	}
+
+	dataplaneConfigPath := path.Join(c.config.BootstrapDir, dataplaneConfigFileName)
+	configJSON, err := input.GetDataplaneConfigJSON()
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(dataplaneConfigPath, configJSON, 0444)
+	if err != nil {
+		return err
+	}
+	c.log.Info("wrote dataplane config to ", dataplaneConfigPath)
 	return nil
 }
 

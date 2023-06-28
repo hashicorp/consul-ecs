@@ -40,23 +40,11 @@ func (c *Command) Run(args []string) int {
 
 	c.log = logging.FromConfig(c.config).Logger()
 
-	cfg := api.DefaultConfig()
-	if c.config.ConsulLogin.Enabled {
-		// This file will already have been written by mesh-init.
-		cfg.TokenFile = filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
-	}
-
-	consulClient, err := api.NewClient(cfg)
-	if err != nil {
-		c.UI.Error(fmt.Sprintf("constructing consul client: %s", err))
-		return 1
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	c.ignoreSIGTERM(cancel)
 
-	if err := c.realRun(ctx, consulClient); err != nil {
+	if err := c.realRun(ctx); err != nil {
 		c.log.Error("error running main", "err", err)
 		return 1
 	}
@@ -64,7 +52,7 @@ func (c *Command) Run(args []string) int {
 	return 0
 }
 
-func (c *Command) realRun(ctx context.Context, consulClient *api.Client) error {
+func (c *Command) realRun(ctx context.Context) error {
 	<-ctx.Done()
 	var result error
 	if c.config.ConsulLogin.Enabled {

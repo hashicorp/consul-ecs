@@ -731,12 +731,12 @@ func TestGateway(t *testing.T) {
 			}
 
 			var partition, namespace string
-			if testutil.EnterpriseFlag() {
-				partition = "default"
-				namespace = "default"
-			}
-			c.config.Gateway.Namespace = namespace
-			c.config.Gateway.Partition = partition
+			// if testutil.EnterpriseFlag() {
+			// 	partition = "default"
+			// 	namespace = "default"
+			// }
+			// c.config.Gateway.Namespace = namespace
+			// c.config.Gateway.Partition = partition
 			testutil.SetECSConfigEnvVar(t, c.config)
 
 			ui := cli.NewMockUi()

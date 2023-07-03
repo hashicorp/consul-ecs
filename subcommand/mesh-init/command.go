@@ -496,13 +496,21 @@ func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.Catalog
 }
 
 func (c *Command) deregisterServiceAndProxy(consulClient *api.Client, clusterARN string, serviceRegistration, proxyRegistration *api.CatalogRegistration) error {
+	var result error
 	if serviceRegistration != nil {
-		deregisterConsulService(consulClient, serviceRegistration, clusterARN)
+		err := deregisterConsulService(consulClient, serviceRegistration, clusterARN)
+		if err != nil {
+			result = multierror.Append(result, err)
+		}
 	}
 
 	// Proxy deregistration
-	deregisterConsulService(consulClient, proxyRegistration, clusterARN)
-	return nil
+	err := deregisterConsulService(consulClient, proxyRegistration, clusterARN)
+	if err != nil {
+		result = multierror.Append(result, err)
+	}
+
+	return result
 }
 
 func deregisterConsulService(client *api.Client, reg *api.CatalogRegistration, node string) error {
@@ -514,11 +522,7 @@ func deregisterConsulService(client *api.Client, reg *api.CatalogRegistration, n
 	}
 
 	_, err := client.Catalog().Deregister(deregInput, nil)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func getNodeMeta() map[string]string {

@@ -1019,7 +1019,7 @@ func stopDataplaneContainer(taskMetadataResp *awsutil.ECSTaskMeta) {
 			break
 		}
 	}
-	if index == -1 {
+	if index <= -1 {
 		return
 	}
 

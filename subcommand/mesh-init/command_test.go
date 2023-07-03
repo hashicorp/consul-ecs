@@ -536,7 +536,7 @@ func TestRun(t *testing.T) {
 			// Verify with retries that the checks have reached the expected state
 			assertHealthChecks(t, consulClient, expectedServiceChecks, expectedProxyCheck)
 
-			stopDataplaneContainer(t, taskMetadataResponse)
+			stopDataplaneContainer(taskMetadataResponse)
 			taskMetaRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
 			require.NoError(t, err)
 			currentTaskMetaResp.Store(taskMetaRespStr)
@@ -825,7 +825,7 @@ func TestGateway(t *testing.T) {
 			expectedCheck.Status = api.HealthCritical
 			assertHealthChecks(t, consulClient, nil, expectedCheck)
 
-			stopDataplaneContainer(t, taskMetadataResponse)
+			stopDataplaneContainer(taskMetadataResponse)
 			taskMetadataRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
 			require.NoError(t, err)
 			currentTaskMetaResp.Store(taskMetadataRespStr)
@@ -1011,7 +1011,7 @@ func constructContainerResponse(name, health string) awsutil.ECSTaskMetaContaine
 
 // stopDataplaneContainer marks the dataplane container's status as STOPPED in the
 // task meta response
-func stopDataplaneContainer(t *testing.T, taskMetadataResp *awsutil.ECSTaskMeta) {
+func stopDataplaneContainer(taskMetadataResp *awsutil.ECSTaskMeta) {
 	index := -1
 	for i, c := range taskMetadataResp.Containers {
 		if isDataplaneContainer(c) {

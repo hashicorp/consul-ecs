@@ -63,7 +63,8 @@ type Command struct {
 const (
 	dataplaneConfigFileName = "consul-dataplane.json"
 
-	defaultHealthCheckBindAddr = "127.0.0.1:10000"
+	defaultHealthCheckBindAddr = "127.0.0.1"
+	defaultHealthCheckBindPort = "10000"
 )
 
 func (c *Command) init() {
@@ -271,7 +272,7 @@ func (c *Command) startHealthCheckServer() {
 	mux.HandleFunc("/consul-ecs/health", c.handleHealthCheck)
 	var handler http.Handler = mux
 
-	listenerBindAddr := defaultHealthCheckBindAddr
+	listenerBindAddr := net.JoinHostPort(defaultHealthCheckBindAddr, defaultHealthCheckBindPort)
 	if c.healthCheckListenerAddr != "" {
 		listenerBindAddr = c.healthCheckListenerAddr
 	}

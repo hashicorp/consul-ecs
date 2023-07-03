@@ -7,9 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -35,6 +38,12 @@ type healthSyncContainerMetaData struct {
 	// Status of the container when we first fetch task meta info
 	// from ECS
 	status string
+}
+
+type fileMeta struct {
+	name string
+	path string
+	mode int
 }
 
 func TestNoCLIFlagsSupported(t *testing.T) {
@@ -267,7 +276,14 @@ func TestRun(t *testing.T) {
 			}
 			taskMetaRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
 			require.NoError(t, err)
-			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetaRespStr))
+
+			var currentTaskMetaResp atomic.Value
+			currentTaskMetaResp.Store(taskMetaRespStr)
+			testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t,
+				func() string {
+					return currentTaskMetaResp.Load().(string)
+				},
+			))
 
 			if c.consulLogin.Enabled {
 				fakeAws := testutil.AuthMethodInit(t, consulClient, expectedServiceName, config.DefaultAuthMethodName)
@@ -279,8 +295,8 @@ func TestRun(t *testing.T) {
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui, isTestEnv: true}
 
-			port := freeport.GetOne(t)
-			cmd.healthCheckListenerAddr = fmt.Sprintf(":%d", port)
+			port := strconv.FormatInt(int64(freeport.GetOne(t)), 10)
+			cmd.healthCheckListenerAddr = net.JoinHostPort(defaultHealthCheckBindAddr, port)
 
 			cmd.ctx, cmd.cancel = context.WithCancel(context.Background())
 			t.Cleanup(func() {
@@ -291,8 +307,19 @@ func TestRun(t *testing.T) {
 			cmd.proceedChan = make(chan struct{})
 
 			envoyBootstrapDir := testutil.TempDir(t)
-			copyConsulECSBinary := filepath.Join(envoyBootstrapDir, "consul-ecs")
 			dataplaneConfigJSONFile := filepath.Join(envoyBootstrapDir, dataplaneConfigFileName)
+			expectedFileMeta := []*fileMeta{
+				{
+					name: "consul-ecs",
+					path: filepath.Join(envoyBootstrapDir, "consul-ecs"),
+					mode: 0755,
+				},
+				{
+					name: dataplaneConfigFileName,
+					path: dataplaneConfigJSONFile,
+					mode: 0444,
+				},
+			}
 
 			_, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
 			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
@@ -422,74 +449,15 @@ func TestRun(t *testing.T) {
 				Status:      api.HealthCritical,
 			}
 
-			// Note: TaggedAddressees may be set, but it seems like a race.
-			// We don't support tproxy in ECS, so I don't think we care about this?
-			agentServiceIgnoreFields := cmpopts.IgnoreFields(api.CatalogService{},
-				"ModifyIndex", "CreateIndex", "TaggedAddresses", "ServiceTaggedAddresses")
-
-			serviceInstances, _, err := consulClient.Catalog().Service(expectedServiceName, "", nil)
-			require.NoError(t, err)
-			require.Equal(t, 1, len(serviceInstances))
-			require.Empty(t, cmp.Diff(expectedService, serviceInstances[0], agentServiceIgnoreFields))
-
-			proxyServiceInstances, _, err := consulClient.Catalog().Service(expectedProxy.ServiceName, "", nil)
-			require.NoError(t, err)
-			require.Equal(t, 1, len(proxyServiceInstances))
-			require.Empty(t, cmp.Diff(expectedProxy, proxyServiceInstances[0], agentServiceIgnoreFields))
-
-			var ignoredChecksFields = []string{"Node", "Notes", "Definition", "Output", "Partition", "CreateIndex", "ModifyIndex", "ServiceTags"}
-			// Check if checks are registered for services
-			for _, expCheck := range expectedServiceChecks {
-				filter := fmt.Sprintf("CheckID == `%s`", expCheck.CheckID)
-				checks, _, err := consulClient.Health().Checks(expCheck.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expCheck.Namespace})
-				require.NoError(t, err)
-				require.Equal(t, len(checks), 1)
-				require.Empty(t, cmp.Diff(checks[0], expCheck, cmpopts.IgnoreFields(api.HealthCheck{}, ignoredChecksFields...)))
-			}
-
-			// Check if the proxy service has a registered check
-			filter := fmt.Sprintf("CheckID == `%s`", expectedProxyCheck.CheckID)
-			checks, _, err := consulClient.Health().Checks(expectedProxy.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expectedProxy.Namespace})
-			require.NoError(t, err)
-			require.Equal(t, len(checks), 1)
-			require.Empty(t, cmp.Diff(checks[0], expectedProxyCheck, cmpopts.IgnoreFields(api.HealthCheck{}, ignoredChecksFields...)))
-
-			copyConsulEcsStat, err := os.Stat(copyConsulECSBinary)
-			require.NoError(t, err)
-			require.Equal(t, "consul-ecs", copyConsulEcsStat.Name())
-			require.Equal(t, os.FileMode(0755), copyConsulEcsStat.Mode())
-
-			dataplaneConfig, err := os.Stat(dataplaneConfigJSONFile)
-			require.NoError(t, err)
-			require.Equal(t, dataplaneConfigFileName, dataplaneConfig.Name())
-			require.Equal(t, os.FileMode(0444), dataplaneConfig.Mode())
-
-			expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), serverGRPCPort, expectedProxy.ServiceID, expectedNamespace, expectedPartition)
-			actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
-			require.NoError(t, err)
-			require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
-
-			// Set up ECS container metadata server. This sets ECS_CONTAINER_METADATA_URI_V4.
-			err = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
-			require.NoError(t, err)
+			assertServiceAndProxyRegistrations(t, consulClient, expectedService, expectedProxy, expectedServiceName, expectedProxy.ServiceName)
+			assertCheckRegistration(t, consulClient, expectedServiceChecks, expectedProxyCheck)
+			assertWrittenFiles(t, expectedFileMeta)
+			assertDataplaneConfigJSON(t, serverGRPCPort, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition)
 
 			// Construct task meta response for the first few iterations
 			// of syncChecks
-			var taskMetaContainersResponse []awsutil.ECSTaskMetaContainer
-			if !c.missingDataplaneContainer {
-				taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy))
-			}
-			for name, hsc := range c.healthSyncContainers {
-				if hsc.missing {
-					continue
-				}
-
-				taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(name, hsc.status))
-			}
-			taskMetadataResponse.Containers = taskMetaContainersResponse
-			taskMetaRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
-			require.NoError(t, err)
-			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetaRespStr))
+			taskMetaRespStr = injectContainersIntoTaskMetaResponse(t, c.missingDataplaneContainer, false, taskMetadataResponse, c.healthSyncContainers)
+			currentTaskMetaResp.Store(taskMetaRespStr)
 
 			// Populate expectedServiceChecks based on the new status
 			// of containers returned by the task meta server
@@ -535,17 +503,8 @@ func TestRun(t *testing.T) {
 			// tests if the control plane is able to sync back the status of the
 			// container to Consul servers.
 			if c.shouldMissingContainersReappear {
-				err = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
-				require.NoError(t, err)
-				taskMetaContainersResponse = make([]awsutil.ECSTaskMetaContainer, 0)
-				taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy))
-				for name, hsc := range c.healthSyncContainers {
-					taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(name, hsc.status))
-				}
-				taskMetadataResponse.Containers = taskMetaContainersResponse
-				taskMetaRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
-				require.NoError(t, err)
-				testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetaRespStr))
+				taskMetaRespStr = injectContainersIntoTaskMetaResponse(t, false, false, taskMetadataResponse, c.healthSyncContainers)
+				currentTaskMetaResp.Store(taskMetaRespStr)
 
 				for _, expCheck := range expectedServiceChecks {
 					found := false
@@ -567,10 +526,7 @@ func TestRun(t *testing.T) {
 			}
 
 			// Send SIGTERM and verify the status of checks
-			err = syscall.Kill(os.Getpid(), syscall.SIGTERM)
-			require.NoError(t, err)
-			time.Sleep(100 * time.Millisecond) // Give it time to react
-
+			signalSIGTERM(t)
 			// SIGTERM should mark all the checks as critical
 			for _, expCheck := range expectedServiceChecks {
 				expCheck.Status = api.HealthCritical
@@ -737,7 +693,14 @@ func TestGateway(t *testing.T) {
 			server, apiCfg := testutil.ConsulServer(t, srvConfig)
 			taskMetadataRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
 			require.NoError(t, err)
-			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataRespStr))
+
+			var currentTaskMetaResp atomic.Value
+			currentTaskMetaResp.Store(taskMetadataRespStr)
+			testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t,
+				func() string {
+					return currentTaskMetaResp.Load().(string)
+				},
+			))
 
 			consulClient, err := api.NewClient(apiCfg)
 			require.NoError(t, err)
@@ -753,6 +716,14 @@ func TestGateway(t *testing.T) {
 
 			c.config.BootstrapDir = testutil.TempDir(t)
 			dataplaneConfigJSONFile := filepath.Join(c.config.BootstrapDir, dataplaneConfigFileName)
+			expectedFileMeta := []*fileMeta{
+				{
+					name: dataplaneConfigFileName,
+					path: dataplaneConfigJSONFile,
+					mode: 0444,
+				},
+			}
+
 			if c.config.ConsulLogin.Enabled {
 				fakeAws := testutil.AuthMethodInit(t, consulClient, c.expServiceName, config.DefaultAuthMethodName)
 				// Use the fake local AWS server.
@@ -821,51 +792,26 @@ func TestGateway(t *testing.T) {
 				Status:      api.HealthCritical,
 			}
 
-			agentServiceIgnoreFields := cmpopts.IgnoreFields(api.CatalogService{},
-				"ModifyIndex", "CreateIndex")
-
-			serviceInstances, _, err := consulClient.Catalog().Service(c.expServiceName, "", nil)
-			require.NoError(t, err)
-			require.Equal(t, 1, len(serviceInstances))
-			require.Empty(t, cmp.Diff(expectedService, serviceInstances[0], agentServiceIgnoreFields))
-
-			ignoredChecksFields := []string{"Node", "Notes", "Definition", "Output", "Partition", "CreateIndex", "ModifyIndex", "ServiceTags"}
-			// Check if the service has a registered check
-			filter := fmt.Sprintf("CheckID == `%s`", expectedCheck.CheckID)
-			checks, _, err := consulClient.Health().Checks(expectedService.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expectedService.Namespace})
-			require.NoError(t, err)
-			require.Equal(t, len(checks), 1)
-			require.Empty(t, cmp.Diff(checks[0], expectedCheck, cmpopts.IgnoreFields(api.HealthCheck{}, ignoredChecksFields...)))
-
-			dataplaneConfig, err := os.Stat(dataplaneConfigJSONFile)
-			require.NoError(t, err)
-			require.Equal(t, dataplaneConfigFileName, dataplaneConfig.Name())
-			require.Equal(t, os.FileMode(0444), dataplaneConfig.Mode())
-
-			expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), serverGRPCPort, expectedService.ServiceID, namespace, partition)
-			actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
-			require.NoError(t, err)
-			require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
+			assertServiceAndProxyRegistrations(t, consulClient, nil, expectedService, "", c.expServiceName)
+			assertCheckRegistration(t, consulClient, nil, expectedCheck)
+			assertWrittenFiles(t, expectedFileMeta)
+			assertDataplaneConfigJSON(t, serverGRPCPort, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition)
 
 			// Signals control plane to enter into a state where it
 			// periodically sync checks back to Consul
 			close(cmd.proceedChan)
 
-			err = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
-			require.NoError(t, err)
-
 			taskMetadataResponse.Containers = append(taskMetadataResponse.Containers, constructContainerResponse(config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy))
 			taskMetadataRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
 			require.NoError(t, err)
+			currentTaskMetaResp.Store(taskMetadataRespStr)
+
 			expectedCheck.Status = api.HealthPassing
-			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataRespStr))
 
 			assertHealthChecks(t, consulClient, nil, expectedCheck)
 
 			// Send SIGTERM and verify the status of checks
-			err = syscall.Kill(os.Getpid(), syscall.SIGTERM)
-			require.NoError(t, err)
-			time.Sleep(100 * time.Millisecond) // Give it time to react
+			signalSIGTERM(t)
 
 			expectedCheck.Status = api.HealthCritical
 			assertHealthChecks(t, consulClient, nil, expectedCheck)
@@ -921,6 +867,60 @@ func TestMakeProxyServiceIDAndName(t *testing.T) {
 	require.Equal(t, expectedName, actualName)
 }
 
+func assertServiceAndProxyRegistrations(t *testing.T, consulClient *api.Client, expectedService, expectedProxy *api.CatalogService, serviceName, proxyName string) {
+	// Note: TaggedAddressees may be set, but it seems like a race.
+	// We don't support tproxy in ECS, so I don't think we care about this?
+	agentServiceIgnoreFields := cmpopts.IgnoreFields(api.CatalogService{},
+		"ModifyIndex", "CreateIndex", "TaggedAddresses", "ServiceTaggedAddresses")
+
+	if serviceName != "" {
+		serviceInstances, _, err := consulClient.Catalog().Service(serviceName, "", nil)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(serviceInstances))
+		require.Empty(t, cmp.Diff(expectedService, serviceInstances[0], agentServiceIgnoreFields))
+	}
+
+	proxyServiceInstances, _, err := consulClient.Catalog().Service(proxyName, "", nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(proxyServiceInstances))
+	require.Empty(t, cmp.Diff(expectedProxy, proxyServiceInstances[0], agentServiceIgnoreFields))
+}
+
+func assertCheckRegistration(t *testing.T, consulClient *api.Client, expectedServiceChecks api.HealthChecks, expectedProxyCheck *api.HealthCheck) {
+	var ignoredChecksFields = []string{"Node", "Notes", "Definition", "Output", "Partition", "CreateIndex", "ModifyIndex", "ServiceTags"}
+	// Check if checks are registered for services
+	for _, expCheck := range expectedServiceChecks {
+		filter := fmt.Sprintf("CheckID == `%s`", expCheck.CheckID)
+		checks, _, err := consulClient.Health().Checks(expCheck.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expCheck.Namespace})
+		require.NoError(t, err)
+		require.Equal(t, len(checks), 1)
+		require.Empty(t, cmp.Diff(checks[0], expCheck, cmpopts.IgnoreFields(api.HealthCheck{}, ignoredChecksFields...)))
+	}
+
+	// Check if the proxy service has a registered check
+	filter := fmt.Sprintf("CheckID == `%s`", expectedProxyCheck.CheckID)
+	checks, _, err := consulClient.Health().Checks(expectedProxyCheck.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expectedProxyCheck.Namespace})
+	require.NoError(t, err)
+	require.Equal(t, len(checks), 1)
+	require.Empty(t, cmp.Diff(checks[0], expectedProxyCheck, cmpopts.IgnoreFields(api.HealthCheck{}, ignoredChecksFields...)))
+}
+
+func assertWrittenFiles(t *testing.T, expectedFiles []*fileMeta) {
+	for _, expectedFile := range expectedFiles {
+		f, err := os.Stat(expectedFile.path)
+		require.NoError(t, err)
+		require.Equal(t, expectedFile.name, f.Name())
+		require.Equal(t, os.FileMode(expectedFile.mode), f.Mode())
+	}
+}
+
+func assertDataplaneConfigJSON(t *testing.T, grpcPort int, dataplaneConfigJSONFile, proxySvcID, namespace, partition string) {
+	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, proxySvcID, namespace, partition)
+	actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
+	require.NoError(t, err)
+	require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
+}
+
 func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceChecks api.HealthChecks, expectedProxyCheck *api.HealthCheck) {
 	timer := &retry.Timer{Timeout: 5 * time.Second, Wait: 500 * time.Millisecond}
 	retry.RunWith(timer, t, func(r *retry.R) {
@@ -942,6 +942,25 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 		require.Equal(r, 1, len(checks))
 		require.Equal(r, expectedProxyCheck.Status, checks[0].Status)
 	})
+}
+
+func injectContainersIntoTaskMetaResponse(t *testing.T, skipDataplaneContainer, ignoreMissingContainers bool, taskMetadataResponse *awsutil.ECSTaskMeta, healthSyncContainers map[string]healthSyncContainerMetaData) string {
+	var taskMetaContainersResponse []awsutil.ECSTaskMetaContainer
+	if !ignoreMissingContainers && !skipDataplaneContainer {
+		taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy))
+	}
+	for name, hsc := range healthSyncContainers {
+		if !ignoreMissingContainers && hsc.missing {
+			continue
+		}
+
+		taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(name, hsc.status))
+	}
+	taskMetadataResponse.Containers = taskMetaContainersResponse
+	taskMetaRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
+	require.NoError(t, err)
+
+	return taskMetaRespStr
 }
 
 func constructContainerResponse(name, health string) awsutil.ECSTaskMetaContainer {
@@ -980,4 +999,11 @@ func getExpectedDataplaneCfgJSON() string {
 	  "bindPort": 20000
 	}
   }`
+}
+
+func signalSIGTERM(t *testing.T) {
+	err := syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	require.NoError(t, err)
+	// Give it time to react
+	time.Sleep(100 * time.Millisecond)
 }

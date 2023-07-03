@@ -5,6 +5,7 @@ package meshinit
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -259,8 +260,14 @@ func TestRun(t *testing.T) {
 			require.NoError(t, err)
 
 			// Set up ECS container metadata server. This sets ECS_CONTAINER_METADATA_URI_V4.
-			taskMetadataResponse := fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s"}`, taskARN, family)
-			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataResponse))
+			taskMetadataResponse := &awsutil.ECSTaskMeta{
+				Cluster: "test",
+				TaskARN: taskARN,
+				Family:  family,
+			}
+			taskMetaRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
+			require.NoError(t, err)
+			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetaRespStr))
 
 			if c.consulLogin.Enabled {
 				fakeAws := testutil.AuthMethodInit(t, consulClient, expectedServiceName, config.DefaultAuthMethodName)
@@ -468,23 +475,21 @@ func TestRun(t *testing.T) {
 
 			// Construct task meta response for the first few iterations
 			// of syncChecks
-			var taskMetaContainersResponse string
+			var taskMetaContainersResponse []awsutil.ECSTaskMetaContainer
 			if !c.missingDataplaneContainer {
-				taskMetaContainersResponse = fmt.Sprintf(`{"Name": "%s", "Health": {"Status": "%s"}}`, config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy)
+				taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy))
 			}
 			for name, hsc := range c.healthSyncContainers {
 				if hsc.missing {
 					continue
 				}
 
-				if taskMetaContainersResponse != "" {
-					taskMetaContainersResponse += ","
-				}
-
-				taskMetaContainersResponse += fmt.Sprintf(`{"Name": "%s", "Health": {"Status": "%s"}}`, name, hsc.status)
+				taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(name, hsc.status))
 			}
-			taskMetadataResponse = fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s", "Containers": [%s]}`, taskARN, family, taskMetaContainersResponse)
-			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataResponse))
+			taskMetadataResponse.Containers = taskMetaContainersResponse
+			taskMetaRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
+			require.NoError(t, err)
+			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetaRespStr))
 
 			// Populate expectedServiceChecks based on the new status
 			// of containers returned by the task meta server
@@ -532,12 +537,15 @@ func TestRun(t *testing.T) {
 			if c.shouldMissingContainersReappear {
 				err = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
 				require.NoError(t, err)
-				taskMetaContainersResponse = fmt.Sprintf(`{"Name": "%s", "Health": {"Status": "%s"}}`, config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy)
+				taskMetaContainersResponse = make([]awsutil.ECSTaskMetaContainer, 0)
+				taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy))
 				for name, hsc := range c.healthSyncContainers {
-					taskMetaContainersResponse += fmt.Sprintf(`,{"Name": "%s", "Health": {"Status": "%s"}}`, name, hsc.status)
+					taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(name, hsc.status))
 				}
-				taskMetadataResponse = fmt.Sprintf(`{"Cluster": "test", "TaskARN": "%s", "Family": "%s", "Containers": [%s]}`, taskARN, family, taskMetaContainersResponse)
-				testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataResponse))
+				taskMetadataResponse.Containers = taskMetaContainersResponse
+				taskMetaRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
+				require.NoError(t, err)
+				testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetaRespStr))
 
 				for _, expCheck := range expectedServiceChecks {
 					found := false
@@ -585,8 +593,22 @@ func TestGateway(t *testing.T) {
 		taskIP               = "10.1.2.3"
 		publicIP             = "255.1.2.3"
 		taskDNSName          = "test-dns-name"
-		taskMetadataResponse = fmt.Sprintf(`{"Cluster": "test","TaskARN": "%s","Family": "%s","Containers":[{"Networks":[{"IPv4Addresses":["%s"],"PrivateDNSName":"%s"}]}]}`, taskARN, family, taskIP, taskDNSName)
-		expectedTaskMeta     = map[string]string{
+		taskMetadataResponse = &awsutil.ECSTaskMeta{
+			Cluster: "test",
+			TaskARN: taskARN,
+			Family:  family,
+			Containers: []awsutil.ECSTaskMetaContainer{
+				{
+					Networks: []awsutil.ECSTaskMetaNetwork{
+						{
+							IPv4Addresses:  []string{taskIP},
+							PrivateDNSName: taskDNSName,
+						},
+					},
+				},
+			},
+		}
+		expectedTaskMeta = map[string]string{
 			"task-id":  "abcdef",
 			"task-arn": taskARN,
 			"source":   "consul-ecs",
@@ -713,7 +735,9 @@ func TestGateway(t *testing.T) {
 			}
 
 			server, apiCfg := testutil.ConsulServer(t, srvConfig)
-			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataResponse))
+			taskMetadataRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
+			require.NoError(t, err)
+			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataRespStr))
 
 			consulClient, err := api.NewClient(apiCfg)
 			require.NoError(t, err)
@@ -830,10 +854,11 @@ func TestGateway(t *testing.T) {
 			err = os.Unsetenv(awsutil.ECSMetadataURIEnvVar)
 			require.NoError(t, err)
 
-			dataplaneContainer := fmt.Sprintf(`{"Name": "%s", "Health": {"Status": "%s"}}`, config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy)
-			taskMetadataResponse = fmt.Sprintf(`{"Cluster": "test","TaskARN": "%s","Family": "%s","Containers":[{"Networks":[{"IPv4Addresses":["%s"],"PrivateDNSName":"%s"}]},%s]}`, taskARN, family, taskIP, taskDNSName, dataplaneContainer)
+			taskMetadataResponse.Containers = append(taskMetadataResponse.Containers, constructContainerResponse(config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy))
+			taskMetadataRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
+			require.NoError(t, err)
 			expectedCheck.Status = api.HealthPassing
-			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataResponse))
+			testutil.TaskMetaServer(t, testutil.TaskMetaHandler(t, taskMetadataRespStr))
 
 			assertHealthChecks(t, consulClient, nil, expectedCheck)
 
@@ -917,6 +942,24 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 		require.Equal(r, 1, len(checks))
 		require.Equal(r, expectedProxyCheck.Status, checks[0].Status)
 	})
+}
+
+func constructContainerResponse(name, health string) awsutil.ECSTaskMetaContainer {
+	return awsutil.ECSTaskMetaContainer{
+		Name: name,
+		Health: awsutil.ECSTaskMetaHealth{
+			Status: health,
+		},
+	}
+}
+
+func constructTaskMetaResponseString(resp *awsutil.ECSTaskMeta) (string, error) {
+	byteStr, err := json.Marshal(resp)
+	if err != nil {
+		return "", err
+	}
+
+	return string(byteStr), nil
 }
 
 func getExpectedDataplaneCfgJSON() string {

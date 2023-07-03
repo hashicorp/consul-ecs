@@ -168,17 +168,14 @@ func (c *Command) setChecksCritical(consulClient *api.Client, taskID, serviceNam
 // should also happen twice in such cases.
 func (c *Command) handleHealthForDataplaneContainer(consulClient *api.Client, taskID, serviceName, clusterARN, containerName, ecsHealthStatus string) error {
 	var checkID string
-	var err error
 	serviceID := makeServiceID(serviceName, taskID)
 	if c.config.IsGateway() {
 		checkID = constructCheckID(serviceID, containerName)
-		err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecsHealthStatus)
-
-		return err
+		return c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecsHealthStatus)
 	}
 
 	checkID = constructCheckID(serviceID, containerName)
-	err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecsHealthStatus)
+	err := c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecsHealthStatus)
 	if err != nil {
 		return err
 	}
@@ -202,7 +199,7 @@ func (c *Command) updateConsulHealthStatus(consulClient *api.Client, checkID str
 	}
 
 	check.Status = consulHealthStatus
-	check.Output = fmt.Sprintf("ECS health status is %q for task %q", ecsHealthStatus, checkID)
+	check.Output = fmt.Sprintf("ECS health status is %q for container %q", ecsHealthStatus, checkID)
 	c.checks[checkID] = check
 
 	updateCheckReq := &api.CatalogRegistration{

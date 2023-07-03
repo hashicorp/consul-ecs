@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -39,7 +40,7 @@ type Command struct {
 	sigs   chan os.Signal
 	once   sync.Once
 
-	isHealthy bool
+	isHealthy atomic.Bool
 	checks    map[string]*api.HealthCheck
 
 	// Following fields are only needed for unit tests
@@ -61,18 +62,18 @@ type Command struct {
 
 const (
 	dataplaneConfigFileName = "consul-dataplane.json"
+
+	defaultHealthCheckBindAddr = "127.0.0.1:10000"
 )
 
 func (c *Command) init() {
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	c.sigs = make(chan os.Signal, 1)
+	c.isHealthy.Store(false)
 }
 
 func (c *Command) Run(args []string) int {
 	c.once.Do(c.init)
-
-	// Register and start health check handler.
-	go c.registerHealthCheckHandler()
 
 	if len(args) > 0 {
 		c.UI.Error(fmt.Sprintf("unexpected argument: %v", args[0]))
@@ -99,6 +100,9 @@ func (c *Command) Run(args []string) int {
 func (c *Command) realRun() error {
 	signal.Notify(c.sigs, syscall.SIGTERM)
 	defer c.cleanup()
+
+	// Register and start health check handler.
+	go c.startHealthCheckServer()
 
 	taskMeta, err := awsutil.ECSTaskMetadata()
 	if err != nil {
@@ -204,12 +208,12 @@ func (c *Command) realRun() error {
 
 	// Marking the control plane healthy so that ECS can start
 	// other containers within the task depending on this.
-	c.isHealthy = true
+	c.isHealthy.Store(true)
 
 	serviceName := c.constructServiceName(taskMeta.Family)
 	currentHealthStatuses := make(map[string]string)
 
-	healthSyncContainers := make([]string, 0)
+	var healthSyncContainers []string
 	healthSyncContainers = append(healthSyncContainers, c.config.HealthSyncContainers...)
 	healthSyncContainers = append(healthSyncContainers, config.ConsulDataplaneContainerName)
 
@@ -224,7 +228,7 @@ func (c *Command) realRun() error {
 		case <-time.After(syncChecksInterval):
 			currentHealthStatuses = c.syncChecks(consulClient, currentHealthStatuses, serviceName, clusterARN, healthSyncContainers)
 		case <-c.sigs:
-			c.log.Debug("Received SIGTERM. Ignoring it for now and marking all the checks for the registered service as critical in the Consul server.")
+			c.log.Info("Received SIGTERM. Beginning graceful shutdown by first marking all checks as critical.")
 
 			err := c.setChecksCritical(consulClient, taskMeta.TaskID(), serviceName, clusterARN, healthSyncContainers)
 			if err != nil {
@@ -257,17 +261,17 @@ func retryLogger(log hclog.Logger) backoff.Notify {
 	}
 }
 
-// registerHealthCheckHandler registers a custom health check handler
+// startHealthCheckServer registers a custom health check handler
 // that indicates the control plane's readiness. The endpoint becomes
 // healthy when the control plane successfully registers the service
 // and proxy configurations and writes the dataplane's configuration
 // to a shared volume.
-func (c *Command) registerHealthCheckHandler() {
+func (c *Command) startHealthCheckServer() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/consul-ecs/health", c.handleHealthCheck)
 	var handler http.Handler = mux
 
-	listenerBindAddr := ":10000"
+	listenerBindAddr := defaultHealthCheckBindAddr
 	if c.healthCheckListenerAddr != "" {
 		listenerBindAddr = c.healthCheckListenerAddr
 	}
@@ -278,12 +282,12 @@ func (c *Command) registerHealthCheckHandler() {
 }
 
 func (c *Command) handleHealthCheck(rw http.ResponseWriter, _ *http.Request) {
-	if !c.isHealthy {
+	if !c.isHealthy.Load() {
 		c.UI.Error("[GET /consul-ecs/health] consul-ecs control plane is not yet healthy")
 		rw.WriteHeader(500)
 		return
 	}
-	rw.WriteHeader(204)
+	rw.WriteHeader(200)
 }
 
 // constructServiceName returns the service name for registration with Consul.
@@ -416,7 +420,9 @@ func (c *Command) constructCatalogRegistrationPayload(service *api.AgentService,
 
 // copyECSBinaryToSharedVolume copies the consul-ecs binary to a volume.
 // This can be later used to perform health checks against envoy's public
-// listener port with the `netdial` command
+// listener port with the `netdial` command. The `app-entrypoint` and
+// `envoy-entrypoint` commands are also intended to be used with other
+// containers. This is one other reason to copy the binary to a shared volume.
 func (c *Command) copyECSBinaryToSharedVolume() error {
 	ex, err := os.Executable()
 	if err != nil {

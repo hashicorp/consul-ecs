@@ -117,7 +117,7 @@ func TestRun(t *testing.T) {
 						"some-app-container",
 						"consul-client",
 						"consul-ecs-health-sync",
-						"consul-ecs-mesh-init",
+						"consul-ecs-control-plane",
 						"sidecar-proxy",
 					)
 

@@ -19,10 +19,10 @@ import (
 
 var (
 	nonAppContainers = map[string]struct{}{
-		"consul-client":          {},
-		"sidecar-proxy":          {},
-		"consul-ecs-health-sync": {},
-		"consul-ecs-mesh-init":   {},
+		"consul-client":            {},
+		"sidecar-proxy":            {},
+		"consul-ecs-health-sync":   {},
+		"consul-ecs-control-plane": {},
 	}
 )
 

@@ -1,4 +1,4 @@
-package meshinit
+package controlplane
 
 import (
 	"testing"

@@ -44,7 +44,7 @@ func ConsulServer(t *testing.T, cb ServerConfigCallback) (*testutil.TestServer, 
 		cfg.Token = server.Config.ACL.Tokens.InitialManagement
 	}
 
-	// Set CONSUL_HTTP_ADDR for mesh-init. Required to invoke the consul binary (i.e. in mesh-init).
+	// Set CONSUL_HTTP_ADDR for control-plane. Required to invoke the consul binary (i.e. in control-plane).
 	require.NoError(t, os.Setenv("CONSUL_HTTP_ADDR", server.HTTPAddr))
 	t.Cleanup(func() {
 		_ = os.Unsetenv("CONSUL_HTTP_ADDR")

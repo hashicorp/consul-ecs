@@ -182,12 +182,7 @@ func (c *Command) handleHealthForDataplaneContainer(consulClient *api.Client, ta
 
 	proxySvcID, _ := makeProxySvcIDAndName(serviceID, "")
 	checkID = constructCheckID(proxySvcID, containerName)
-	err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecsHealthStatus)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecsHealthStatus)
 }
 
 func (c *Command) updateConsulHealthStatus(consulClient *api.Client, checkID string, clusterARN string, ecsHealthStatus string) error {
@@ -209,10 +204,7 @@ func (c *Command) updateConsulHealthStatus(consulClient *api.Client, checkID str
 	}
 
 	_, err := consulClient.Catalog().Register(updateCheckReq, nil)
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
 func constructCheckID(serviceID, containerName string) string {

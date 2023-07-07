@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -104,6 +105,44 @@ func TestECSTaskMeta(t *testing.T) {
 	clusterArn, err := ecsMeta.ClusterARN()
 	require.NoError(t, err)
 	require.Equal(t, clusterArn, "arn:aws:ecs:us-east-1:123456789:cluster/test")
+}
+
+func TestHasContainerStopped(t *testing.T) {
+	taskMeta := ECSTaskMeta{}
+	taskMeta.Containers = []ECSTaskMetaContainer{
+		{
+			Name:          "container1",
+			DesiredStatus: ecs.DesiredStatusRunning,
+			KnownStatus:   ecs.DesiredStatusRunning,
+		},
+		{
+			Name:          "container2",
+			DesiredStatus: ecs.DesiredStatusPending,
+			KnownStatus:   ecs.DesiredStatusPending,
+		},
+	}
+
+	require.Equal(t, false, taskMeta.HasContainerStopped("container2"))
+
+	taskMeta.Containers[1].DesiredStatus = ecs.DesiredStatusStopped
+	taskMeta.Containers[1].KnownStatus = ecs.DesiredStatusStopped
+
+	require.Equal(t, true, taskMeta.HasContainerStopped("container2"))
+}
+
+func TestHasStopped(t *testing.T) {
+	container := ECSTaskMetaContainer{
+		Name:          "container1",
+		DesiredStatus: ecs.DesiredStatusRunning,
+		KnownStatus:   ecs.DesiredStatusRunning,
+	}
+
+	require.Equal(t, false, container.HasStopped())
+
+	container.DesiredStatus = ecs.DesiredStatusStopped
+	container.KnownStatus = ecs.DesiredStatusStopped
+
+	require.Equal(t, true, container.HasStopped())
 }
 
 // Helper to restore the environment after a test.

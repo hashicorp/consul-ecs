@@ -536,6 +536,12 @@ func TestRun(t *testing.T) {
 			// Verify with retries that the checks have reached the expected state
 			assertHealthChecks(t, consulClient, expectedServiceChecks, expectedProxyCheck)
 
+			stopDataplaneContainer(taskMetadataResponse)
+			taskMetaRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
+			require.NoError(t, err)
+			currentTaskMetaResp.Store(taskMetaRespStr)
+
+			assertDeregistration(t, consulClient, expectedServiceName, expectedProxy.ServiceName)
 			cmd.cancel()
 		})
 	}
@@ -543,27 +549,12 @@ func TestRun(t *testing.T) {
 
 func TestGateway(t *testing.T) {
 	var (
-		family               = "family-name-mesh-gateway"
-		serviceName          = "service-name-mesh-gateway"
-		taskARN              = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
-		taskIP               = "10.1.2.3"
-		publicIP             = "255.1.2.3"
-		taskDNSName          = "test-dns-name"
-		taskMetadataResponse = &awsutil.ECSTaskMeta{
-			Cluster: "test",
-			TaskARN: taskARN,
-			Family:  family,
-			Containers: []awsutil.ECSTaskMetaContainer{
-				{
-					Networks: []awsutil.ECSTaskMetaNetwork{
-						{
-							IPv4Addresses:  []string{taskIP},
-							PrivateDNSName: taskDNSName,
-						},
-					},
-				},
-			},
-		}
+		family           = "family-name-mesh-gateway"
+		serviceName      = "service-name-mesh-gateway"
+		taskARN          = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+		taskIP           = "10.1.2.3"
+		publicIP         = "255.1.2.3"
+		taskDNSName      = "test-dns-name"
 		expectedTaskMeta = map[string]string{
 			"task-id":  "abcdef",
 			"task-arn": taskARN,
@@ -688,6 +679,22 @@ func TestGateway(t *testing.T) {
 			if c.config.ConsulLogin.Enabled {
 				// Enable ACLs to test with the auth method
 				srvConfig = testutil.ConsulACLConfigFn
+			}
+
+			taskMetadataResponse := &awsutil.ECSTaskMeta{
+				Cluster: "test",
+				TaskARN: taskARN,
+				Family:  family,
+				Containers: []awsutil.ECSTaskMetaContainer{
+					{
+						Networks: []awsutil.ECSTaskMetaNetwork{
+							{
+								IPv4Addresses:  []string{taskIP},
+								PrivateDNSName: taskDNSName,
+							},
+						},
+					},
+				},
 			}
 
 			server, apiCfg := testutil.ConsulServer(t, srvConfig)
@@ -816,6 +823,12 @@ func TestGateway(t *testing.T) {
 			expectedCheck.Status = api.HealthCritical
 			assertHealthChecks(t, consulClient, nil, expectedCheck)
 
+			stopDataplaneContainer(taskMetadataResponse)
+			taskMetadataRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
+			require.NoError(t, err)
+			currentTaskMetaResp.Store(taskMetadataRespStr)
+
+			assertDeregistration(t, consulClient, "", expectedService.ServiceName)
 			cmd.cancel()
 		})
 	}
@@ -944,6 +957,21 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 	})
 }
 
+func assertDeregistration(t *testing.T, consulClient *api.Client, serviceName, proxyName string) {
+	timer := &retry.Timer{Timeout: 5 * time.Second, Wait: 500 * time.Millisecond}
+	retry.RunWith(timer, t, func(r *retry.R) {
+		if serviceName != "" {
+			serviceInstances, _, err := consulClient.Catalog().Service(serviceName, "", nil)
+			require.NoError(r, err)
+			require.Equal(r, 0, len(serviceInstances))
+		}
+
+		serviceInstances, _, err := consulClient.Catalog().Service(proxyName, "", nil)
+		require.NoError(r, err)
+		require.Equal(r, 0, len(serviceInstances))
+	})
+}
+
 func injectContainersIntoTaskMetaResponse(t *testing.T, skipDataplaneContainer, ignoreMissingContainers bool, taskMetadataResponse *awsutil.ECSTaskMeta, healthSyncContainers map[string]healthSyncContainerMetaData) string {
 	var taskMetaContainersResponse []awsutil.ECSTaskMetaContainer
 	if !ignoreMissingContainers && !skipDataplaneContainer {
@@ -969,6 +997,18 @@ func constructContainerResponse(name, health string) awsutil.ECSTaskMetaContaine
 		Health: awsutil.ECSTaskMetaHealth{
 			Status: health,
 		},
+	}
+}
+
+// stopDataplaneContainer marks the dataplane container's status as STOPPED in the
+// task meta response
+func stopDataplaneContainer(taskMetadataResp *awsutil.ECSTaskMeta) {
+	for i, c := range taskMetadataResp.Containers {
+		if c.Name == config.ConsulDataplaneContainerName {
+			taskMetadataResp.Containers[i].DesiredStatus = ecs.DesiredStatusStopped
+			taskMetadataResp.Containers[i].KnownStatus = ecs.DesiredStatusStopped
+			return
+		}
 	}
 }
 

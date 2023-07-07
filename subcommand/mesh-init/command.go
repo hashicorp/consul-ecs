@@ -27,6 +27,7 @@ import (
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-multierror"
 	"github.com/mitchellh/cli"
 )
 
@@ -42,6 +43,8 @@ type Command struct {
 
 	isHealthy atomic.Bool
 	checks    map[string]*api.HealthCheck
+
+	dataplaneMonitor *dataplaneMonitor
 
 	// Following fields are only needed for unit tests
 
@@ -89,6 +92,7 @@ func (c *Command) Run(args []string) int {
 	c.config = config
 
 	c.log = logging.FromConfig(c.config).Logger()
+	c.dataplaneMonitor = newDataplaneMonitor(c.ctx, c.log)
 
 	err = c.realRun()
 	if err != nil {
@@ -104,6 +108,8 @@ func (c *Command) realRun() error {
 
 	// Register and start health check handler.
 	go c.startHealthCheckServer()
+
+	go c.dataplaneMonitor.run()
 
 	taskMeta, err := awsutil.ECSTaskMetadata()
 	if err != nil {
@@ -223,7 +229,6 @@ func (c *Command) realRun() error {
 		<-c.proceedChan
 	}
 
-	// TODO: Handle graceful shutdown
 	for {
 		select {
 		case <-time.After(syncChecksInterval):
@@ -235,9 +240,26 @@ func (c *Command) realRun() error {
 			if err != nil {
 				c.log.Error("Error marking the status of checks as critical: %s", err.Error())
 			}
-		case <-c.ctx.Done():
-			// TODO: Handle consul logout and service/proxy deregistration once dataplane shuts down
-			return nil
+		case <-c.dataplaneMonitor.done():
+			var result error
+			c.log.Info("Dataplane has successfully shutdown. Deregistering services and terminating control plane")
+
+			err = c.deregisterServiceAndProxy(consulClient, clusterARN, serviceRegistration, proxyRegistration)
+			if err != nil {
+				c.log.Error("error deregistering service and proxy %s", err.Error())
+				result = multierror.Append(result, err)
+			}
+
+			if c.config.ConsulLogin.Enabled {
+				// TODO: Add unit tests for ACL Logout
+				_, err = consulClient.ACL().Logout(nil)
+				if err != nil {
+					c.log.Error("error logging out of consul %s", err.Error())
+					result = multierror.Append(result, err)
+				}
+			}
+
+			return result
 		}
 	}
 }
@@ -465,6 +487,36 @@ func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.Catalog
 	}
 	c.log.Info("wrote dataplane config to ", dataplaneConfigPath)
 	return nil
+}
+
+func (c *Command) deregisterServiceAndProxy(consulClient *api.Client, clusterARN string, serviceRegistration, proxyRegistration *api.CatalogRegistration) error {
+	var result error
+	if serviceRegistration != nil {
+		err := deregisterConsulService(consulClient, serviceRegistration, clusterARN)
+		if err != nil {
+			result = multierror.Append(result, err)
+		}
+	}
+
+	// Proxy deregistration
+	err := deregisterConsulService(consulClient, proxyRegistration, clusterARN)
+	if err != nil {
+		result = multierror.Append(result, err)
+	}
+
+	return result
+}
+
+func deregisterConsulService(client *api.Client, reg *api.CatalogRegistration, node string) error {
+	deregInput := &api.CatalogDeregistration{
+		Node:      node,
+		ServiceID: reg.Service.ID,
+		Namespace: reg.Service.Namespace,
+		Partition: reg.Service.Partition,
+	}
+
+	_, err := client.Catalog().Deregister(deregInput, nil)
+	return err
 }
 
 func getNodeMeta() map[string]string {

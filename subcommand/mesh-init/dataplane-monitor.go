@@ -7,7 +7,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/go-hclog"
@@ -24,7 +23,7 @@ func newDataplaneMonitor(ctx context.Context, logger hclog.Logger) *dataplaneMon
 	return &dataplaneMonitor{
 		ctx:    ctx,
 		log:    logger,
-		doneCh: make(chan struct{}, 1),
+		doneCh: make(chan struct{}),
 	}
 }
 
@@ -39,7 +38,6 @@ func (d *dataplaneMonitor) run() {
 	defer close(d.doneCh)
 
 	if !d.waitForSIGTERM() {
-		d.doneCh <- struct{}{}
 		return
 	}
 
@@ -55,9 +53,8 @@ func (d *dataplaneMonitor) run() {
 				break
 			}
 
-			if hasDataplaneContainerStopped(taskMeta) {
+			if taskMeta.HasContainerStopped(config.ConsulDataplaneContainerName) {
 				d.log.Info("dataplane container has stopped, terminating control plane")
-				d.doneCh <- struct{}{}
 				return
 			}
 		}
@@ -77,23 +74,4 @@ func (d *dataplaneMonitor) waitForSIGTERM() bool {
 			return false
 		}
 	}
-}
-
-func hasDataplaneContainerStopped(taskMeta awsutil.ECSTaskMeta) bool {
-	stopped := true
-	for _, container := range taskMeta.Containers {
-		if isDataplaneContainer(container) && !isStopped(container) {
-			stopped = false
-		}
-	}
-	return stopped
-}
-
-func isDataplaneContainer(container awsutil.ECSTaskMetaContainer) bool {
-	return container.Name == config.ConsulDataplaneContainerName
-}
-
-func isStopped(container awsutil.ECSTaskMetaContainer) bool {
-	return container.DesiredStatus == ecs.DesiredStatusStopped &&
-		container.KnownStatus == ecs.DesiredStatusStopped
 }

@@ -259,12 +259,6 @@ func (c *Command) realRun() error {
 				}
 			}
 
-			// Cleanup bootstrap directory
-			err = os.RemoveAll(c.config.BootstrapDir)
-			if err != nil {
-				c.log.Error("error cleaning up bootstrap directory %s", err.Error())
-				result = multierror.Append(result, err)
-			}
 			return result
 		}
 	}

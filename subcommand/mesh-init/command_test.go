@@ -542,8 +542,6 @@ func TestRun(t *testing.T) {
 			currentTaskMetaResp.Store(taskMetaRespStr)
 
 			assertDeregistration(t, consulClient, expectedServiceName, expectedProxy.ServiceName)
-			assertDirectoryCleanup(t, envoyBootstrapDir)
-
 			cmd.cancel()
 		})
 	}
@@ -831,8 +829,6 @@ func TestGateway(t *testing.T) {
 			currentTaskMetaResp.Store(taskMetadataRespStr)
 
 			assertDeregistration(t, consulClient, "", expectedService.ServiceName)
-			assertDirectoryCleanup(t, c.config.BootstrapDir)
-
 			cmd.cancel()
 		})
 	}
@@ -976,11 +972,6 @@ func assertDeregistration(t *testing.T, consulClient *api.Client, serviceName, p
 	})
 }
 
-func assertDirectoryCleanup(t *testing.T, dir string) {
-	_, err := os.ReadDir(dir)
-	require.Error(t, err)
-}
-
 func injectContainersIntoTaskMetaResponse(t *testing.T, skipDataplaneContainer, ignoreMissingContainers bool, taskMetadataResponse *awsutil.ECSTaskMeta, healthSyncContainers map[string]healthSyncContainerMetaData) string {
 	var taskMetaContainersResponse []awsutil.ECSTaskMetaContainer
 	if !ignoreMissingContainers && !skipDataplaneContainer {
@@ -1012,19 +1003,13 @@ func constructContainerResponse(name, health string) awsutil.ECSTaskMetaContaine
 // stopDataplaneContainer marks the dataplane container's status as STOPPED in the
 // task meta response
 func stopDataplaneContainer(taskMetadataResp *awsutil.ECSTaskMeta) {
-	index := -1
 	for i, c := range taskMetadataResp.Containers {
-		if isDataplaneContainer(c) {
-			index = i
-			break
+		if c.Name == config.ConsulDataplaneContainerName {
+			taskMetadataResp.Containers[i].DesiredStatus = ecs.DesiredStatusStopped
+			taskMetadataResp.Containers[i].KnownStatus = ecs.DesiredStatusStopped
+			return
 		}
 	}
-	if index <= -1 {
-		return
-	}
-
-	taskMetadataResp.Containers[index].DesiredStatus = ecs.DesiredStatusStopped
-	taskMetadataResp.Containers[index].KnownStatus = ecs.DesiredStatusStopped
 }
 
 func constructTaskMetaResponseString(resp *awsutil.ECSTaskMeta) (string, error) {

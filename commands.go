@@ -6,8 +6,6 @@ package main
 import (
 	"os"
 
-	"github.com/mitchellh/cli"
-
 	cmdController "github.com/hashicorp/consul-ecs/subcommand/acl-controller"
 	cmdAppEntrypoint "github.com/hashicorp/consul-ecs/subcommand/app-entrypoint"
 	cmdEnvoyEntrypoint "github.com/hashicorp/consul-ecs/subcommand/envoy-entrypoint"
@@ -16,6 +14,7 @@ import (
 	cmdNetDial "github.com/hashicorp/consul-ecs/subcommand/net-dial"
 	cmdVersion "github.com/hashicorp/consul-ecs/subcommand/version"
 	"github.com/hashicorp/consul-ecs/version"
+	"github.com/mitchellh/cli"
 )
 
 // Commands is the mapping of all available consul-ecs commands.
@@ -26,9 +25,6 @@ func init() {
 
 	Commands = map[string]cli.CommandFactory{
 		"version": func() (cli.Command, error) {
-			if version.IsFIPS() {
-				return &cmdVersion.Command{UI: ui, Version: version.GetHumanVersion(), FIPS: version.GetFIPSInfo()}, nil
-			}
 			return &cmdVersion.Command{UI: ui, Version: version.GetHumanVersion()}, nil
 		},
 		"mesh-init": func() (cli.Command, error) {

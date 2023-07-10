@@ -28,9 +28,9 @@ dev: dist
 	GOARCH=$(ARCH) GOOS=$(OS) go build -ldflags "$(LD_FLAGS)" -o $(BIN)
 .PHONY: dev
 
-fips-dev: dist
+dev-fips: dist
 	GOARCH=$(ARCH) GOOS=$(OS) CGO_ENABLED=1 GOEXPERIMENT=boringcrypto go build -tags=fips  -ldflags "$(LD_FLAGS)" -o $(BIN)
-.PHONY: fips-dev
+.PHONY: dev-fips
 
 # Docker Stuff.
 # TODO: Docker in CircleCI doesn't support buildkit.
@@ -51,7 +51,7 @@ docker: dev
 
 docker-fips: OS = linux
 docker-fips: TARGET = release-fips-default
-docker-fips: fips-dev
+docker-fips: dev-fips
 	export DOCKER_BUILDKIT=1; docker build $(FLAGS) .
 .PHONY: docker-fips
 

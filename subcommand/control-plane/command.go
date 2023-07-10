@@ -46,6 +46,8 @@ type Command struct {
 
 	dataplaneMonitor *dataplaneMonitor
 
+	watcherCh <-chan discovery.State
+
 	// Following fields are only needed for unit tests
 
 	// control plane signals to this channel whenever it has completed
@@ -144,9 +146,8 @@ func (c *Command) realRun() error {
 		return fmt.Errorf("constructing consul client from config: %s", err)
 	}
 
-	var watcherCh <-chan discovery.State
-	if !c.config.ConsulServers.SkipServerWatch {
-		watcherCh = watcher.Subscribe()
+	if !c.config.ConsulServers.SkipServerWatch && !c.isTestEnv {
+		c.watcherCh = watcher.Subscribe()
 	}
 
 	c.checks = make(map[string]*api.HealthCheck)
@@ -215,7 +216,7 @@ func (c *Command) realRun() error {
 		select {
 		case <-time.After(syncChecksInterval):
 			currentHealthStatuses = c.syncChecks(consulClient, currentHealthStatuses, serviceName, clusterARN, healthSyncContainers)
-		case watcherState := <-watcherCh:
+		case watcherState := <-c.watcherCh:
 			c.log.Info("Consul server change detected. Reconfiguring consul client to connect to the newly discovered server(s)")
 			client, err := c.writeClientTokenAndConfigureConsulClient(watcherState)
 			if err != nil {

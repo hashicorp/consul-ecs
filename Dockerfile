@@ -50,11 +50,18 @@ ENV PATH="/bin/consul-inject:${PATH}"
 VOLUME [ "/consul" ]
 
 # Set up certificates, base tools, and software.
-RUN apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils iptables
+RUN apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils iptables gcompat libc6-compat libstdc++
+
+# for FIPS CGO glibc compatibility in alpine
+# see https://github.com/golang/go/issues/59305
+RUN ln -s /lib/libc.so.6 /usr/lib/libresolv.so.2
 
 USER $BIN_NAME
 ENTRYPOINT ["/bin/consul-ecs"]
 COPY dist/$TARGETOS/$TARGETARCH/$BIN_NAME /bin/
+
+# Separate FIPS target to accomodate CRT label assumptions
+FROM release-default AS release-fips-default
 
 # Set default target
 FROM release-default

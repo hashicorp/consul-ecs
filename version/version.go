@@ -32,6 +32,11 @@ func GetHumanVersion() string {
 	if VersionPrerelease != "" {
 		version += fmt.Sprintf("-%s", VersionPrerelease)
 	}
+
+	if IsFIPS() {
+		version += "+fips1402"
+	}
+
 	if GitCommit != "" {
 		version += fmt.Sprintf(" (%s)", GitCommit)
 	}

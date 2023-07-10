@@ -139,32 +139,14 @@ func (c *Command) realRun() error {
 		return fmt.Errorf("unable to fetch consul server watcher state: %s", err)
 	}
 
-	if c.config.ConsulLogin.Enabled {
-		// If enabled write the ACL token to a shared volume so that consul-dataplane
-		// can reuse it later on whenever it starts up
-		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
-		err = os.WriteFile(tokenFile, []byte(state.Token), 0644)
-		if err != nil {
-			return err
-		}
-
-		c.log.Info("wrote ACL token to shared volume", "token-file", tokenFile)
-	}
-
-	// Client config for the client that talks directly to the server agent
-	cfg := c.config.ClientConfig()
-	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTPPort), 10))
-	if state.Token != "" {
-		// In case the token is not replicated across the consul server followers, we might get a
-		// `ACL token not found` error till the replication completes. Server connection manager
-		// already implements a sleep that should mitigate this. If not, we should reintroduce the
-		// `waitForReplication` method removed in https://github.com/hashicorp/consul-ecs/pull/143
-		cfg.Token = state.Token
-	}
-
-	consulClient, err := api.NewClient(cfg)
+	consulClient, err := c.writeClientTokenAndConfigureConsulClient(state)
 	if err != nil {
 		return fmt.Errorf("constructing consul client from config: %s", err)
+	}
+
+	var watcherCh <-chan discovery.State
+	if !c.config.ConsulServers.SkipServerWatch {
+		watcherCh = watcher.Subscribe()
 	}
 
 	c.checks = make(map[string]*api.HealthCheck)
@@ -233,6 +215,14 @@ func (c *Command) realRun() error {
 		select {
 		case <-time.After(syncChecksInterval):
 			currentHealthStatuses = c.syncChecks(consulClient, currentHealthStatuses, serviceName, clusterARN, healthSyncContainers)
+		case watcherState := <-watcherCh:
+			c.log.Info("Consul server change detected. Reconfiguring consul client to connect to the newly discovered server(s)")
+			client, err := c.writeClientTokenAndConfigureConsulClient(watcherState)
+			if err != nil {
+				c.log.Error("error re-configuring consul client %s", err.Error())
+			} else {
+				consulClient = client
+			}
 		case <-c.sigs:
 			c.log.Info("Received SIGTERM. Beginning graceful shutdown by first marking all checks as critical.")
 
@@ -311,6 +301,33 @@ func (c *Command) handleHealthCheck(rw http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	rw.WriteHeader(200)
+}
+
+func (c *Command) writeClientTokenAndConfigureConsulClient(state discovery.State) (*api.Client, error) {
+	if c.config.ConsulLogin.Enabled {
+		// If enabled write the ACL token to a shared volume so that consul-dataplane
+		// can reuse it later on whenever it starts up
+		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
+		err := os.WriteFile(tokenFile, []byte(state.Token), 0644)
+		if err != nil {
+			return nil, err
+		}
+
+		c.log.Info("wrote ACL token to shared volume", "token-file", tokenFile)
+	}
+
+	// Client config for the client that talks directly to the server agent
+	cfg := c.config.ClientConfig()
+	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTPPort), 10))
+	if state.Token != "" {
+		// In case the token is not replicated across the consul server followers, we might get a
+		// `ACL token not found` error till the replication completes. Server connection manager
+		// already implements a sleep that should mitigate this. If not, we should reintroduce the
+		// `waitForReplication` method removed in https://github.com/hashicorp/consul-ecs/pull/143
+		cfg.Token = state.Token
+	}
+
+	return api.NewClient(cfg)
 }
 
 // constructServiceName returns the service name for registration with Consul.

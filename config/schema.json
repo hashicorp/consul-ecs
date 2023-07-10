@@ -67,6 +67,25 @@
       },
       "additionalProperties": false
     },
+    "controller": {
+      "description": "Configuration for the `consul-ecs controller` command.",
+      "type": ["object", "null"],
+      "properties": {
+        "iamRolePath": {
+          "description": "IAM roles at this path will be trusted by the Consul IAM auth method configured by the controller. Defaults to `/consul-ecs/`.",
+          "type": ["string", "null"]
+        },
+        "partitionsEnabled": {
+          "description": "Enables support for Consul partitions and namespaces [Consul Enterprise].",
+          "type": ["boolean", "null"]
+        },
+        "partition": {
+          "description": "The Consul partition name that the controller will use. Defaults to the `default` partition [Consul Enterprise].",
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
     "consulServers": {
       "description": "Configuration for the Consul servers.",
       "type": "object",

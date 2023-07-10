@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	defaultGRPCPort = 8503
-	defaultHTTPPort = 8501
+	defaultGRPCPort    = 8503
+	defaultHTTPPort    = 8501
+	defaultIAMRolePath = "/consul-ecs/"
 
 	// Cert used for internal RPC communication to the servers
 	consulGRPCCACertPemEnvVar = "CONSUL_GRPC_CACERT_PEM"

@@ -128,6 +128,11 @@ func OpenFile(t *testing.T, path string) string {
 var (
 	expectedConfig = &Config{
 		LogLevel: "",
+		Controller: Controller{
+			IAMRolePath:       "",
+			PartitionsEnabled: false,
+			Partition:         "",
+		},
 		ConsulLogin: ConsulLogin{
 			Enabled:    false,
 			Method:     "",
@@ -174,6 +179,11 @@ var (
 		LogLevel:             "DEBUG",
 		ConsulHTTPAddr:       "consul.example.com",
 		ConsulCACertFile:     "/consul/consul-ca-cert.pem",
+		Controller: Controller{
+			PartitionsEnabled: true,
+			Partition:         "default",
+			IAMRolePath:       "/consul-iam/",
+		},
 		ConsulServers: ConsulServers{
 			GRPCPort:        8503,
 			Hosts:           "consul.dc1",
@@ -283,6 +293,11 @@ var (
 		LogLevel:             "",
 		ConsulHTTPAddr:       "",
 		ConsulCACertFile:     "",
+		Controller: Controller{
+			IAMRolePath:       defaultIAMRolePath,
+			PartitionsEnabled: false,
+			Partition:         "",
+		},
 		ConsulServers: ConsulServers{
 			GRPCPort:        8503,
 			Hosts:           "",
@@ -332,6 +347,11 @@ var (
 		HealthSyncContainers: nil,
 		ConsulHTTPAddr:       "",
 		ConsulCACertFile:     "",
+		Controller: Controller{
+			IAMRolePath:       defaultIAMRolePath,
+			PartitionsEnabled: false,
+			Partition:         "",
+		},
 		ConsulLogin: ConsulLogin{
 			Enabled:             false,
 			Datacenter:          "",
@@ -414,6 +434,11 @@ var (
 			Region:              "",
 			STSEndpoint:         "",
 			ServerIDHeaderValue: "",
+		},
+		Controller: Controller{
+			IAMRolePath:       defaultIAMRolePath,
+			PartitionsEnabled: false,
+			Partition:         "",
 		},
 		ConsulServers: ConsulServers{
 			GRPCPort:        8503,

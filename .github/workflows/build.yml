@@ -186,7 +186,7 @@ jobs:
             public.ecr.aws/hashicorp/${{ env.repo }}-fips:${{ env.version }}
           dev_tags: |
             hashicorppreview/${{ env.repo }}-fips:${{ env.version }}
-            docker.io/hashicorppreview/${{ env.repo }}-fips:${{ env.version }}${{ github.sha }}
+            docker.io/hashicorppreview/${{ env.repo }}-fips:${{ env.version }}-${{ github.sha }}
 
   upload-dev-docker:
     name: Upload dev image (hashicorpdev/consul-ecs:<commit>)

@@ -6,7 +6,6 @@
 package aclcontroller
 
 import (
-	"fmt"
 	"testing"
 )
 

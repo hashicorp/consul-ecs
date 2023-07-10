@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -131,7 +132,7 @@ func testUpsertConsulResources(t *testing.T, cases map[string]iamAuthTestCase) {
 			err = cmd.upsertConsulResources(consulClient, testTaskMetadataResponse, clusterARN)
 			require.NoError(t, err)
 
-			checkConsulResources(t, consulClient, c.partitionsEnabled)
+			checkConsulResources(t, consulClient, c.partitionsEnabled, clusterARN)
 
 			// Optionally, delete some of the resources
 			if c.deleteAuthMethods {
@@ -212,12 +213,12 @@ func testUpsertConsulResources(t *testing.T, cases map[string]iamAuthTestCase) {
 			// Upsert again to recreate the deleted resources
 			err = cmd.upsertConsulResources(consulClient, testTaskMetadataResponse, clusterARN)
 			require.NoError(t, err)
-			checkConsulResources(t, consulClient, c.partitionsEnabled)
+			checkConsulResources(t, consulClient, c.partitionsEnabled, clusterARN)
 		})
 	}
 }
 
-func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnabled bool) {
+func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnabled bool, clusterARN string) {
 	t.Helper()
 
 	// Check the partition is created.
@@ -231,6 +232,23 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnab
 		require.Equal(t, partitions[0].Name, "default")
 		require.Equal(t, partitions[1].Name, testPartitionName)
 	}
+
+	// Check if the node got registered properly
+	partitionToCheck := ""
+	if partitionsEnabled {
+		partitionToCheck = testPartitionName
+	}
+	nodes, _, err := consulClient.Catalog().Nodes(&api.QueryOptions{Partition: partitionToCheck})
+	require.NoError(t, err)
+
+	foundNode := false
+	for _, n := range nodes {
+		if strings.EqualFold(n.Node, clusterARN) {
+			foundNode = true
+			break
+		}
+	}
+	require.True(t, foundNode)
 
 	// Check if policies are created as expected
 	policies, _, err := consulClient.ACL().PolicyList(nil)

@@ -961,9 +961,10 @@ func registerNode(t *testing.T, consulClient *api.Client, taskMeta awsutil.ECSTa
 	require.NoError(t, err)
 
 	payload := &api.CatalogRegistration{
-		Node:     clusterARN,
-		NodeMeta: getNodeMeta(),
-		Address:  taskMeta.NodeIP(),
+		Node:      clusterARN,
+		NodeMeta:  getNodeMeta(),
+		Address:   taskMeta.NodeIP(),
+		Partition: partition,
 	}
 
 	_, err = consulClient.Catalog().Register(payload, nil)

@@ -79,7 +79,7 @@ func TestConfigValidation(t *testing.T) {
 // that could not be shared if another test were to run in parallel.
 func TestRun(t *testing.T) {
 	family := "family-SERVICE-name"
-	//serviceName := "service-name"
+	serviceName := "service-name"
 
 	cases := map[string]struct {
 		servicePort                     int
@@ -99,106 +99,106 @@ func TestRun(t *testing.T) {
 
 		consulLogin config.ConsulLogin
 	}{
-		// "basic service": {},
-		// "service with port": {
-		// 	servicePort: 8080,
-		// 	proxyPort:   21000,
-		// },
-		// "service with upstreams": {
-		// 	upstreams: []config.Upstream{
-		// 		{
-		// 			DestinationName: "upstream1",
-		// 			LocalBindPort:   1234,
-		// 		},
-		// 		{
-		// 			DestinationName: "upstream2",
-		// 			LocalBindPort:   1235,
-		// 		},
-		// 	},
-		// 	expUpstreams: []api.Upstream{
-		// 		{
-		// 			DestinationType: "service",
-		// 			DestinationName: "upstream1",
-		// 			LocalBindPort:   1234,
-		// 		},
-		// 		{
-		// 			DestinationType: "service",
-		// 			DestinationName: "upstream2",
-		// 			LocalBindPort:   1235,
-		// 		},
-		// 	},
-		// },
-		// "service with one healthy healthSyncContainer": {
-		// 	healthSyncContainers: map[string]healthSyncContainerMetaData{
-		// 		"container-1": {
-		// 			missing: false,
-		// 			status:  ecs.HealthStatusHealthy,
-		// 		},
-		// 	},
-		// },
-		// "service with two healthy healthSyncContainers": {
-		// 	healthSyncContainers: map[string]healthSyncContainerMetaData{
-		// 		"container-1": {
-		// 			missing: false,
-		// 			status:  ecs.HealthStatusHealthy,
-		// 		},
-		// 		"container-2": {
-		// 			missing: false,
-		// 			status:  ecs.HealthStatusHealthy,
-		// 		},
-		// 	},
-		// },
-		// "service with one healthy and one unhealthy healthSyncContainers": {
-		// 	healthSyncContainers: map[string]healthSyncContainerMetaData{
-		// 		"container-1": {
-		// 			missing: false,
-		// 			status:  ecs.HealthStatusHealthy,
-		// 		},
-		// 		"container-2": {
-		// 			missing: false,
-		// 			status:  ecs.HealthStatusUnhealthy,
-		// 		},
-		// 	},
-		// },
-		// "service with one healthy and one missing healthSyncContainers": {
-		// 	healthSyncContainers: map[string]healthSyncContainerMetaData{
-		// 		"container-1": {
-		// 			missing: false,
-		// 			status:  ecs.HealthStatusHealthy,
-		// 		},
-		// 		"container-2": {
-		// 			missing: true,
-		// 		},
-		// 	},
-		// },
-		// "service with missing dataplane container": {
-		// 	missingDataplaneContainer: true,
-		// },
-		// "service with a missing container synced as healthy after it appears": {
-		// 	healthSyncContainers: map[string]healthSyncContainerMetaData{
-		// 		"container-1": {
-		// 			missing: false,
-		// 			status:  ecs.HealthStatusHealthy,
-		// 		},
-		// 		"container-2": {
-		// 			missing: true,
-		// 			status:  ecs.HealthStatusUnhealthy,
-		// 		},
-		// 	},
-		// 	shouldMissingContainersReappear: true,
-		// },
-		// "service with tags": {
-		// 	tags:    []string{"tag1", "tag2"},
-		// 	expTags: []string{"tag1", "tag2"},
-		// },
-		// "service with additional metadata": {
-		// 	additionalMeta:    map[string]string{"a": "1", "b": "2"},
-		// 	expAdditionalMeta: map[string]string{"a": "1", "b": "2"},
-		// },
-		// "service with service name": {
-		// 	serviceName:    serviceName,
-		// 	expServiceName: serviceName,
-		// },
+		"basic service": {},
+		"service with port": {
+			servicePort: 8080,
+			proxyPort:   21000,
+		},
+		"service with upstreams": {
+			upstreams: []config.Upstream{
+				{
+					DestinationName: "upstream1",
+					LocalBindPort:   1234,
+				},
+				{
+					DestinationName: "upstream2",
+					LocalBindPort:   1235,
+				},
+			},
+			expUpstreams: []api.Upstream{
+				{
+					DestinationType: "service",
+					DestinationName: "upstream1",
+					LocalBindPort:   1234,
+				},
+				{
+					DestinationType: "service",
+					DestinationName: "upstream2",
+					LocalBindPort:   1235,
+				},
+			},
+		},
+		"service with one healthy healthSyncContainer": {
+			healthSyncContainers: map[string]healthSyncContainerMetaData{
+				"container-1": {
+					missing: false,
+					status:  ecs.HealthStatusHealthy,
+				},
+			},
+		},
+		"service with two healthy healthSyncContainers": {
+			healthSyncContainers: map[string]healthSyncContainerMetaData{
+				"container-1": {
+					missing: false,
+					status:  ecs.HealthStatusHealthy,
+				},
+				"container-2": {
+					missing: false,
+					status:  ecs.HealthStatusHealthy,
+				},
+			},
+		},
+		"service with one healthy and one unhealthy healthSyncContainers": {
+			healthSyncContainers: map[string]healthSyncContainerMetaData{
+				"container-1": {
+					missing: false,
+					status:  ecs.HealthStatusHealthy,
+				},
+				"container-2": {
+					missing: false,
+					status:  ecs.HealthStatusUnhealthy,
+				},
+			},
+		},
+		"service with one healthy and one missing healthSyncContainers": {
+			healthSyncContainers: map[string]healthSyncContainerMetaData{
+				"container-1": {
+					missing: false,
+					status:  ecs.HealthStatusHealthy,
+				},
+				"container-2": {
+					missing: true,
+				},
+			},
+		},
+		"service with missing dataplane container": {
+			missingDataplaneContainer: true,
+		},
+		"service with a missing container synced as healthy after it appears": {
+			healthSyncContainers: map[string]healthSyncContainerMetaData{
+				"container-1": {
+					missing: false,
+					status:  ecs.HealthStatusHealthy,
+				},
+				"container-2": {
+					missing: true,
+					status:  ecs.HealthStatusUnhealthy,
+				},
+			},
+			shouldMissingContainersReappear: true,
+		},
+		"service with tags": {
+			tags:    []string{"tag1", "tag2"},
+			expTags: []string{"tag1", "tag2"},
+		},
+		"service with additional metadata": {
+			additionalMeta:    map[string]string{"a": "1", "b": "2"},
+			expAdditionalMeta: map[string]string{"a": "1", "b": "2"},
+		},
+		"service with service name": {
+			serviceName:    serviceName,
+			expServiceName: serviceName,
+		},
 		"auth method enabled": {
 			consulLogin: config.ConsulLogin{
 				Enabled:       true,

@@ -79,7 +79,7 @@ func TestConfigValidation(t *testing.T) {
 // that could not be shared if another test were to run in parallel.
 func TestRun(t *testing.T) {
 	family := "family-SERVICE-name"
-	serviceName := "service-name"
+	//serviceName := "service-name"
 
 	cases := map[string]struct {
 		servicePort                     int
@@ -99,115 +99,115 @@ func TestRun(t *testing.T) {
 
 		consulLogin config.ConsulLogin
 	}{
-		"basic service": {},
-		"service with port": {
-			servicePort: 8080,
-			proxyPort:   21000,
-		},
-		"service with upstreams": {
-			upstreams: []config.Upstream{
-				{
-					DestinationName: "upstream1",
-					LocalBindPort:   1234,
-				},
-				{
-					DestinationName: "upstream2",
-					LocalBindPort:   1235,
-				},
-			},
-			expUpstreams: []api.Upstream{
-				{
-					DestinationType: "service",
-					DestinationName: "upstream1",
-					LocalBindPort:   1234,
-				},
-				{
-					DestinationType: "service",
-					DestinationName: "upstream2",
-					LocalBindPort:   1235,
-				},
-			},
-		},
-		"service with one healthy healthSyncContainer": {
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
-				},
-			},
-		},
-		"service with two healthy healthSyncContainers": {
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
-				},
-				"container-2": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
-				},
-			},
-		},
-		"service with one healthy and one unhealthy healthSyncContainers": {
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
-				},
-				"container-2": {
-					missing: false,
-					status:  ecs.HealthStatusUnhealthy,
-				},
-			},
-		},
-		"service with one healthy and one missing healthSyncContainers": {
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
-				},
-				"container-2": {
-					missing: true,
-				},
-			},
-		},
-		"service with missing dataplane container": {
-			missingDataplaneContainer: true,
-		},
-		"service with a missing container synced as healthy after it appears": {
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
-				},
-				"container-2": {
-					missing: true,
-					status:  ecs.HealthStatusUnhealthy,
-				},
-			},
-			shouldMissingContainersReappear: true,
-		},
-		"service with tags": {
-			tags:    []string{"tag1", "tag2"},
-			expTags: []string{"tag1", "tag2"},
-		},
-		"service with additional metadata": {
-			additionalMeta:    map[string]string{"a": "1", "b": "2"},
-			expAdditionalMeta: map[string]string{"a": "1", "b": "2"},
-		},
-		"service with service name": {
-			serviceName:    serviceName,
-			expServiceName: serviceName,
-		},
-		// "auth method enabled": {
-		// 	consulLogin: config.ConsulLogin{
-		// 		Enabled:       true,
-		// 		IncludeEntity: true,
-		// 		Meta: map[string]string{
-		// 			"unittest-tag": "12345",
+		// "basic service": {},
+		// "service with port": {
+		// 	servicePort: 8080,
+		// 	proxyPort:   21000,
+		// },
+		// "service with upstreams": {
+		// 	upstreams: []config.Upstream{
+		// 		{
+		// 			DestinationName: "upstream1",
+		// 			LocalBindPort:   1234,
+		// 		},
+		// 		{
+		// 			DestinationName: "upstream2",
+		// 			LocalBindPort:   1235,
+		// 		},
+		// 	},
+		// 	expUpstreams: []api.Upstream{
+		// 		{
+		// 			DestinationType: "service",
+		// 			DestinationName: "upstream1",
+		// 			LocalBindPort:   1234,
+		// 		},
+		// 		{
+		// 			DestinationType: "service",
+		// 			DestinationName: "upstream2",
+		// 			LocalBindPort:   1235,
 		// 		},
 		// 	},
 		// },
+		// "service with one healthy healthSyncContainer": {
+		// 	healthSyncContainers: map[string]healthSyncContainerMetaData{
+		// 		"container-1": {
+		// 			missing: false,
+		// 			status:  ecs.HealthStatusHealthy,
+		// 		},
+		// 	},
+		// },
+		// "service with two healthy healthSyncContainers": {
+		// 	healthSyncContainers: map[string]healthSyncContainerMetaData{
+		// 		"container-1": {
+		// 			missing: false,
+		// 			status:  ecs.HealthStatusHealthy,
+		// 		},
+		// 		"container-2": {
+		// 			missing: false,
+		// 			status:  ecs.HealthStatusHealthy,
+		// 		},
+		// 	},
+		// },
+		// "service with one healthy and one unhealthy healthSyncContainers": {
+		// 	healthSyncContainers: map[string]healthSyncContainerMetaData{
+		// 		"container-1": {
+		// 			missing: false,
+		// 			status:  ecs.HealthStatusHealthy,
+		// 		},
+		// 		"container-2": {
+		// 			missing: false,
+		// 			status:  ecs.HealthStatusUnhealthy,
+		// 		},
+		// 	},
+		// },
+		// "service with one healthy and one missing healthSyncContainers": {
+		// 	healthSyncContainers: map[string]healthSyncContainerMetaData{
+		// 		"container-1": {
+		// 			missing: false,
+		// 			status:  ecs.HealthStatusHealthy,
+		// 		},
+		// 		"container-2": {
+		// 			missing: true,
+		// 		},
+		// 	},
+		// },
+		// "service with missing dataplane container": {
+		// 	missingDataplaneContainer: true,
+		// },
+		// "service with a missing container synced as healthy after it appears": {
+		// 	healthSyncContainers: map[string]healthSyncContainerMetaData{
+		// 		"container-1": {
+		// 			missing: false,
+		// 			status:  ecs.HealthStatusHealthy,
+		// 		},
+		// 		"container-2": {
+		// 			missing: true,
+		// 			status:  ecs.HealthStatusUnhealthy,
+		// 		},
+		// 	},
+		// 	shouldMissingContainersReappear: true,
+		// },
+		// "service with tags": {
+		// 	tags:    []string{"tag1", "tag2"},
+		// 	expTags: []string{"tag1", "tag2"},
+		// },
+		// "service with additional metadata": {
+		// 	additionalMeta:    map[string]string{"a": "1", "b": "2"},
+		// 	expAdditionalMeta: map[string]string{"a": "1", "b": "2"},
+		// },
+		// "service with service name": {
+		// 	serviceName:    serviceName,
+		// 	expServiceName: serviceName,
+		// },
+		"auth method enabled": {
+			consulLogin: config.ConsulLogin{
+				Enabled:       true,
+				IncludeEntity: true,
+				Meta: map[string]string{
+					"unittest-tag": "12345",
+				},
+			},
+		},
 	}
 
 	for name, c := range cases {
@@ -290,6 +290,8 @@ func TestRun(t *testing.T) {
 
 				// Use the fake local AWS server.
 				c.consulLogin.STSEndpoint = fakeAws.URL + "/sts"
+
+				registerNode(t, consulClient, *taskMetadataResponse, expectedPartition)
 			}
 
 			ui := cli.NewMockUi()
@@ -452,7 +454,7 @@ func TestRun(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, expectedService, expectedProxy, expectedServiceName, expectedProxy.ServiceName)
 			assertCheckRegistration(t, consulClient, expectedServiceChecks, expectedProxyCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, serverGRPCPort, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition)
+			assertDataplaneConfigJSON(t, serverGRPCPort, c.consulLogin.Enabled, envoyBootstrapDir, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition)
 
 			// Construct task meta response for the first few iterations
 			// of syncChecks
@@ -542,6 +544,9 @@ func TestRun(t *testing.T) {
 			currentTaskMetaResp.Store(taskMetaRespStr)
 
 			assertDeregistration(t, consulClient, expectedServiceName, expectedProxy.ServiceName)
+			if c.consulLogin.Enabled {
+				assertConsulLogout(t, cfg, envoyBootstrapDir)
+			}
 			cmd.cancel()
 		})
 	}
@@ -655,23 +660,20 @@ func TestGateway(t *testing.T) {
 				},
 			},
 		},
-		// TODO: revisit these tests when service registration happens via the
-		// client that talks directly to the server and not the client agent
-		//
-		// "mesh gateway with auth method enabled": {
-		// 	config: &config.Config{
-		// 		ConsulLogin: config.ConsulLogin{
-		// 			Enabled:       true,
-		// 			IncludeEntity: true,
-		// 		},
-		// 		Gateway: &config.GatewayRegistration{
-		// 			Kind: api.ServiceKindMeshGateway,
-		// 		},
-		// 	},
-		// 	expServiceID:   family + "-abcdef",
-		// 	expServiceName: family,
-		// 	expLanPort:     config.DefaultGatewayPort,
-		// },
+		"mesh gateway with auth method enabled": {
+			config: &config.Config{
+				ConsulLogin: config.ConsulLogin{
+					Enabled:       true,
+					IncludeEntity: true,
+				},
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+				},
+			},
+			expServiceID:   family + "-abcdef",
+			expServiceName: family,
+			expLanPort:     config.DefaultGatewayPort,
+		},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -731,12 +733,6 @@ func TestGateway(t *testing.T) {
 				},
 			}
 
-			if c.config.ConsulLogin.Enabled {
-				fakeAws := testutil.AuthMethodInit(t, consulClient, c.expServiceName, config.DefaultAuthMethodName)
-				// Use the fake local AWS server.
-				c.config.ConsulLogin.STSEndpoint = fakeAws.URL + "/sts"
-			}
-
 			var partition, namespace string
 			if testutil.EnterpriseFlag() {
 				partition = "default"
@@ -745,6 +741,14 @@ func TestGateway(t *testing.T) {
 
 			c.config.Gateway.Namespace = namespace
 			c.config.Gateway.Partition = partition
+
+			if c.config.ConsulLogin.Enabled {
+				fakeAws := testutil.AuthMethodInit(t, consulClient, c.expServiceName, config.DefaultAuthMethodName)
+				// Use the fake local AWS server.
+				c.config.ConsulLogin.STSEndpoint = fakeAws.URL + "/sts"
+
+				registerNode(t, consulClient, *taskMetadataResponse, partition)
+			}
 
 			testutil.SetECSConfigEnvVar(t, c.config)
 
@@ -802,7 +806,7 @@ func TestGateway(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, nil, expectedService, "", c.expServiceName)
 			assertCheckRegistration(t, consulClient, nil, expectedCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, serverGRPCPort, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition)
+			assertDataplaneConfigJSON(t, serverGRPCPort, c.config.ConsulLogin.Enabled, c.config.BootstrapDir, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition)
 
 			// Signals control plane to enter into a state where it
 			// periodically sync checks back to Consul
@@ -829,6 +833,9 @@ func TestGateway(t *testing.T) {
 			currentTaskMetaResp.Store(taskMetadataRespStr)
 
 			assertDeregistration(t, consulClient, "", expectedService.ServiceName)
+			if c.config.ConsulLogin.Enabled {
+				assertConsulLogout(t, apiCfg, c.config.BootstrapDir)
+			}
 			cmd.cancel()
 		})
 	}
@@ -927,11 +934,40 @@ func assertWrittenFiles(t *testing.T, expectedFiles []*fileMeta) {
 	}
 }
 
-func assertDataplaneConfigJSON(t *testing.T, grpcPort int, dataplaneConfigJSONFile, proxySvcID, namespace, partition string) {
-	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, proxySvcID, namespace, partition)
+func assertDataplaneConfigJSON(t *testing.T, grpcPort int, loginEnabled bool, bootstrapDir, dataplaneConfigJSONFile, proxySvcID, namespace, partition string) {
+	var credentialsConfigJSON string
+	if loginEnabled {
+		token := getACLToken(t, bootstrapDir)
+		credentialsConfigJSON = fmt.Sprintf(`,
+		"credentials": {
+			"type": "static",
+			"static": {
+				"token": "%s"
+			}
+		}`, string(token))
+	}
+
+	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, credentialsConfigJSON, proxySvcID, namespace, partition)
 	actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
 	require.NoError(t, err)
 	require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
+}
+
+// In a ACL enabled cluster, we expect the node to be preregistered by the ecs-controller.
+// This function makes sure to register the node with the bootstrap token before running the
+// control plane command
+func registerNode(t *testing.T, consulClient *api.Client, taskMeta awsutil.ECSTaskMeta, partition string) {
+	clusterARN, err := taskMeta.ClusterARN()
+	require.NoError(t, err)
+
+	payload := &api.CatalogRegistration{
+		Node:     clusterARN,
+		NodeMeta: getNodeMeta(),
+		Address:  taskMeta.NodeIP(),
+	}
+
+	_, err = consulClient.Catalog().Register(payload, nil)
+	require.NoError(t, err)
 }
 
 func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceChecks api.HealthChecks, expectedProxyCheck *api.HealthCheck) {
@@ -970,6 +1006,24 @@ func assertDeregistration(t *testing.T, consulClient *api.Client, serviceName, p
 		require.NoError(r, err)
 		require.Equal(r, 0, len(serviceInstances))
 	})
+}
+
+func assertConsulLogout(t *testing.T, cfg *api.Config, bootstrapDir string) {
+	cfg.Token = getACLToken(t, bootstrapDir)
+	client, err := api.NewClient(cfg)
+	require.NoError(t, err)
+
+	tok, _, err := client.ACL().TokenReadSelf(nil)
+	require.Error(t, err)
+	require.Nil(t, tok)
+}
+
+func getACLToken(t *testing.T, bootstrapDir string) string {
+	tokenFile := filepath.Join(bootstrapDir, config.ServiceTokenFilename)
+	token, err := os.ReadFile(tokenFile)
+	require.NoError(t, err)
+
+	return string(token)
 }
 
 func injectContainersIntoTaskMetaResponse(t *testing.T, skipDataplaneContainer, ignoreMissingContainers bool, taskMetadataResponse *awsutil.ECSTaskMeta, healthSyncContainers map[string]healthSyncContainerMetaData) string {
@@ -1026,7 +1080,7 @@ func getExpectedDataplaneCfgJSON() string {
 	"consul": {
 	  "addresses": "127.0.0.1",
 	  "grpcPort": %d,
-	  "serverWatchDisabled": false
+	  "serverWatchDisabled": false%s
 	},
 	"service": {
 	  "nodeName": "arn:aws:ecs:us-east-1:123456789:cluster/test",

@@ -6,7 +6,7 @@
   "type": "object",
   "properties": {
     "logLevel": {
-      "description": "Sets the log level for the `consul-ecs control-plane` and `consul-ecs health-sync` commands. Defaults to `INFO`.",
+      "description": "Sets the log level for the `consul-ecs control-plane` and `consul-ecs controller` commands. Defaults to `INFO`.",
       "type": ["string", "null"],
       "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", null]
     },

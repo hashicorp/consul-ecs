@@ -251,7 +251,6 @@ func (c *Command) realRun() error {
 			}
 
 			if c.config.ConsulLogin.Enabled {
-				// TODO: Add unit tests for ACL Logout
 				_, err = consulClient.ACL().Logout(nil)
 				if err != nil {
 					c.log.Error("error logging out of consul %s", err.Error())

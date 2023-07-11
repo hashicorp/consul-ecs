@@ -10,7 +10,6 @@ import (
 	cmdAppEntrypoint "github.com/hashicorp/consul-ecs/subcommand/app-entrypoint"
 	cmdControlPlane "github.com/hashicorp/consul-ecs/subcommand/control-plane"
 	cmdEnvoyEntrypoint "github.com/hashicorp/consul-ecs/subcommand/envoy-entrypoint"
-	cmdHealthSync "github.com/hashicorp/consul-ecs/subcommand/health-sync"
 	cmdNetDial "github.com/hashicorp/consul-ecs/subcommand/net-dial"
 	cmdVersion "github.com/hashicorp/consul-ecs/subcommand/version"
 	"github.com/hashicorp/consul-ecs/version"
@@ -32,9 +31,6 @@ func init() {
 		},
 		"acl-controller": func() (cli.Command, error) {
 			return &cmdController.Command{UI: ui}, nil
-		},
-		"health-sync": func() (cli.Command, error) {
-			return &cmdHealthSync.Command{UI: ui}, nil
 		},
 		"envoy-entrypoint": func() (cli.Command, error) {
 			return &cmdEnvoyEntrypoint.Command{UI: ui}, nil

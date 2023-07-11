@@ -944,7 +944,7 @@ func assertDataplaneConfigJSON(t *testing.T, grpcPort int, loginEnabled bool, bo
 			"static": {
 				"token": "%s"
 			}
-		}`, string(token))
+		}`, token)
 	}
 
 	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, credentialsConfigJSON, proxySvcID, namespace, partition)

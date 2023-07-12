@@ -53,10 +53,10 @@ jobs:
     strategy:
       matrix:
         consul-version:
-        - 1.14.5
-        - 1.14.5+ent
-        - 1.15.1
-        - 1.15.1+ent
+        - 1.14.8
+        - 1.14.8+ent
+        - 1.15.4
+        - 1.15.4+ent
         - 1.16.0
         - 1.16.0+ent
     env:

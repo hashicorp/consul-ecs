@@ -557,9 +557,10 @@ func TestGateway(t *testing.T) {
 		publicIP         = "255.1.2.3"
 		taskDNSName      = "test-dns-name"
 		expectedTaskMeta = map[string]string{
-			"task-id":  "abcdef",
-			"task-arn": taskARN,
-			"source":   "consul-ecs",
+			"task-id":                        "abcdef",
+			"task-arn":                       taskARN,
+			"source":                         "consul-ecs",
+			config.DataplaneBasedMeshTaskTag: "true",
 		}
 	)
 	// Simulate mesh gateway registration:

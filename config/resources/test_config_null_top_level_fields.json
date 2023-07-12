@@ -5,6 +5,7 @@
   "consulHTTPAddr": null,
   "consulCACertFile": null,
   "consulLogin": null,
+  "controller": null,
   "consulServers": {
     "hosts": "",
     "https": null,

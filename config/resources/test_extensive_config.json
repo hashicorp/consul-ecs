@@ -6,6 +6,11 @@
   "logLevel": "DEBUG",
   "consulHTTPAddr": "consul.example.com",
   "consulCACertFile": "/consul/consul-ca-cert.pem",
+  "controller": {
+    "iamRolePath": "/consul-iam/",
+    "partition": "default",
+    "partitionsEnabled": true
+  },
   "consulLogin": {
     "enabled": true,
     "method": "my-auth-method",

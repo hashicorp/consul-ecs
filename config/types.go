@@ -59,6 +59,7 @@ type Config struct {
 	Gateway              *GatewayRegistration            `json:"gateway,omitempty"`
 	Service              ServiceRegistration             `json:"service"`
 	ConsulServers        ConsulServers                   `json:"consulServers"`
+	Controller           Controller                      `json:"controller"`
 }
 
 // ConsulLogin configures login options for the Consul IAM auth method.
@@ -162,6 +163,42 @@ func (c *ConsulServers) UnmarshalJSON(data []byte) error {
 	} else {
 		c.GRPCPort = *alias.RawGRPCPort
 	}
+	return nil
+}
+
+// Controller configures the options to start the consul-ecs-controller command.
+type Controller struct {
+	IAMRolePath       string `json:"iamRolePath"`
+	PartitionsEnabled bool   `json:"partitionsEnabled"`
+	Partition         string `json:"partition"`
+}
+
+// UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields
+func (c *Controller) UnmarshalJSON(data []byte) error {
+	type Alias Controller
+	alias := struct {
+		*Alias
+
+		RawIAMRolePath *string `json:"iamRolePath"`
+	}{
+		Alias: (*Alias)(c), // Unmarshal other fields into *c
+	}
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Default iamRolePath to /consul-ecs/
+	if alias.RawIAMRolePath == nil {
+		c.IAMRolePath = defaultIAMRolePath
+	} else {
+		c.IAMRolePath = *alias.RawIAMRolePath
+	}
+
+	if c.IAMRolePath == "" {
+		c.IAMRolePath = defaultIAMRolePath
+	}
+
 	return nil
 }
 

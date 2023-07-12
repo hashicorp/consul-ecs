@@ -145,12 +145,11 @@ func (c *Command) run() error {
 		case watcherState := <-c.watcherCh:
 			// TODO: Add unit tests for server watch. Depends on https://github.com/hashicorp/consul-ecs/pull/149
 			c.log.Info("Switching to Consul server", "address", watcherState.Address.String())
-			client, err := c.setupConsulAPIClient(watcherState)
+			consulClient, err = c.setupConsulAPIClient(watcherState)
 			if err != nil {
 				c.log.Error("error re-configuring consul client %s", err.Error())
 			} else {
-				consulClient = client
-				ctrl = c.setupController(ecsClient, client, clusterArn)
+				ctrl = c.setupController(ecsClient, consulClient, clusterArn)
 			}
 		case <-c.ctx.Done():
 			return nil

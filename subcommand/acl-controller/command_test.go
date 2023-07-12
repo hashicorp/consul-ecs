@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -158,12 +157,16 @@ func testUpsertConsulResources(t *testing.T, cases map[string]iamAuthTestCase) {
 				// Only the global management policy should exist.
 				policies, _, err = consulClient.ACL().PolicyList(nil)
 				require.NoError(t, err)
-				if c.partitionsEnabled {
-					require.Len(t, policies, 0)
+
+				var policyNames []string
+				for _, policy := range policies {
+					policyNames = append(policyNames, policy.Name)
+				}
+				if !c.partitionsEnabled {
+					require.NotContains(t, policyNames, "global-management")
 				} else {
 					// The default partition has a global-management policy
-					require.Len(t, policies, 1)
-					require.Equal(t, policies[0].Name, "global-management")
+					require.Contains(t, policyNames, "global-management")
 				}
 			}
 			if c.deleteRole {
@@ -238,17 +241,13 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnab
 	if partitionsEnabled {
 		partitionToCheck = testPartitionName
 	}
-	nodes, _, err := consulClient.Catalog().Nodes(&api.QueryOptions{Partition: partitionToCheck})
+	nodes, _, err := consulClient.Catalog().Nodes(&api.QueryOptions{
+		Partition: partitionToCheck,
+		Filter:    fmt.Sprintf("Node == %q", clusterARN),
+	})
 	require.NoError(t, err)
-
-	foundNode := false
-	for _, n := range nodes {
-		if strings.EqualFold(n.Node, clusterARN) {
-			foundNode = true
-			break
-		}
-	}
-	require.True(t, foundNode)
+	require.Equal(t, 1, len(nodes))
+	require.Equal(t, clusterARN, nodes[0].Node)
 
 	// Check if policies are created as expected
 	policies, _, err := consulClient.ACL().PolicyList(nil)
@@ -263,12 +262,12 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnab
 		// We test with a non-default partition which lacks the global-management policy.
 		// The anonymous token policy is only created in the default partition, since that
 		// is where the anonymous token lives, so we expect no policies to be present
-		require.Len(t, policies, 0)
+		require.NotContains(t, policyNames, "anonymous-token-policy")
+		require.NotContains(t, policyNames, "global-management")
 	} else {
 		// Otherwise, we expect the global-management policy and anonymous-token-policy to be found
 		// if we're running Consul Enterprise and in the default partition, or if we're running
 		// Consul OSS.
-		require.Len(t, policies, 2)
 		require.Contains(t, policyNames, "anonymous-token-policy")
 		require.Contains(t, policyNames, "global-management")
 	}

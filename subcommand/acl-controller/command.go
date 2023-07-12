@@ -103,12 +103,12 @@ func (c *Command) run() error {
 
 	serverConnMgrCfg, err := c.config.ConsulServerConnMgrConfig(ecsMeta)
 	if err != nil {
-		return fmt.Errorf("constructing server connection manager config: %s", err)
+		return fmt.Errorf("constructing server connection manager config: %w", err)
 	}
 
 	watcher, err := discovery.NewWatcher(c.ctx, serverConnMgrCfg, c.log)
 	if err != nil {
-		return fmt.Errorf("unable to create consul server watcher: %s", err)
+		return fmt.Errorf("unable to create consul server watcher: %w", err)
 	}
 
 	go watcher.Run()
@@ -116,7 +116,7 @@ func (c *Command) run() error {
 
 	state, err := watcher.State()
 	if err != nil {
-		return fmt.Errorf("unable to fetch consul server watcher state: %s", err)
+		return fmt.Errorf("unable to fetch consul server watcher state: %w", err)
 	}
 
 	// Client config for the client that talks directly to the server agent
@@ -130,7 +130,7 @@ func (c *Command) run() error {
 
 	consulClient, err := api.NewClient(cfg)
 	if err != nil {
-		return fmt.Errorf("constructing consul client from config: %s", err)
+		return fmt.Errorf("constructing Consul API client from config: %w", err)
 	}
 
 	if err := c.upsertConsulResources(consulClient, ecsMeta, clusterArn); err != nil {
@@ -229,7 +229,7 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 			return err
 		}
 	} else if c.config.Controller.Partition != "" {
-		return fmt.Errorf("`config.controller.partition` provided without setting `config.controller.partitionEnabled` as true")
+		return fmt.Errorf("`config.controller.partition` provided without setting `config.controller.partitionEnabled = true`")
 	}
 
 	if err := c.upsertAuthMethod(consulClient, serviceAuthMethod); err != nil {
@@ -243,7 +243,7 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 	}
 
 	if err := c.registerNode(consulClient, ecsMeta, clusterARN); err != nil {
-		return fmt.Errorf("registering ecs cluster as a node in Consul: %s", err)
+		return fmt.Errorf("registering ECS cluster as a node in Consul: %w", err)
 	}
 
 	return nil
@@ -258,7 +258,7 @@ func (c *Command) upsertPartition(consulClient *api.Client) error {
 	// check if the partition already exists.
 	partitions, _, err := consulClient.Partitions().List(c.ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to list partitions: %s", err)
+		return fmt.Errorf("failed to list partitions: %w", err)
 	}
 	for _, p := range partitions {
 		if p.Name == c.config.Controller.Partition {
@@ -269,7 +269,7 @@ func (c *Command) upsertPartition(consulClient *api.Client) error {
 	// the partition doesn't exist, so create it.
 	_, _, err = consulClient.Partitions().Create(c.ctx, &api.Partition{Name: c.config.Controller.Partition}, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create partition %s: %s", c.config.Controller.Partition, err)
+		return fmt.Errorf("failed to create partition %s: %w", c.config.Controller.Partition, err)
 	}
 	c.log.Info("created partition", "partition", c.config.Controller.Partition)
 	return nil

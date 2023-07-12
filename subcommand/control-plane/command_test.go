@@ -216,9 +216,10 @@ func TestRun(t *testing.T) {
 			var (
 				taskARN          = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
 				expectedTaskMeta = map[string]string{
-					"task-id":  "abcdef",
-					"task-arn": taskARN,
-					"source":   "consul-ecs",
+					"task-id":                        "abcdef",
+					"task-arn":                       taskARN,
+					"source":                         "consul-ecs",
+					config.DataplaneBasedMeshTaskTag: "true",
 				}
 				expectedServiceName = strings.ToLower(family)
 				expectedPartition   = ""

@@ -21,6 +21,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"regexp"
 	"sort"
@@ -31,6 +32,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/controller/mocks"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
@@ -479,6 +481,192 @@ func TestReconcileNamespaces(t *testing.T) {
 	}
 }
 
+func TestReconcileServices(t *testing.T) {
+	t.Parallel()
+
+	type testCase struct {
+		setupTest                func(*testing.T, *api.Client, string, string) []Resource
+		partition                string
+		servicesToBeDeregistered []string
+		servicesToBePresent      []string
+	}
+
+	cases := map[string]*testCase{
+		"all tasks are running": {
+			setupTest: func(t *testing.T, consulClient *api.Client, node, partition string) []Resource {
+				var resources []Resource
+				if partition != "" {
+					require.NoError(t, createNamespace(consulClient, "namespace-1", partition))
+					require.NoError(t, createNamespace(consulClient, "namespace-2", partition))
+					resources = []Resource{
+						makeTaskStateEnt("mesh-task-id-1", true, nil, partition, "default"),
+						makeTaskStateEnt("mesh-task-id-2", true, nil, partition, "default"),
+						makeTaskStateEnt("mesh-task-id-3", true, nil, partition, "namespace-1"),
+						makeTaskStateEnt("mesh-task-id-4", true, nil, partition, "namespace-2"),
+						makeTaskStateEnt("mesh-task-id-5", true, nil, partition, "namespace-1"),
+					}
+					registerServicesEnt(t, consulClient, node, partition)
+					return resources
+				}
+
+				resources = []Resource{
+					makeTaskState("mesh-task-id-1", true, nil),
+					makeTaskState("mesh-task-id-2", true, nil),
+					makeTaskState("mesh-task-id-3", true, nil),
+					makeTaskState("mesh-task-id-4", true, nil),
+					makeTaskState("mesh-task-id-5", true, nil),
+				}
+				registerServices(t, consulClient, node)
+
+				return resources
+			},
+			servicesToBeDeregistered: nil,
+			servicesToBePresent:      []string{"service-1", "service-2", "service-3", "service-4", "service-5"},
+		},
+		"some tasks being managed by consul client are not running": {
+			setupTest: func(t *testing.T, consulClient *api.Client, node, partition string) []Resource {
+				var resources []Resource
+				if partition != "" {
+					require.NoError(t, createNamespace(consulClient, "namespace-1", partition))
+					require.NoError(t, createNamespace(consulClient, "namespace-2", partition))
+					resources = []Resource{
+						makeTaskStateEnt("mesh-task-id-1", true, nil, partition, "default"),
+						makeTaskStateEnt("mesh-task-id-2", false, nil, partition, "default"),
+						makeTaskStateEnt("mesh-task-id-3", true, nil, partition, "namespace-1"),
+						makeTaskStateEnt("mesh-task-id-4", false, nil, partition, "namespace-2"),
+						makeTaskStateEnt("mesh-task-id-5", true, nil, partition, "namespace-1"),
+					}
+					registerServicesEnt(t, consulClient, node, partition)
+					return resources
+				}
+
+				resources = []Resource{
+					makeTaskState("mesh-task-id-1", true, nil),
+					makeTaskState("mesh-task-id-2", false, nil),
+					makeTaskState("mesh-task-id-3", true, nil),
+					makeTaskState("mesh-task-id-4", false, nil),
+					makeTaskState("mesh-task-id-5", true, nil),
+				}
+				registerServices(t, consulClient, node)
+
+				return resources
+			},
+			servicesToBeDeregistered: nil,
+			servicesToBePresent:      []string{"service-1", "service-2", "service-3", "service-4", "service-5"},
+		},
+		"some tasks being managed by consul dataplane are not running": {
+			setupTest: func(t *testing.T, consulClient *api.Client, node, partition string) []Resource {
+				var resources []Resource
+				if partition != "" {
+					require.NoError(t, createNamespace(consulClient, "namespace-1", partition))
+					require.NoError(t, createNamespace(consulClient, "namespace-2", partition))
+					resources = []Resource{
+						makeTaskStateEnt("mesh-task-id-1", true, nil, partition, "default"),
+						makeTaskStateEnt("mesh-task-id-2", false, nil, partition, "default"),
+						makeTaskStateEnt("mesh-task-id-3", false, nil, partition, "namespace-1"),
+						makeTaskStateEnt("mesh-task-id-4", true, nil, partition, "namespace-2"),
+						makeTaskStateEnt("mesh-task-id-5", false, nil, partition, "namespace-1"),
+					}
+					registerServicesEnt(t, consulClient, node, partition)
+					return resources
+				}
+
+				resources = []Resource{
+					makeTaskState("mesh-task-id-1", true, nil),
+					makeTaskState("mesh-task-id-2", false, nil),
+					makeTaskState("mesh-task-id-3", false, nil),
+					makeTaskState("mesh-task-id-4", true, nil),
+					makeTaskState("mesh-task-id-5", false, nil),
+				}
+				registerServices(t, consulClient, node)
+
+				return resources
+			},
+			servicesToBeDeregistered: []string{"service-3", "service-5"},
+			servicesToBePresent:      []string{"service-1", "service-2", "service-4"},
+		},
+		"no task is running": {
+			setupTest: func(t *testing.T, consulClient *api.Client, node, partition string) []Resource {
+				var resources []Resource
+				if partition != "" {
+					require.NoError(t, createNamespace(consulClient, "namespace-1", partition))
+					require.NoError(t, createNamespace(consulClient, "namespace-2", partition))
+					resources = []Resource{
+						makeTaskStateEnt("mesh-task-id-1", false, nil, partition, "default"),
+						makeTaskStateEnt("mesh-task-id-2", false, nil, partition, "default"),
+						makeTaskStateEnt("mesh-task-id-3", false, nil, partition, "namespace-1"),
+						makeTaskStateEnt("mesh-task-id-4", false, nil, partition, "namespace-2"),
+						makeTaskStateEnt("mesh-task-id-5", false, nil, partition, "namespace-1"),
+					}
+					registerServicesEnt(t, consulClient, node, partition)
+					return resources
+				}
+
+				resources = []Resource{
+					makeTaskState("mesh-task-id-1", false, nil),
+					makeTaskState("mesh-task-id-2", false, nil),
+					makeTaskState("mesh-task-id-3", false, nil),
+					makeTaskState("mesh-task-id-4", false, nil),
+					makeTaskState("mesh-task-id-5", false, nil),
+				}
+				registerServices(t, consulClient, node)
+				return resources
+			},
+			servicesToBeDeregistered: []string{"service-1", "service-3", "service-5"},
+			servicesToBePresent:      []string{"service-2", "service-4"},
+		},
+	}
+
+	if enterpriseFlag() {
+		cases["all tasks are running"].partition = "default"
+		cases["some tasks being managed by consul client are not running"].partition = "test-partition"
+		cases["some tasks being managed by consul dataplane are not running"].partition = "test-partition-1"
+		cases["no task is running"].partition = "test-partition-2"
+	}
+
+	for name, c := range cases {
+		c := c
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			consulClient := initConsul(t)
+			s := TaskStateLister{
+				Log:          hclog.NewNullLogger(),
+				ConsulClient: consulClient,
+				Partition:    c.partition,
+				ClusterARN:   "arn:aws:ecs:us-east-1:123456789:cluster/test",
+			}
+
+			if enterpriseFlag() && c.partition != "" {
+				createPartitions(t, consulClient, map[string][]string{c.partition: nil})
+			}
+
+			err := registerNode(consulClient, s.ClusterARN, s.Partition)
+			require.NoError(t, err)
+
+			resources := c.setupTest(t, consulClient, s.ClusterARN, s.Partition)
+
+			s.ReconcileServices(resources)
+
+			// assertion
+			services, _, err := consulClient.Catalog().Services(nil)
+			require.NoError(t, err)
+
+			var serviceNames []string
+			for svc := range services {
+				serviceNames = append(serviceNames, svc)
+			}
+
+			for _, svc := range c.servicesToBeDeregistered {
+				require.NotContains(t, serviceNames, svc)
+			}
+
+			for _, svc := range c.servicesToBePresent {
+				require.Contains(t, serviceNames, svc)
+			}
+		})
+	}
+}
+
 // helper func that initializes a Consul test server and returns a Consul API client.
 func initConsul(t *testing.T) *api.Client {
 	_, cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
@@ -635,4 +823,81 @@ func enterpriseFlag() bool {
 		}
 	}
 	return false
+}
+
+func registerNode(consulClient *api.Client, node, partition string) error {
+	regInput := &api.CatalogRegistration{
+		Node:      node,
+		Address:   "127.0.0.1",
+		Partition: partition,
+	}
+
+	_, err := consulClient.Catalog().Register(regInput, nil)
+	return err
+}
+
+func registerServicesEnt(t *testing.T, consulClient *api.Client, node, partition string) {
+	registerServiceEnt(t, consulClient, "service-1", "mesh-task-id-1", node, partition, "default", true)
+	registerServiceEnt(t, consulClient, "service-2", "mesh-task-id-2", node, partition, "default", false)
+	registerServiceEnt(t, consulClient, "service-3", "mesh-task-id-3", node, partition, "namespace-1", true)
+	registerServiceEnt(t, consulClient, "service-4", "mesh-task-id-4", node, partition, "namespace-2", false)
+	registerServiceEnt(t, consulClient, "service-5", "mesh-task-id-5", node, partition, "namespace-1", true)
+}
+
+func registerServices(t *testing.T, consulClient *api.Client, node string) {
+	registerService(t, consulClient, "service-1", "mesh-task-id-1", node, true)
+	registerService(t, consulClient, "service-2", "mesh-task-id-2", node, false)
+	registerService(t, consulClient, "service-3", "mesh-task-id-3", node, true)
+	registerService(t, consulClient, "service-4", "mesh-task-id-4", node, false)
+	registerService(t, consulClient, "service-5", "mesh-task-id-5", node, true)
+}
+
+func registerService(t *testing.T, consulClient *api.Client, name, taskID, node string, dataplaneBasedTask bool) {
+	regInput := constructSvcRegInput(node, name, taskID, dataplaneBasedTask)
+
+	_, err := consulClient.Catalog().Register(regInput, nil)
+	require.NoError(t, err)
+}
+
+func registerServiceEnt(t *testing.T, consulClient *api.Client, name, taskID, node, partition, namespace string, dataplaneBasedTask bool) {
+	regInput := constructSvcRegInput(node, name, taskID, dataplaneBasedTask)
+	regInput.Partition = partition
+	regInput.Service.Partition = partition
+	regInput.Service.Namespace = namespace
+
+	_, err := consulClient.Catalog().Register(regInput, nil)
+	require.NoError(t, err)
+}
+
+func constructSvcRegInput(node, name, taskID string, dataplaneBasedTask bool) *api.CatalogRegistration {
+	input := &api.CatalogRegistration{
+		Node:           node,
+		SkipNodeUpdate: true,
+		Service: &api.AgentService{
+			ID:      fmt.Sprintf("%s-%s", name, taskID),
+			Service: name,
+			Address: "127.0.0.1",
+			Port:    rand.Intn(10000),
+			Meta: map[string]string{
+				"task-id": taskID,
+				"source":  "consul-ecs",
+			},
+		},
+	}
+
+	if dataplaneBasedTask {
+		input.Service.Meta[config.DataplaneBasedMeshTaskTag] = "true"
+	}
+
+	return input
+}
+
+func createNamespace(consulClient *api.Client, namespace, partition string) error {
+	_, _, err := consulClient.Namespaces().Create(&api.Namespace{
+		Name:        namespace,
+		Partition:   partition,
+		Description: "This is a test namespace",
+	}, nil)
+
+	return err
 }

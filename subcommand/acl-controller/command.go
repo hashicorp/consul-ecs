@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+	"time"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
@@ -51,6 +52,8 @@ type Command struct {
 	ctx    context.Context
 
 	logging.LogOpts
+
+	watcherCh <-chan discovery.State
 }
 
 func (c *Command) init() {
@@ -119,16 +122,9 @@ func (c *Command) run() error {
 		return fmt.Errorf("unable to fetch consul server watcher state: %w", err)
 	}
 
-	// Client config for the client that talks directly to the server agent
-	cfg := c.config.ClientConfig()
-	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTPPort), 10))
+	c.watcherCh = watcher.Subscribe()
 
-	token := os.Getenv(bootstrapTokenEnvVar)
-	if token != "" {
-		cfg.Token = token
-	}
-
-	consulClient, err := api.NewClient(cfg)
+	consulClient, err := c.setupConsulAPIClient(state)
 	if err != nil {
 		return fmt.Errorf("constructing Consul API client from config: %w", err)
 	}
@@ -137,30 +133,65 @@ func (c *Command) run() error {
 		return err
 	}
 
-	taskStateLister := &controller.TaskStateLister{
-		ECSClient:    ecsClient,
-		ConsulClient: consulClient,
-		ClusterARN:   clusterArn,
-		Partition:    c.config.Controller.Partition,
-		Log:          c.log,
-	}
-	ctrl := controller.Controller{
-		Resources:       taskStateLister,
-		PollingInterval: controller.DefaultPollingInterval,
-		Log:             c.log,
-	}
+	ctrl := c.setupController(ecsClient, consulClient, clusterArn)
 
-	ctrl.Run(c.ctx)
-
-	return nil
+	for {
+		select {
+		case <-time.After(controller.DefaultPollingInterval):
+			err := ctrl.Reconcile()
+			if err != nil {
+				c.log.Error("error during reconcile", "err", err)
+			}
+		case watcherState := <-c.watcherCh:
+			// TODO: Add unit tests for server watch. Depends on https://github.com/hashicorp/consul-ecs/pull/149
+			c.log.Info("Switching to Consul server", "address", watcherState.Address.String())
+			client, err := c.setupConsulAPIClient(watcherState)
+			if err != nil {
+				c.log.Error("error re-configuring consul client %s", err.Error())
+			} else {
+				consulClient = client
+				ctrl = c.setupController(ecsClient, client, clusterArn)
+			}
+		case <-c.ctx.Done():
+			return nil
+		}
+	}
 }
 
 func (c *Command) Synopsis() string {
-	return "ECS ACL controller"
+	return "ECS controller"
 }
 
 func (c *Command) Help() string {
 	return ""
+}
+
+func (c *Command) setupController(ecsClient *ecs.ECS, consulClient *api.Client, clusterARN string) controller.Controller {
+	taskStateLister := &controller.TaskStateLister{
+		ECSClient:    ecsClient,
+		ConsulClient: consulClient,
+		ClusterARN:   clusterARN,
+		Partition:    c.config.Controller.Partition,
+		Log:          c.log,
+	}
+
+	return controller.Controller{
+		Resources:       taskStateLister,
+		PollingInterval: controller.DefaultPollingInterval,
+		Log:             c.log,
+	}
+}
+
+func (c *Command) setupConsulAPIClient(state discovery.State) (*api.Client, error) {
+	cfg := c.config.ClientConfig()
+	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTPPort), 10))
+
+	token := os.Getenv(bootstrapTokenEnvVar)
+	if token != "" {
+		cfg.Token = token
+	}
+
+	return api.NewClient(cfg)
 }
 
 // upsertConsulResources creates the necessary resources in Consul if they do not exist.

@@ -342,9 +342,10 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clu
 	serviceID := makeServiceID(serviceName, taskID)
 
 	fullMeta := mergeMeta(map[string]string{
-		"task-id":  taskID,
-		"task-arn": taskMeta.TaskARN,
-		"source":   "consul-ecs",
+		"task-id":                        taskID,
+		"task-arn":                       taskMeta.TaskARN,
+		"source":                         "consul-ecs",
+		config.DataplaneBasedMeshTaskTag: "true",
 	}, c.config.Service.Meta)
 
 	service := c.config.Service.ToConsulType()

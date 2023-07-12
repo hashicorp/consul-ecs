@@ -4,18 +4,12 @@
 package controller
 
 import (
-	"context"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/hashicorp/consul/sdk/testutil/retry"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/require"
 )
-
-// global mutex for these tests to pass the race detector
-var mutex sync.Mutex
 
 func TestRun(t *testing.T) {
 	t.Parallel()
@@ -37,24 +31,19 @@ func TestRun(t *testing.T) {
 		Log:             hclog.NewNullLogger(),
 	}
 
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	t.Cleanup(cancelFunc)
+	ctrl.Reconcile()
 
-	go ctrl.Run(ctx)
-
-	retry.Run(t, func(r *retry.R) {
-		mutex.Lock()
-		defer mutex.Unlock()
-		require.True(r, lister.nsReconciled)
-		for _, resource := range lister.resources {
-			require.True(r, resource.reconciled)
-		}
-	})
+	require.True(t, lister.nsReconciled)
+	require.True(t, lister.servicesReconciled)
+	for _, resource := range lister.resources {
+		require.True(t, resource.reconciled)
+	}
 }
 
 type testResourceLister struct {
-	resources    []*testResource
-	nsReconciled bool
+	resources          []*testResource
+	nsReconciled       bool
+	servicesReconciled bool
 }
 
 type testResource struct {
@@ -63,9 +52,6 @@ type testResource struct {
 }
 
 func (t *testResourceLister) List() ([]Resource, error) {
-	mutex.Lock()
-	defer mutex.Unlock()
-
 	var resources []Resource
 	for _, resource := range t.resources {
 		resources = append(resources, resource)
@@ -74,21 +60,28 @@ func (t *testResourceLister) List() ([]Resource, error) {
 }
 
 func (t *testResourceLister) ReconcileNamespaces([]Resource) error {
-	mutex.Lock()
-	defer mutex.Unlock()
-
 	t.nsReconciled = true
 	return nil
 }
 
-func (t *testResource) Reconcile() error {
-	mutex.Lock()
-	defer mutex.Unlock()
+func (t *testResourceLister) ReconcileServices([]Resource) error {
+	t.servicesReconciled = true
+	return nil
+}
 
+func (t *testResource) Reconcile() error {
 	t.reconciled = true
 	return nil
 }
 
 func (t *testResource) Namespace() string {
+	return ""
+}
+
+func (t *testResource) IsPresent() bool {
+	return true
+}
+
+func (t *testResource) ID() TaskID {
 	return ""
 }

@@ -36,6 +36,10 @@ const (
 	// Name of the dataplane's container
 	ConsulDataplaneContainerName = "consul-dataplane"
 
+	// Indicates that a service was registered by a control plane container running in
+	// a mesh task managed by Consul dataplane
+	DataplaneBasedMeshTaskTag = "dataplane-based-mesh-task"
+
 	// Match Consul: https://github.com/hashicorp/consul/blob/68e79b8180ca89e8cfca291b40a30d943039bd49/agent/consul/authmethod/awsauth/aws.go#L16-L20
 	AuthMethodType         string = "aws-iam"
 	IAMServerIDHeaderName  string = "X-Consul-IAM-ServerID"

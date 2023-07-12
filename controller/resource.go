@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
 	"github.com/hashicorp/consul-ecs/awsutil"
+	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
@@ -46,6 +47,9 @@ type ResourceLister interface {
 
 	// ReconcileNamespaces ensures that all requisite namespaces exist.
 	ReconcileNamespaces([]Resource) error
+
+	// ReconcileServices ensures services are deregistered for missing ECS tasks
+	ReconcileServices([]Resource) error
 }
 
 // Resource is a generic type that needs to be reconciled by the Controller.
@@ -53,6 +57,13 @@ type Resource interface {
 	// Namespace indicates the namespace that this resource belongs to [Consul Enterprise].
 	// It returns the empty string if namespaces are not enabled.
 	Namespace() string
+
+	// IsPresent checks if the given resource is found in the response
+	// returned by ECS
+	IsPresent() bool
+
+	// ID returns the taskID of the resource
+	ID() TaskID
 
 	// Reconcile offers functions to reconcile itself with an external state.
 	Reconcile() error
@@ -79,7 +90,7 @@ type TaskStateLister struct {
 
 // List returns resources to be reconciled.
 // - Namespaces which may need to be created
-// - Tokens whcih may need to be cleaned up
+// - Tokens which may need to be cleaned up
 func (s TaskStateLister) List() ([]Resource, error) {
 	var resources []Resource
 
@@ -94,8 +105,6 @@ func (s TaskStateLister) List() ([]Resource, error) {
 	}
 
 	for id, state := range aclState {
-		// Each task may have two tokens, client and service. The client token is in the default
-		// namespace, while the service token may be in any namespace.
 		if _, ok := buildingResources[id]; !ok {
 			buildingResources[id] = state
 		} else {
@@ -179,7 +188,7 @@ func (s TaskStateLister) fetchACLState() (map[TaskID]*TaskState, error) {
 	var namespaces []*api.Namespace
 
 	opts := &api.QueryOptions{Partition: s.Partition}
-	if PartitionsEnabled(s.Partition) {
+	if partitionsEnabled(s.Partition) {
 		// if partitions are enabled then list the namespaces.
 		namespaces, _, err = s.ConsulClient.Namespaces().List(opts)
 		if err != nil {
@@ -224,7 +233,7 @@ func (s TaskStateLister) fetchACLState() (map[TaskID]*TaskState, error) {
 // ReconcileNamespaces ensures that for every service in the cluster the namespace
 // exists and the cross-partition/cross-namespace read policy exists.
 func (s TaskStateLister) ReconcileNamespaces(resources []Resource) error {
-	if !PartitionsEnabled(s.Partition) {
+	if !partitionsEnabled(s.Partition) {
 		return nil
 	}
 
@@ -343,6 +352,66 @@ func (s TaskStateLister) createNamespaces(resources []Resource) error {
 	return result
 }
 
+// ReconcileServices ensures services are deregistered for missing ECS tasks with the
+// following steps
+//
+//   - Query the list of services belonging to the clusterARN node from Consul
+//   - Filter out the services that are registered by a Consul ECS control plane container
+//     running in a mesh task without a Consul client container.
+//   - Deregister those services for which the backing task resource is not available in ECS.
+func (s TaskStateLister) ReconcileServices(resources []Resource) error {
+	opts := &api.QueryOptions{Partition: s.Partition}
+	services, _, err := s.ConsulClient.Catalog().NodeServiceList(s.ClusterARN, opts)
+	if err != nil {
+		return fmt.Errorf("fetching list of services for the given node %s: %w", s.ClusterARN, err)
+	}
+
+	var result error
+	dataplaneBasedServicesMap := make(map[string]*api.AgentService)
+	for _, service := range services.Services {
+		if isDataplaneBasedService(service) {
+			taskID, err := getTaskIDFromServiceMeta(service)
+			if err != nil {
+				s.Log.Error(err.Error())
+				result = multierror.Append(result, err)
+				continue
+			}
+
+			dataplaneBasedServicesMap[taskID] = service
+		}
+	}
+
+	for _, resource := range resources {
+		// We don't care about the running tasks
+		if resource.IsPresent() {
+			continue
+		}
+
+		serviceToDeregister, ok := dataplaneBasedServicesMap[string(resource.ID())]
+		if !ok {
+			// To maintain backward compatibility, we skip resources that are
+			// created and managed by the Consul client based architecture in ECS.
+			continue
+		}
+
+		// At this point, we are certain that we found a service that doesn't have
+		// a backing running ECS task that was previously managed by the Consul dataplane
+		deregInput := &api.CatalogDeregistration{
+			Node:      s.ClusterARN,
+			ServiceID: serviceToDeregister.ID,
+			Partition: s.Partition,
+			Namespace: serviceToDeregister.Namespace,
+		}
+		_, err := s.ConsulClient.Catalog().Deregister(deregInput, nil)
+		if err != nil {
+			s.Log.Error("deregistering service with ID %s: %w", serviceToDeregister.ID, err)
+			result = multierror.Append(result, err)
+		}
+	}
+
+	return result
+}
+
 func (s TaskStateLister) newTaskState(taskId TaskID, clusterArn string) *TaskState {
 	return &TaskState{
 		ConsulClient: s.ConsulClient,
@@ -354,7 +423,7 @@ func (s TaskStateLister) newTaskState(taskId TaskID, clusterArn string) *TaskSta
 
 func (s TaskStateLister) taskStateFromTask(t *ecs.Task) (*TaskState, error) {
 	var partition, namespace string
-	if PartitionsEnabled(s.Partition) {
+	if partitionsEnabled(s.Partition) {
 		partition = tagValue(t.Tags, partitionTag)
 		namespace = tagValue(t.Tags, namespaceTag)
 		if partition == "" && namespace == "" {
@@ -438,10 +507,14 @@ type TaskState struct {
 
 // Reconcile deletes ACL tokens based on their ServiceState.
 func (t *TaskState) Reconcile() error {
-	if !t.ECSTaskFound && len(t.ACLTokens) > 0 {
+	if !t.IsPresent() && len(t.ACLTokens) > 0 {
 		return t.Delete()
 	}
 	return nil
+}
+
+func (t *TaskState) IsPresent() bool {
+	return t.ECSTaskFound
 }
 
 // Delete removes the service token for the given ServiceInfo.
@@ -460,10 +533,39 @@ func (t *TaskState) Delete() error {
 // Namespace returns the namespace that the service belongs to.
 // It returns the empty string if namespaces are not enabled.
 func (t *TaskState) Namespace() string {
-	if t.ECSTaskFound {
+	if t.IsPresent() {
 		return t.NS
 	}
 	return ""
+}
+
+// ID returns the taskID of the resource
+func (t *TaskState) ID() TaskID {
+	return t.TaskID
+}
+
+// IsACLNotFoundError returns true if the ACL is not found.
+func IsACLNotFoundError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Unexpected response code: 403 (ACL not found)")
+}
+
+func isDataplaneBasedService(service *api.AgentService) bool {
+	for k, v := range service.Meta {
+		if strings.EqualFold(k, config.DataplaneBasedMeshTaskTag) && v == "true" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func getTaskIDFromServiceMeta(service *api.AgentService) (string, error) {
+	taskID, ok := service.Meta["task-id"]
+	if !ok {
+		return "", fmt.Errorf("could not find taskID for the given service %s", service.ID)
+	}
+
+	return taskID, nil
 }
 
 func isMeshTask(t *ecs.Task) bool {
@@ -482,12 +584,7 @@ func tagValue(tags []*ecs.Tag, key string) string {
 	return ""
 }
 
-// IsACLNotFoundError returns true if the ACL is not found.
-func IsACLNotFoundError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "Unexpected response code: 403 (ACL not found)")
-}
-
-// PartitionsEnabled indicates if support for partitions and namespaces is enabled.
-func PartitionsEnabled(p string) bool {
+// partitionsEnabled indicates if support for partitions and namespaces is enabled.
+func partitionsEnabled(p string) bool {
 	return p != ""
 }

@@ -47,6 +47,7 @@ type Command struct {
 	dataplaneMonitor *dataplaneMonitor
 
 	watcherCh <-chan discovery.State
+	watcher   config.ServerConnectionManager
 
 	// Following fields are only needed for unit tests
 
@@ -128,9 +129,12 @@ func (c *Command) realRun() error {
 		return fmt.Errorf("constructing server connection manager config: %s", err)
 	}
 
-	watcher, err := discovery.NewWatcher(c.ctx, serverConnMgrCfg, c.log)
-	if err != nil {
-		return fmt.Errorf("unable to create consul server watcher: %s", err)
+	watcher := c.watcher
+	if watcher == nil {
+		watcher, err = discovery.NewWatcher(c.ctx, serverConnMgrCfg, c.log)
+		if err != nil {
+			return fmt.Errorf("unable to create consul server watcher: %s", err)
+		}
 	}
 
 	go watcher.Run()

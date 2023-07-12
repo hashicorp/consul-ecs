@@ -162,7 +162,7 @@ func testUpsertConsulResources(t *testing.T, cases map[string]iamAuthTestCase) {
 				for _, policy := range policies {
 					policyNames = append(policyNames, policy.Name)
 				}
-				if !c.partitionsEnabled {
+				if c.partitionsEnabled {
 					require.NotContains(t, policyNames, "global-management")
 				} else {
 					// The default partition has a global-management policy

@@ -322,9 +322,7 @@ func TestRun(t *testing.T) {
 			cmd.proceedChan = make(chan struct{})
 
 			watcherCh := make(chan discovery.State, 1)
-			if !c.skipServerWatch {
-				cmd.watcherCh = watcherCh
-			}
+			cmd.watcherCh = watcherCh
 
 			envoyBootstrapDir := testutil.TempDir(t)
 			dataplaneConfigJSONFile := filepath.Join(envoyBootstrapDir, dataplaneConfigFileName)
@@ -519,13 +517,11 @@ func TestRun(t *testing.T) {
 			// Verify with retries that the checks have reached the expected state
 			assertHealthChecks(t, consulClient, expectedServiceChecks, expectedProxyCheck)
 
-			if !c.skipServerWatch {
-				addr, err := discovery.MakeAddr(serverHost, serverGRPCPort)
-				require.NoError(t, err)
+			addr, err := discovery.MakeAddr(serverHost, serverGRPCPort)
+			require.NoError(t, err)
 
-				watcherCh <- discovery.State{
-					Address: addr,
-				}
+			watcherCh <- discovery.State{
+				Address: addr,
 			}
 
 			// Some containers might reappear after sometime they went missing.
@@ -959,7 +955,7 @@ func assertWrittenFiles(t *testing.T, expectedFiles []*fileMeta) {
 }
 
 func assertDataplaneConfigJSON(t *testing.T, skipServerWatch bool, grpcPort int, dataplaneConfigJSONFile, proxySvcID, namespace, partition string) {
-	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, strconv.FormatBool(skipServerWatch), proxySvcID, namespace, partition)
+	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, skipServerWatch, proxySvcID, namespace, partition)
 	actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
 	require.NoError(t, err)
 	require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
@@ -1057,7 +1053,7 @@ func getExpectedDataplaneCfgJSON() string {
 	"consul": {
 	  "addresses": "127.0.0.1",
 	  "grpcPort": %d,
-	  "serverWatchDisabled": %s
+	  "serverWatchDisabled": %t
 	},
 	"service": {
 	  "nodeName": "arn:aws:ecs:us-east-1:123456789:cluster/test",

@@ -360,7 +360,10 @@ func (s TaskStateLister) createNamespaces(resources []Resource) error {
 //     running in a mesh task without a Consul client container.
 //   - Deregister those services for which the backing task resource is not available in ECS.
 func (s TaskStateLister) ReconcileServices(resources []Resource) error {
-	opts := &api.QueryOptions{Partition: s.Partition}
+	opts := &api.QueryOptions{
+		Partition: s.Partition,
+		Namespace: "*",
+	}
 	services, _, err := s.ConsulClient.Catalog().NodeServiceList(s.ClusterARN, opts)
 	if err != nil {
 		return fmt.Errorf("fetching list of services for the given node %s: %w", s.ClusterARN, err)

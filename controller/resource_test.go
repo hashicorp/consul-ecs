@@ -648,7 +648,7 @@ func TestReconcileServices(t *testing.T) {
 			s.ReconcileServices(resources)
 
 			// assertion
-			services, _, err := consulClient.Catalog().Services(&api.QueryOptions{Partition: s.Partition})
+			services, _, err := consulClient.Catalog().Services(&api.QueryOptions{Partition: s.Partition, Namespace: "*"})
 			require.NoError(t, err)
 
 			var serviceNames []string

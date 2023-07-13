@@ -197,7 +197,7 @@ func TestTaskStateListerList(t *testing.T) {
 			constructSvcRegInputEnt("partition-service-1", "partition-task-1", testNs, testPtn),
 			constructSvcRegInputEnt("partition-service-2", "partition-task-2", testNs, testPtn),
 			constructSvcRegInputEnt("partition-service-3", "partition-task-3", testNs, testPtn),
-			constructSvcRegInputEnt("partition-service-11", "partition-task-11", "default", testPtn),
+			constructSvcRegInputEnt("partition-service-11", "partition-task-11", "default", "default"),
 		}
 
 		cases["no tasks or tokens/services in partition"] = testCase{

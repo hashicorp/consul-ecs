@@ -472,6 +472,7 @@ type tokenMeta struct {
 
 // TaskState contains the information needed to reconcile a task.
 type TaskState struct {
+	// SetupConsulClientFn sets up a consul client on demand.
 	SetupConsulClientFn func() (*api.Client, error)
 
 	// TaskID is the id of the ECS task.

@@ -41,7 +41,7 @@ func (c *Controller) Run(ctx context.Context) {
 	}
 }
 
-// Reconcile first lists all resources and then reconciles them with Controller's state.
+// reconcile first lists all resources and then reconciles them with Controller's state.
 func (c *Controller) reconcile() error {
 	c.Log.Debug("starting reconcile")
 	resources, err := c.Resources.List()

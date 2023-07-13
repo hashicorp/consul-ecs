@@ -269,7 +269,7 @@ func (s TaskStateLister) fetchServiceStateForTasks(consulClient *api.Client) (ma
 		serviceState[taskID] = state
 	}
 
-	return serviceState, nil
+	return serviceState, result
 }
 
 // ReconcileNamespaces ensures that for every service in the cluster the namespace
@@ -515,7 +515,7 @@ func (t *TaskState) Reconcile() error {
 		result = multierror.Append(result, t.DeregisterService(consulClient))
 	}
 
-	return nil
+	return result
 }
 
 func (t *TaskState) IsPresent() bool {

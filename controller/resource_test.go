@@ -810,5 +810,11 @@ func constructSvcRegInput(node, name, taskID string) *api.CatalogRegistration {
 		},
 	}
 
+	if enterpriseFlag() {
+		input.Service.Namespace = DefaultNamespace
+		input.Partition = DefaultPartition
+		input.Service.Partition = DefaultPartition
+	}
+
 	return input
 }

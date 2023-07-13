@@ -259,7 +259,6 @@ func (s TaskStateLister) fetchServiceStateForTasks(consulClient *api.Client) (ma
 	for _, service := range services.Services {
 		taskID, err := getTaskIDFromServiceMeta(service)
 		if err != nil {
-			s.Log.Error(err.Error())
 			result = multierror.Append(result, err)
 			continue
 		}

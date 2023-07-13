@@ -18,14 +18,6 @@ import (
 	"github.com/hashicorp/go-rootcerts"
 )
 
-//go:generate mockery --name ServerConnectionManager
-type ServerConnectionManager interface {
-	State() (discovery.State, error)
-	Run()
-	Stop()
-	Subscribe() <-chan discovery.State
-}
-
 const (
 	defaultGRPCPort    = 8503
 	defaultHTTPPort    = 8501

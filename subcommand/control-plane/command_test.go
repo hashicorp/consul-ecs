@@ -214,15 +214,15 @@ func TestRun(t *testing.T) {
 			serviceName:     serviceName,
 			expServiceName:  serviceName,
 		},
-		// "auth method enabled": {
-		// 	consulLogin: config.ConsulLogin{
-		// 		Enabled:       true,
-		// 		IncludeEntity: true,
-		// 		Meta: map[string]string{
-		// 			"unittest-tag": "12345",
-		// 		},
-		// 	},
-		// },
+		"auth method enabled": {
+			consulLogin: config.ConsulLogin{
+				Enabled:       true,
+				IncludeEntity: true,
+				Meta: map[string]string{
+					"unittest-tag": "12345",
+				},
+			},
+		},
 	}
 
 	for name, c := range cases {
@@ -305,6 +305,8 @@ func TestRun(t *testing.T) {
 
 				// Use the fake local AWS server.
 				c.consulLogin.STSEndpoint = fakeAws.URL + "/sts"
+
+				registerNode(t, consulClient, *taskMetadataResponse, expectedPartition)
 			}
 
 			ui := cli.NewMockUi()
@@ -375,8 +377,6 @@ func TestRun(t *testing.T) {
 				consulEcsConfig.Service.Partition = expectedPartition
 			}
 			testutil.SetECSConfigEnvVar(t, &consulEcsConfig)
-
-			cmd.watcher = setupTestConnManager(t, serverHost, serverGRPCPort, watcherCh)
 
 			go func() {
 				code := cmd.Run(nil)
@@ -473,7 +473,7 @@ func TestRun(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, expectedService, expectedProxy, expectedServiceName, expectedProxy.ServiceName)
 			assertCheckRegistration(t, consulClient, expectedServiceChecks, expectedProxyCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, c.skipServerWatch, serverGRPCPort, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition)
+			assertDataplaneConfigJSON(t, c.skipServerWatch, serverGRPCPort, c.consulLogin.Enabled, envoyBootstrapDir, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition)
 
 			// Construct task meta response for the first few iterations
 			// of syncChecks
@@ -522,9 +522,13 @@ func TestRun(t *testing.T) {
 			addr, err := discovery.MakeAddr(serverHost, serverGRPCPort)
 			require.NoError(t, err)
 
-			watcherCh <- discovery.State{
+			newServerState := discovery.State{
 				Address: addr,
 			}
+			if c.consulLogin.Enabled {
+				newServerState.Token = getACLToken(t, envoyBootstrapDir)
+			}
+			watcherCh <- newServerState
 
 			// Some containers might reappear after sometime they went missing.
 			// This block makes a missing reappear in the task meta response and
@@ -570,6 +574,9 @@ func TestRun(t *testing.T) {
 			currentTaskMetaResp.Store(taskMetaRespStr)
 
 			assertDeregistration(t, consulClient, expectedServiceName, expectedProxy.ServiceName)
+			if c.consulLogin.Enabled {
+				assertConsulLogout(t, cfg, envoyBootstrapDir)
+			}
 			cmd.cancel()
 		})
 	}
@@ -683,23 +690,20 @@ func TestGateway(t *testing.T) {
 				},
 			},
 		},
-		// TODO: revisit these tests when service registration happens via the
-		// client that talks directly to the server and not the client agent
-		//
-		// "mesh gateway with auth method enabled": {
-		// 	config: &config.Config{
-		// 		ConsulLogin: config.ConsulLogin{
-		// 			Enabled:       true,
-		// 			IncludeEntity: true,
-		// 		},
-		// 		Gateway: &config.GatewayRegistration{
-		// 			Kind: api.ServiceKindMeshGateway,
-		// 		},
-		// 	},
-		// 	expServiceID:   family + "-abcdef",
-		// 	expServiceName: family,
-		// 	expLanPort:     config.DefaultGatewayPort,
-		// },
+		"mesh gateway with auth method enabled": {
+			config: &config.Config{
+				ConsulLogin: config.ConsulLogin{
+					Enabled:       true,
+					IncludeEntity: true,
+				},
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+				},
+			},
+			expServiceID:   family + "-abcdef",
+			expServiceName: family,
+			expLanPort:     config.DefaultGatewayPort,
+		},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -760,12 +764,6 @@ func TestGateway(t *testing.T) {
 				},
 			}
 
-			if c.config.ConsulLogin.Enabled {
-				fakeAws := testutil.AuthMethodInit(t, consulClient, c.expServiceName, config.DefaultAuthMethodName)
-				// Use the fake local AWS server.
-				c.config.ConsulLogin.STSEndpoint = fakeAws.URL + "/sts"
-			}
-
 			var partition, namespace string
 			if testutil.EnterpriseFlag() {
 				partition = "default"
@@ -774,6 +772,14 @@ func TestGateway(t *testing.T) {
 
 			c.config.Gateway.Namespace = namespace
 			c.config.Gateway.Partition = partition
+
+			if c.config.ConsulLogin.Enabled {
+				fakeAws := testutil.AuthMethodInit(t, consulClient, c.expServiceName, config.DefaultAuthMethodName)
+				// Use the fake local AWS server.
+				c.config.ConsulLogin.STSEndpoint = fakeAws.URL + "/sts"
+
+				registerNode(t, consulClient, *taskMetadataResponse, partition)
+			}
 
 			testutil.SetECSConfigEnvVar(t, c.config)
 
@@ -831,7 +837,7 @@ func TestGateway(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, nil, expectedService, "", c.expServiceName)
 			assertCheckRegistration(t, consulClient, nil, expectedCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, true, serverGRPCPort, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition)
+			assertDataplaneConfigJSON(t, true, serverGRPCPort, c.config.ConsulLogin.Enabled, c.config.BootstrapDir, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition)
 
 			// Signals control plane to enter into a state where it
 			// periodically sync checks back to Consul
@@ -858,6 +864,9 @@ func TestGateway(t *testing.T) {
 			currentTaskMetaResp.Store(taskMetadataRespStr)
 
 			assertDeregistration(t, consulClient, "", expectedService.ServiceName)
+			if c.config.ConsulLogin.Enabled {
+				assertConsulLogout(t, apiCfg, c.config.BootstrapDir)
+			}
 			cmd.cancel()
 		})
 	}
@@ -909,21 +918,6 @@ func TestMakeProxyServiceIDAndName(t *testing.T) {
 	require.Equal(t, expectedName, actualName)
 }
 
-func setupTestConnManager(t *testing.T, ip string, port int, watcherCh chan discovery.State) *config.MockServerConnectionManager {
-	connMgr := &config.MockServerConnectionManager{}
-	addr, err := discovery.MakeAddr(ip, port)
-	require.NoError(t, err)
-	mockState := discovery.State{
-		Address: addr,
-	}
-
-	connMgr.On("Run").Return(nil)
-	connMgr.On("Stop").Return(nil)
-	connMgr.On("State").Return(mockState, nil)
-	connMgr.On("Subscribe").Return(watcherCh)
-	return connMgr
-}
-
 func assertServiceAndProxyRegistrations(t *testing.T, consulClient *api.Client, expectedService, expectedProxy *api.CatalogService, serviceName, proxyName string) {
 	// Note: TaggedAddressees may be set, but it seems like a race.
 	// We don't support tproxy in ECS, so I don't think we care about this?
@@ -971,11 +965,41 @@ func assertWrittenFiles(t *testing.T, expectedFiles []*fileMeta) {
 	}
 }
 
-func assertDataplaneConfigJSON(t *testing.T, skipServerWatch bool, grpcPort int, dataplaneConfigJSONFile, proxySvcID, namespace, partition string) {
-	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, skipServerWatch, proxySvcID, namespace, partition)
+func assertDataplaneConfigJSON(t *testing.T, skipServerWatch bool, grpcPort int, loginEnabled bool, bootstrapDir, dataplaneConfigJSONFile, proxySvcID, namespace, partition string) {
+	var credentialsConfigJSON string
+	if loginEnabled {
+		token := getACLToken(t, bootstrapDir)
+		credentialsConfigJSON = fmt.Sprintf(`,
+		"credentials": {
+			"type": "static",
+			"static": {
+				"token": "%s"
+			}
+		}`, token)
+	}
+
+	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, skipServerWatch, credentialsConfigJSON, proxySvcID, namespace, partition)
 	actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
 	require.NoError(t, err)
 	require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
+}
+
+// In a ACL enabled cluster, we expect the node to be preregistered by the ecs-controller.
+// This function makes sure to register the node with the bootstrap token before running the
+// control plane command
+func registerNode(t *testing.T, consulClient *api.Client, taskMeta awsutil.ECSTaskMeta, partition string) {
+	clusterARN, err := taskMeta.ClusterARN()
+	require.NoError(t, err)
+
+	payload := &api.CatalogRegistration{
+		Node:      clusterARN,
+		NodeMeta:  getNodeMeta(),
+		Address:   taskMeta.NodeIP(),
+		Partition: partition,
+	}
+
+	_, err = consulClient.Catalog().Register(payload, nil)
+	require.NoError(t, err)
 }
 
 func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceChecks api.HealthChecks, expectedProxyCheck *api.HealthCheck) {
@@ -1014,6 +1038,24 @@ func assertDeregistration(t *testing.T, consulClient *api.Client, serviceName, p
 		require.NoError(r, err)
 		require.Equal(r, 0, len(serviceInstances))
 	})
+}
+
+func assertConsulLogout(t *testing.T, cfg *api.Config, bootstrapDir string) {
+	cfg.Token = getACLToken(t, bootstrapDir)
+	client, err := api.NewClient(cfg)
+	require.NoError(t, err)
+
+	tok, _, err := client.ACL().TokenReadSelf(nil)
+	require.Error(t, err)
+	require.Nil(t, tok)
+}
+
+func getACLToken(t *testing.T, bootstrapDir string) string {
+	tokenFile := filepath.Join(bootstrapDir, config.ServiceTokenFilename)
+	token, err := os.ReadFile(tokenFile)
+	require.NoError(t, err)
+
+	return string(token)
 }
 
 func injectContainersIntoTaskMetaResponse(t *testing.T, skipDataplaneContainer, ignoreMissingContainers bool, taskMetadataResponse *awsutil.ECSTaskMeta, healthSyncContainers map[string]healthSyncContainerMetaData) string {
@@ -1070,7 +1112,7 @@ func getExpectedDataplaneCfgJSON() string {
 	"consul": {
 	  "addresses": "127.0.0.1",
 	  "grpcPort": %d,
-	  "serverWatchDisabled": %t
+	  "serverWatchDisabled": %t%s
 	},
 	"service": {
 	  "nodeName": "arn:aws:ecs:us-east-1:123456789:cluster/test",

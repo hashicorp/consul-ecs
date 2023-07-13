@@ -378,8 +378,6 @@ func TestRun(t *testing.T) {
 			}
 			testutil.SetECSConfigEnvVar(t, &consulEcsConfig)
 
-			cmd.watcher = setupTestConnManager(t, serverHost, serverGRPCPort, watcherCh)
-
 			go func() {
 				code := cmd.Run(nil)
 				require.Equal(t, code, 0, ui.ErrorWriter.String())
@@ -524,9 +522,13 @@ func TestRun(t *testing.T) {
 			addr, err := discovery.MakeAddr(serverHost, serverGRPCPort)
 			require.NoError(t, err)
 
-			watcherCh <- discovery.State{
+			newServerState := discovery.State{
 				Address: addr,
 			}
+			if c.consulLogin.Enabled {
+				newServerState.Token = getACLToken(t, envoyBootstrapDir)
+			}
+			watcherCh <- newServerState
 
 			// Some containers might reappear after sometime they went missing.
 			// This block makes a missing reappear in the task meta response and
@@ -914,21 +916,6 @@ func TestMakeProxyServiceIDAndName(t *testing.T) {
 	actualID, actualName := makeProxySvcIDAndName("test-service-12345", "test-service")
 	require.Equal(t, expectedID, actualID)
 	require.Equal(t, expectedName, actualName)
-}
-
-func setupTestConnManager(t *testing.T, ip string, port int, watcherCh chan discovery.State) *config.MockServerConnectionManager {
-	connMgr := &config.MockServerConnectionManager{}
-	addr, err := discovery.MakeAddr(ip, port)
-	require.NoError(t, err)
-	mockState := discovery.State{
-		Address: addr,
-	}
-
-	connMgr.On("Run").Return(nil)
-	connMgr.On("Stop").Return(nil)
-	connMgr.On("State").Return(mockState, nil)
-	connMgr.On("Subscribe").Return(watcherCh)
-	return connMgr
 }
 
 func assertServiceAndProxyRegistrations(t *testing.T, consulClient *api.Client, expectedService, expectedProxy *api.CatalogService, serviceName, proxyName string) {

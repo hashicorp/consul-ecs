@@ -194,37 +194,69 @@ func TestConsulServersHoldsDefaultValues(t *testing.T) {
 	}
 }
 
-var (
-	expectedConsulCheck = &api.AgentServiceCheck{
-		CheckID:           "check-1",
-		Name:              "test-check",
-		Args:              []string{"x", "y"},
-		DockerContainerID: "",
-		Shell:             "",
-		Interval:          "30s",
-		Timeout:           "5s",
-		TTL:               "30s",
-		HTTP:              "http://localhost:5000/health",
-		Header: map[string][]string{
-			"Content-Type": {"application/json"},
-		},
-		Method:                 "POST",
-		Body:                   `{"data": "abc123"}"`,
-		TCP:                    "localhost:5000",
-		Status:                 "204",
-		Notes:                  "A test check",
-		TLSServerName:          "test.example.com",
-		TLSSkipVerify:          true,
-		GRPC:                   "127.0.0.1:5000",
-		GRPCUseTLS:             true,
-		H2PING:                 "localhost:2222",
-		H2PingUseTLS:           true,
-		AliasNode:              "node-1",
-		AliasService:           "service-1",
-		SuccessBeforePassing:   5,
-		FailuresBeforeCritical: 3,
+func TestControllerHoldsDefaultValues(t *testing.T) {
+	type TestStruct struct {
+		Key1       string     `json:"key1"`
+		Controller Controller `json:"controller"`
 	}
 
+	cases := map[string]struct {
+		data                  string
+		expectedControllerCfg Controller
+	}{
+		"all non required fields are empty": {
+			data: `{
+				"key1": "value1",
+				"controller": {
+				}
+			}`,
+			expectedControllerCfg: Controller{
+				Partition:         "",
+				PartitionsEnabled: false,
+				IAMRolePath:       defaultIAMRolePath,
+			},
+		},
+		"empty iamRolePath input": {
+			data: `{
+				"key1": "value1",
+				"controller": {
+					"iamRolePath": ""
+				}
+			}`,
+			expectedControllerCfg: Controller{
+				Partition:         "",
+				PartitionsEnabled: false,
+				IAMRolePath:       defaultIAMRolePath,
+			},
+		},
+		"all controller fields have proper inputs": {
+			data: `{
+				"key1": "value1",
+				"controller": {
+					"iamRolePath": "/consul-iam/",
+					"partitionsEnabled": true,
+					"partition": "test-partition"
+				}
+			}`,
+			expectedControllerCfg: Controller{
+				Partition:         "test-partition",
+				PartitionsEnabled: true,
+				IAMRolePath:       "/consul-iam/",
+			},
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var unmarshalledCfg TestStruct
+			err := json.Unmarshal([]byte(c.data), &unmarshalledCfg)
+			require.NoError(t, err)
+			require.Equal(t, c.expectedControllerCfg, unmarshalledCfg.Controller)
+		})
+	}
+}
+
+var (
 	testServiceRegistration = ServiceRegistration{
 		Name:              "service-1",
 		Tags:              []string{"tag1", "tag2"},

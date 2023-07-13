@@ -18,9 +18,18 @@ import (
 	"github.com/hashicorp/go-rootcerts"
 )
 
+//go:generate mockery --name ServerConnectionManager
+type ServerConnectionManager interface {
+	State() (discovery.State, error)
+	Run()
+	Stop()
+	Subscribe() <-chan discovery.State
+}
+
 const (
-	defaultGRPCPort = 8503
-	defaultHTTPPort = 8501
+	defaultGRPCPort    = 8503
+	defaultHTTPPort    = 8501
+	defaultIAMRolePath = "/consul-ecs/"
 
 	// Cert used for internal RPC communication to the servers
 	consulGRPCCACertPemEnvVar = "CONSUL_GRPC_CACERT_PEM"

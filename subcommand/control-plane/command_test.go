@@ -23,6 +23,7 @@ import (
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/testutil"
+	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/freeport"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
@@ -96,15 +97,20 @@ func TestRun(t *testing.T) {
 		missingDataplaneContainer       bool
 		shouldMissingContainersReappear bool
 		expectedDataplaneConfigJSON     string
+		skipServerWatch                 bool
 
 		consulLogin config.ConsulLogin
 	}{
-		"basic service": {},
+		"basic service": {
+			skipServerWatch: true,
+		},
 		"service with port": {
-			servicePort: 8080,
-			proxyPort:   21000,
+			servicePort:     8080,
+			proxyPort:       21000,
+			skipServerWatch: true,
 		},
 		"service with upstreams": {
+			skipServerWatch: true,
 			upstreams: []config.Upstream{
 				{
 					DestinationName: "upstream1",
@@ -129,6 +135,7 @@ func TestRun(t *testing.T) {
 			},
 		},
 		"service with one healthy healthSyncContainer": {
+			skipServerWatch: true,
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
 					missing: false,
@@ -137,6 +144,7 @@ func TestRun(t *testing.T) {
 			},
 		},
 		"service with two healthy healthSyncContainers": {
+			skipServerWatch: true,
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
 					missing: false,
@@ -149,6 +157,7 @@ func TestRun(t *testing.T) {
 			},
 		},
 		"service with one healthy and one unhealthy healthSyncContainers": {
+			skipServerWatch: true,
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
 					missing: false,
@@ -161,6 +170,7 @@ func TestRun(t *testing.T) {
 			},
 		},
 		"service with one healthy and one missing healthSyncContainers": {
+			skipServerWatch: true,
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
 					missing: false,
@@ -172,6 +182,7 @@ func TestRun(t *testing.T) {
 			},
 		},
 		"service with missing dataplane container": {
+			skipServerWatch:           true,
 			missingDataplaneContainer: true,
 		},
 		"service with a missing container synced as healthy after it appears": {
@@ -186,18 +197,22 @@ func TestRun(t *testing.T) {
 				},
 			},
 			shouldMissingContainersReappear: true,
+			skipServerWatch:                 false,
 		},
 		"service with tags": {
-			tags:    []string{"tag1", "tag2"},
-			expTags: []string{"tag1", "tag2"},
+			skipServerWatch: true,
+			tags:            []string{"tag1", "tag2"},
+			expTags:         []string{"tag1", "tag2"},
 		},
 		"service with additional metadata": {
+			skipServerWatch:   true,
 			additionalMeta:    map[string]string{"a": "1", "b": "2"},
 			expAdditionalMeta: map[string]string{"a": "1", "b": "2"},
 		},
 		"service with service name": {
-			serviceName:    serviceName,
-			expServiceName: serviceName,
+			skipServerWatch: true,
+			serviceName:     serviceName,
+			expServiceName:  serviceName,
 		},
 		"auth method enabled": {
 			consulLogin: config.ConsulLogin{
@@ -308,6 +323,9 @@ func TestRun(t *testing.T) {
 			cmd.doneChan = make(chan struct{})
 			cmd.proceedChan = make(chan struct{})
 
+			watcherCh := make(chan discovery.State, 1)
+			cmd.watcherCh = watcherCh
+
 			envoyBootstrapDir := testutil.TempDir(t)
 			dataplaneConfigJSONFile := filepath.Join(envoyBootstrapDir, dataplaneConfigFileName)
 			expectedFileMeta := []*fileMeta{
@@ -323,7 +341,7 @@ func TestRun(t *testing.T) {
 				},
 			}
 
-			_, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
+			serverHost, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
 			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
 
 			containersToSync := make([]string, 0)
@@ -336,10 +354,11 @@ func TestRun(t *testing.T) {
 				HealthSyncContainers: containersToSync,
 				ConsulLogin:          c.consulLogin,
 				ConsulServers: config.ConsulServers{
-					Hosts:     "127.0.0.1",
-					GRPCPort:  serverGRPCPort,
-					HTTPPort:  serverHTTPPort,
-					EnableTLS: false,
+					Hosts:           "127.0.0.1",
+					GRPCPort:        serverGRPCPort,
+					HTTPPort:        serverHTTPPort,
+					EnableTLS:       false,
+					SkipServerWatch: c.skipServerWatch,
 				},
 				Proxy: &config.AgentServiceConnectProxyConfig{
 					PublicListenerPort: c.proxyPort,
@@ -358,6 +377,8 @@ func TestRun(t *testing.T) {
 				consulEcsConfig.Service.Partition = expectedPartition
 			}
 			testutil.SetECSConfigEnvVar(t, &consulEcsConfig)
+
+			cmd.watcher = setupTestConnManager(t, serverHost, serverGRPCPort, watcherCh)
 
 			go func() {
 				code := cmd.Run(nil)
@@ -454,7 +475,7 @@ func TestRun(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, expectedService, expectedProxy, expectedServiceName, expectedProxy.ServiceName)
 			assertCheckRegistration(t, consulClient, expectedServiceChecks, expectedProxyCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, serverGRPCPort, c.consulLogin.Enabled, envoyBootstrapDir, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition)
+			assertDataplaneConfigJSON(t, c.skipServerWatch, serverGRPCPort, c.consulLogin.Enabled, envoyBootstrapDir, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition)
 
 			// Construct task meta response for the first few iterations
 			// of syncChecks
@@ -499,6 +520,13 @@ func TestRun(t *testing.T) {
 
 			// Verify with retries that the checks have reached the expected state
 			assertHealthChecks(t, consulClient, expectedServiceChecks, expectedProxyCheck)
+
+			addr, err := discovery.MakeAddr(serverHost, serverGRPCPort)
+			require.NoError(t, err)
+
+			watcherCh <- discovery.State{
+				Address: addr,
+			}
 
 			// Some containers might reappear after sometime they went missing.
 			// This block makes a missing reappear in the task meta response and
@@ -717,10 +745,11 @@ func TestGateway(t *testing.T) {
 			_, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
 			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
 			c.config.ConsulServers = config.ConsulServers{
-				Hosts:     "127.0.0.1",
-				GRPCPort:  serverGRPCPort,
-				HTTPPort:  serverHTTPPort,
-				EnableTLS: false,
+				Hosts:           "127.0.0.1",
+				GRPCPort:        serverGRPCPort,
+				HTTPPort:        serverHTTPPort,
+				EnableTLS:       false,
+				SkipServerWatch: true,
 			}
 
 			c.config.BootstrapDir = testutil.TempDir(t)
@@ -806,7 +835,7 @@ func TestGateway(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, nil, expectedService, "", c.expServiceName)
 			assertCheckRegistration(t, consulClient, nil, expectedCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, serverGRPCPort, c.config.ConsulLogin.Enabled, c.config.BootstrapDir, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition)
+			assertDataplaneConfigJSON(t, true, serverGRPCPort, c.config.ConsulLogin.Enabled, c.config.BootstrapDir, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition)
 
 			// Signals control plane to enter into a state where it
 			// periodically sync checks back to Consul
@@ -887,6 +916,21 @@ func TestMakeProxyServiceIDAndName(t *testing.T) {
 	require.Equal(t, expectedName, actualName)
 }
 
+func setupTestConnManager(t *testing.T, ip string, port int, watcherCh chan discovery.State) *config.MockServerConnectionManager {
+	connMgr := &config.MockServerConnectionManager{}
+	addr, err := discovery.MakeAddr(ip, port)
+	require.NoError(t, err)
+	mockState := discovery.State{
+		Address: addr,
+	}
+
+	connMgr.On("Run").Return(nil)
+	connMgr.On("Stop").Return(nil)
+	connMgr.On("State").Return(mockState, nil)
+	connMgr.On("Subscribe").Return(watcherCh)
+	return connMgr
+}
+
 func assertServiceAndProxyRegistrations(t *testing.T, consulClient *api.Client, expectedService, expectedProxy *api.CatalogService, serviceName, proxyName string) {
 	// Note: TaggedAddressees may be set, but it seems like a race.
 	// We don't support tproxy in ECS, so I don't think we care about this?
@@ -934,7 +978,7 @@ func assertWrittenFiles(t *testing.T, expectedFiles []*fileMeta) {
 	}
 }
 
-func assertDataplaneConfigJSON(t *testing.T, grpcPort int, loginEnabled bool, bootstrapDir, dataplaneConfigJSONFile, proxySvcID, namespace, partition string) {
+func assertDataplaneConfigJSON(t *testing.T, skipServerWatch bool, grpcPort int, loginEnabled bool, bootstrapDir, dataplaneConfigJSONFile, proxySvcID, namespace, partition string) {
 	var credentialsConfigJSON string
 	if loginEnabled {
 		token := getACLToken(t, bootstrapDir)
@@ -947,7 +991,7 @@ func assertDataplaneConfigJSON(t *testing.T, grpcPort int, loginEnabled bool, bo
 		}`, token)
 	}
 
-	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, credentialsConfigJSON, proxySvcID, namespace, partition)
+	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, skipServerWatch, credentialsConfigJSON, proxySvcID, namespace, partition)
 	actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
 	require.NoError(t, err)
 	require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
@@ -1081,7 +1125,7 @@ func getExpectedDataplaneCfgJSON() string {
 	"consul": {
 	  "addresses": "127.0.0.1",
 	  "grpcPort": %d,
-	  "serverWatchDisabled": false%s
+	  "serverWatchDisabled": %t%s
 	},
 	"service": {
 	  "nodeName": "arn:aws:ecs:us-east-1:123456789:cluster/test",

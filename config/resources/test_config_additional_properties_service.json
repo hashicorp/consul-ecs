@@ -19,6 +19,11 @@
       "stsEndpoint": "https://sts.bogus-east-2.example.com",
       "serverIdHeaderValue": "my.consul.example.com"
     },
+    "controller": {
+      "iamRolePath": "/consul-iam/",
+      "partition": "default",
+      "partitionsEnabled": true
+    },
     "consulServers": {
       "hosts": "consul.dc1",
       "https": true,

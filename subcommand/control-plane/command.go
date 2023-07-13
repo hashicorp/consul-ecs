@@ -46,6 +46,9 @@ type Command struct {
 
 	dataplaneMonitor *dataplaneMonitor
 
+	watcherCh <-chan discovery.State
+	watcher   config.ServerConnectionManager
+
 	// Following fields are only needed for unit tests
 
 	// control plane signals to this channel whenever it has completed
@@ -126,9 +129,12 @@ func (c *Command) realRun() error {
 		return fmt.Errorf("constructing server connection manager config: %s", err)
 	}
 
-	watcher, err := discovery.NewWatcher(c.ctx, serverConnMgrCfg, c.log)
-	if err != nil {
-		return fmt.Errorf("unable to create consul server watcher: %s", err)
+	watcher := c.watcher
+	if watcher == nil {
+		watcher, err = discovery.NewWatcher(c.ctx, serverConnMgrCfg, c.log)
+		if err != nil {
+			return fmt.Errorf("unable to create consul server watcher: %s", err)
+		}
 	}
 
 	go watcher.Run()
@@ -139,32 +145,13 @@ func (c *Command) realRun() error {
 		return fmt.Errorf("unable to fetch consul server watcher state: %s", err)
 	}
 
-	if c.config.ConsulLogin.Enabled {
-		// If enabled write the ACL token to a shared volume so that consul-dataplane
-		// can reuse it later on whenever it starts up
-		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
-		err = os.WriteFile(tokenFile, []byte(state.Token), 0644)
-		if err != nil {
-			return err
-		}
-
-		c.log.Info("wrote ACL token to shared volume", "token-file", tokenFile)
-	}
-
-	// Client config for the client that talks directly to the server agent
-	cfg := c.config.ClientConfig()
-	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTPPort), 10))
-	if state.Token != "" {
-		// In case the token is not replicated across the consul server followers, we might get a
-		// `ACL token not found` error till the replication completes. Server connection manager
-		// already implements a sleep that should mitigate this. If not, we should reintroduce the
-		// `waitForReplication` method removed in https://github.com/hashicorp/consul-ecs/pull/143
-		cfg.Token = state.Token
-	}
-
-	consulClient, err := api.NewClient(cfg)
+	consulClient, err := c.setupConsulAPIClient(state)
 	if err != nil {
 		return fmt.Errorf("constructing consul client from config: %s", err)
+	}
+
+	if !c.isTestEnv {
+		c.watcherCh = watcher.Subscribe()
 	}
 
 	c.checks = make(map[string]*api.HealthCheck)
@@ -233,6 +220,14 @@ func (c *Command) realRun() error {
 		select {
 		case <-time.After(syncChecksInterval):
 			currentHealthStatuses = c.syncChecks(consulClient, currentHealthStatuses, serviceName, clusterARN, healthSyncContainers)
+		case watcherState := <-c.watcherCh:
+			c.log.Info("Switching to Consul server", "address", watcherState.Address.String())
+			client, err := c.setupConsulAPIClient(watcherState)
+			if err != nil {
+				c.log.Error("error re-configuring consul client %s", err.Error())
+			} else {
+				consulClient = client
+			}
 		case <-c.sigs:
 			c.log.Info("Received SIGTERM. Beginning graceful shutdown by first marking all checks as critical.")
 
@@ -310,6 +305,33 @@ func (c *Command) handleHealthCheck(rw http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	rw.WriteHeader(200)
+}
+
+func (c *Command) setupConsulAPIClient(state discovery.State) (*api.Client, error) {
+	if c.config.ConsulLogin.Enabled {
+		// If enabled write the ACL token to a shared volume so that consul-dataplane
+		// can reuse it later on whenever it starts up
+		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
+		err := os.WriteFile(tokenFile, []byte(state.Token), 0644)
+		if err != nil {
+			return nil, err
+		}
+
+		c.log.Info("wrote ACL token to shared volume", "token-file", tokenFile)
+	}
+
+	// Client config for the client that talks directly to the server agent
+	cfg := c.config.ClientConfig()
+	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTPPort), 10))
+	if state.Token != "" {
+		// In case the token is not replicated across the consul server followers, we might get a
+		// `ACL token not found` error till the replication completes. Server connection manager
+		// already implements a sleep that should mitigate this. If not, we should reintroduce the
+		// `waitForReplication` method removed in https://github.com/hashicorp/consul-ecs/pull/143
+		cfg.Token = state.Token
+	}
+
+	return api.NewClient(cfg)
 }
 
 // constructServiceName returns the service name for registration with Consul.

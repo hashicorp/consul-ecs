@@ -22,6 +22,11 @@
     "tlsServerName": null,
     "skipServerWatch": null
   },
+  "controller": {
+    "iamRolePath": null,
+    "partition": null,
+    "partitionsEnabled": null
+  },
   "service": {
     "name": null,
     "tags": null,

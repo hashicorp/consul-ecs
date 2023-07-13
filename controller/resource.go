@@ -46,9 +46,6 @@ type ResourceLister interface {
 
 	// ReconcileNamespaces ensures that all requisite namespaces exist.
 	ReconcileNamespaces([]Resource) error
-
-	// ReconcileServices ensures services are deregistered for missing ECS tasks
-	ReconcileServices([]Resource) error
 }
 
 // Resource is a generic type that needs to be reconciled by the Controller.
@@ -108,6 +105,19 @@ func (s TaskStateLister) List() ([]Resource, error) {
 			buildingResources[id] = state
 		} else {
 			buildingResources[id].ACLTokens = append(buildingResources[id].ACLTokens, state.ACLTokens...)
+		}
+	}
+
+	serviceState, err := s.fetchServiceStateForTasks()
+	if err != nil {
+		return resources, err
+	}
+
+	for id, state := range serviceState {
+		if _, ok := buildingResources[id]; !ok {
+			buildingResources[id] = state
+		} else {
+			buildingResources[id].Service = state.Service
 		}
 	}
 
@@ -227,6 +237,34 @@ func (s TaskStateLister) fetchACLState() (map[TaskID]*TaskState, error) {
 	}
 
 	return aclState, nil
+}
+
+func (s TaskStateLister) fetchServiceStateForTasks() (map[TaskID]*TaskState, error) {
+	opts := &api.QueryOptions{Partition: s.Partition}
+	if s.Partition != "" {
+		opts.Namespace = "*" // wildcard to fetch services from all namespaces
+	}
+	services, _, err := s.ConsulClient.Catalog().NodeServiceList(s.ClusterARN, opts)
+	if err != nil {
+		return nil, fmt.Errorf("fetching list of services for the given node %s: %w", s.ClusterARN, err)
+	}
+
+	var result error
+	serviceState := make(map[TaskID]*TaskState)
+	for _, service := range services.Services {
+		taskID, err := getTaskIDFromServiceMeta(service)
+		if err != nil {
+			s.Log.Error(err.Error())
+			result = multierror.Append(result, err)
+			continue
+		}
+
+		state := s.newTaskState(taskID, s.ClusterARN)
+		state.Service = service
+		serviceState[taskID] = state
+	}
+
+	return serviceState, nil
 }
 
 // ReconcileNamespaces ensures that for every service in the cluster the namespace
@@ -351,67 +389,6 @@ func (s TaskStateLister) createNamespaces(resources []Resource) error {
 	return result
 }
 
-// ReconcileServices ensures services are deregistered for missing ECS tasks with the
-// following steps
-//
-//   - Query the list of services belonging to the clusterARN node from Consul
-//   - Filter out the services that are registered by a Consul ECS control plane container
-//     running in a mesh task without a Consul client container.
-//   - Deregister those services for which the backing task resource is not available in ECS.
-func (s TaskStateLister) ReconcileServices(resources []Resource) error {
-	opts := &api.QueryOptions{Partition: s.Partition}
-	if s.Partition != "" {
-		opts.Namespace = "*" // wildcard to fetch services from all namespaces
-	}
-	services, _, err := s.ConsulClient.Catalog().NodeServiceList(s.ClusterARN, opts)
-	if err != nil {
-		return fmt.Errorf("fetching list of services for the given node %s: %w", s.ClusterARN, err)
-	}
-
-	var result error
-	taskIDToServiceMap := make(map[string]*api.AgentService)
-	for _, service := range services.Services {
-		taskID, err := getTaskIDFromServiceMeta(service)
-		if err != nil {
-			s.Log.Error(err.Error())
-			result = multierror.Append(result, err)
-			continue
-		}
-
-		taskIDToServiceMap[taskID] = service
-	}
-
-	for _, resource := range resources {
-		// We don't care about the running tasks
-		if resource.IsPresent() {
-			continue
-		}
-
-		serviceToDeregister, ok := taskIDToServiceMap[string(resource.ID())]
-		if !ok {
-			// To maintain backward compatibility, we skip resources that are
-			// created and managed by the Consul client based architecture in ECS.
-			continue
-		}
-
-		// At this point, we are certain that we found a service that doesn't have
-		// a backing running ECS task that was previously managed by the Consul dataplane
-		deregInput := &api.CatalogDeregistration{
-			Node:      s.ClusterARN,
-			ServiceID: serviceToDeregister.ID,
-			Partition: s.Partition,
-			Namespace: serviceToDeregister.Namespace,
-		}
-		_, err := s.ConsulClient.Catalog().Deregister(deregInput, nil)
-		if err != nil {
-			s.Log.Error("deregistering service with ID %s: %w", serviceToDeregister.ID, err)
-			result = multierror.Append(result, err)
-		}
-	}
-
-	return result
-}
-
 func (s TaskStateLister) newTaskState(taskId TaskID, clusterArn string) *TaskState {
 	return &TaskState{
 		ConsulClient: s.ConsulClient,
@@ -501,15 +478,28 @@ type TaskState struct {
 	ECSTaskFound bool
 	// ACLTokens are the Consul ACL tokens found for this task id.
 	ACLTokens []*api.ACLTokenListEntry
+	// Consul Service associated with this ECS task
+	Service *api.AgentService
 
 	Log hclog.Logger
 }
 
-// Reconcile deletes ACL tokens based on their ServiceState.
+// Reconcile deletes ACL tokens and removes the service from Catalog
+// based on the TaskState.
 func (t *TaskState) Reconcile() error {
-	if !t.IsPresent() && len(t.ACLTokens) > 0 {
-		return t.Delete()
+	if t.IsPresent() {
+		return nil
 	}
+
+	var result error
+	if len(t.ACLTokens) > 0 {
+		result = multierror.Append(result, t.Delete())
+	}
+
+	if t.Service != nil {
+		result = multierror.Append(result, t.DeregisterService())
+	}
+
 	return nil
 }
 
@@ -526,6 +516,23 @@ func (t *TaskState) Delete() error {
 			return fmt.Errorf("deleting token: %w", err)
 		}
 		t.Log.Info("token deleted successfully", "token", token.Description)
+	}
+	return nil
+}
+
+// DeregisterService removes the service from the Consul catalog
+func (t *TaskState) DeregisterService() error {
+	opts := &api.WriteOptions{Partition: t.Partition, Namespace: t.Service.Namespace}
+	deregInput := &api.CatalogDeregistration{
+		Node:      t.ClusterARN,
+		ServiceID: t.Service.ID,
+		Partition: t.Partition,
+		Namespace: t.Service.Namespace,
+	}
+
+	_, err := t.ConsulClient.Catalog().Deregister(deregInput, opts)
+	if err != nil {
+		return fmt.Errorf("deregistering service with ID %s: %w", t.Service.ID, err)
 	}
 	return nil
 }
@@ -549,13 +556,13 @@ func IsACLNotFoundError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "Unexpected response code: 403 (ACL not found)")
 }
 
-func getTaskIDFromServiceMeta(service *api.AgentService) (string, error) {
+func getTaskIDFromServiceMeta(service *api.AgentService) (TaskID, error) {
 	taskID, ok := service.Meta["task-id"]
 	if !ok {
 		return "", fmt.Errorf("could not find taskID for the given service %s", service.ID)
 	}
 
-	return taskID, nil
+	return TaskID(taskID), nil
 }
 
 func isMeshTask(t *ecs.Task) bool {

@@ -38,10 +38,6 @@ func (c *Controller) Reconcile() error {
 		merr = multierror.Append(merr, fmt.Errorf("reconciling namespaces: %w", err))
 	}
 
-	if err = c.Resources.ReconcileServices(resources); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("reconciling services: %w", err))
-	}
-
 	for _, resource := range resources {
 		err = resource.Reconcile()
 		if err != nil {

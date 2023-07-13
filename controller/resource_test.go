@@ -194,10 +194,10 @@ func TestTaskStateListerList(t *testing.T) {
 		entAllTokens := append(entLoginTokens, entOtherTokens...)
 
 		entServices := []*api.CatalogRegistration{
-			constructSvcRegInputEnt(testClusterArn, "partition-service-1", "partition-task-1", testNs, testPtn),
-			constructSvcRegInputEnt(testClusterArn, "partition-service-2", "partition-task-2", testNs, testPtn),
-			constructSvcRegInputEnt(testClusterArn, "partition-service-3", "partition-task-3", testNs, testPtn),
-			constructSvcRegInputEnt(testClusterArn, "partition-service-11", "partition-task-11", "default", testPtn),
+			constructSvcRegInputEnt("partition-service-1", "partition-task-1", testNs, testPtn),
+			constructSvcRegInputEnt("partition-service-2", "partition-task-2", testNs, testPtn),
+			constructSvcRegInputEnt("partition-service-3", "partition-task-3", testNs, testPtn),
+			constructSvcRegInputEnt("partition-service-11", "partition-task-11", "default", testPtn),
 		}
 
 		cases["no tasks or tokens/services in partition"] = testCase{
@@ -207,6 +207,7 @@ func TestTaskStateListerList(t *testing.T) {
 		cases["no mesh tasks or login tokens/services in partition"] = testCase{
 			initTasks:      entOtherTasks,
 			initTokens:     entOtherTokens,
+			initServices:   entServices,
 			initPartitions: allPartitions,
 			partition:      testPtn,
 		}
@@ -214,6 +215,7 @@ func TestTaskStateListerList(t *testing.T) {
 			initTasks:      entAllTasks,
 			initTokens:     entOtherTokens,
 			initPartitions: allPartitions,
+			initServices:   entServices,
 			partition:      testPtn,
 			expResources: []Resource{
 				// Finds tasks but no tokens.
@@ -239,6 +241,7 @@ func TestTaskStateListerList(t *testing.T) {
 			initTasks:      entAllTasks,
 			initTokens:     entAllTokens,
 			initPartitions: allPartitions,
+			initServices:   entServices,
 			partition:      testPtn,
 			expResources: []Resource{
 				// Partition and Namespace are not set from the ACL token.
@@ -360,7 +363,7 @@ func TestTaskStateReconcile(t *testing.T) {
 			"test-ptn": {"test-ns"},
 		}
 		entServices := []*api.CatalogRegistration{
-			constructSvcRegInputEnt(testClusterArn, "service", "test-task", "test-ns", "test-ptn"),
+			constructSvcRegInputEnt("service", "test-task", "test-ns", "test-ptn"),
 		}
 		cases["task not found and tokens/services not found in partition"] = testCase{
 			initTokens:     entTokens,
@@ -775,8 +778,8 @@ func registerServices(t *testing.T, consulClient *api.Client, catalogRegInputs [
 	}
 }
 
-func constructSvcRegInputEnt(node, name, taskID, namespace, partition string) *api.CatalogRegistration {
-	input := constructSvcRegInput(node, name, taskID)
+func constructSvcRegInputEnt(name, taskID, namespace, partition string) *api.CatalogRegistration {
+	input := constructSvcRegInput(testClusterArn, name, taskID)
 	input.Partition = partition
 	input.Service.Namespace = namespace
 	input.Service.Partition = partition

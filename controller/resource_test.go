@@ -207,7 +207,6 @@ func TestTaskStateListerList(t *testing.T) {
 		cases["no mesh tasks or login tokens/services in partition"] = testCase{
 			initTasks:      entOtherTasks,
 			initTokens:     entOtherTokens,
-			initServices:   entServices,
 			initPartitions: allPartitions,
 			partition:      testPtn,
 		}
@@ -215,7 +214,6 @@ func TestTaskStateListerList(t *testing.T) {
 			initTasks:      entAllTasks,
 			initTokens:     entOtherTokens,
 			initPartitions: allPartitions,
-			initServices:   entServices,
 			partition:      testPtn,
 			expResources: []Resource{
 				// Finds tasks but no tokens.
@@ -667,6 +665,11 @@ func makeTaskState(taskId string, taskFound bool, tokens []*api.ACLTokenListEntr
 
 	if service != nil {
 		t.Service = service
+
+		if enterpriseFlag() {
+			t.Service.Namespace = DefaultNamespace
+			t.Service.Partition = DefaultPartition
+		}
 	}
 
 	return t

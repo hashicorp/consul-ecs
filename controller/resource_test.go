@@ -679,6 +679,9 @@ func makeTaskStateEnt(taskId string, taskFound bool, tokens []*api.ACLTokenListE
 	t := makeTaskState(taskId, taskFound, tokens, service)
 	t.Partition = partition
 	t.NS = namespace
+
+	t.Service.Namespace = namespace
+	t.Service.Partition = partition
 	return t
 }
 
@@ -776,11 +779,7 @@ func enterpriseFlag() bool {
 
 func registerServices(t *testing.T, consulClient *api.Client, catalogRegInputs []*api.CatalogRegistration) {
 	for _, reg := range catalogRegInputs {
-		opts := &api.WriteOptions{
-			Partition: reg.Partition,
-			Namespace: reg.Service.Namespace,
-		}
-		_, err := consulClient.Catalog().Register(reg, opts)
+		_, err := consulClient.Catalog().Register(reg, nil)
 		require.NoError(t, err)
 	}
 }

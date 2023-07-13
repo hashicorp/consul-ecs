@@ -680,8 +680,10 @@ func makeTaskStateEnt(taskId string, taskFound bool, tokens []*api.ACLTokenListE
 	t.Partition = partition
 	t.NS = namespace
 
-	t.Service.Namespace = namespace
-	t.Service.Partition = partition
+	if t.Service != nil {
+		t.Service.Namespace = namespace
+		t.Service.Partition = partition
+	}
 	return t
 }
 

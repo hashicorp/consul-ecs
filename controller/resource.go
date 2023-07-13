@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
 	"github.com/hashicorp/consul-ecs/awsutil"
-	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
@@ -360,9 +359,9 @@ func (s TaskStateLister) createNamespaces(resources []Resource) error {
 //     running in a mesh task without a Consul client container.
 //   - Deregister those services for which the backing task resource is not available in ECS.
 func (s TaskStateLister) ReconcileServices(resources []Resource) error {
-	opts := &api.QueryOptions{
-		Partition: s.Partition,
-		Namespace: "*",
+	opts := &api.QueryOptions{Partition: s.Partition}
+	if s.Partition != "" {
+		opts.Namespace = "*" // wildcard to fetch services from all namespaces
 	}
 	services, _, err := s.ConsulClient.Catalog().NodeServiceList(s.ClusterARN, opts)
 	if err != nil {
@@ -370,18 +369,16 @@ func (s TaskStateLister) ReconcileServices(resources []Resource) error {
 	}
 
 	var result error
-	dataplaneBasedServicesMap := make(map[string]*api.AgentService)
+	taskIDToServiceMap := make(map[string]*api.AgentService)
 	for _, service := range services.Services {
-		if isDataplaneBasedService(service) {
-			taskID, err := getTaskIDFromServiceMeta(service)
-			if err != nil {
-				s.Log.Error(err.Error())
-				result = multierror.Append(result, err)
-				continue
-			}
-
-			dataplaneBasedServicesMap[taskID] = service
+		taskID, err := getTaskIDFromServiceMeta(service)
+		if err != nil {
+			s.Log.Error(err.Error())
+			result = multierror.Append(result, err)
+			continue
 		}
+
+		taskIDToServiceMap[taskID] = service
 	}
 
 	for _, resource := range resources {
@@ -390,7 +387,7 @@ func (s TaskStateLister) ReconcileServices(resources []Resource) error {
 			continue
 		}
 
-		serviceToDeregister, ok := dataplaneBasedServicesMap[string(resource.ID())]
+		serviceToDeregister, ok := taskIDToServiceMap[string(resource.ID())]
 		if !ok {
 			// To maintain backward compatibility, we skip resources that are
 			// created and managed by the Consul client based architecture in ECS.
@@ -550,16 +547,6 @@ func (t *TaskState) ID() TaskID {
 // IsACLNotFoundError returns true if the ACL is not found.
 func IsACLNotFoundError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "Unexpected response code: 403 (ACL not found)")
-}
-
-func isDataplaneBasedService(service *api.AgentService) bool {
-	for k, v := range service.Meta {
-		if strings.EqualFold(k, config.DataplaneBasedMeshTaskTag) && v == "true" {
-			return true
-		}
-	}
-
-	return false
 }
 
 func getTaskIDFromServiceMeta(service *api.AgentService) (string, error) {

@@ -359,10 +359,9 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clu
 	serviceID := makeServiceID(serviceName, taskID)
 
 	fullMeta := mergeMeta(map[string]string{
-		"task-id":                        taskID,
-		"task-arn":                       taskMeta.TaskARN,
-		"source":                         "consul-ecs",
-		config.DataplaneBasedMeshTaskTag: "true",
+		"task-id":  taskID,
+		"task-arn": taskMeta.TaskARN,
+		"source":   "consul-ecs",
 	}, c.config.Service.Meta)
 
 	service := c.config.Service.ToConsulType()
@@ -407,10 +406,9 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 	gatewaySvc.ID = serviceID
 	gatewaySvc.Service = serviceName
 	gatewaySvc.Meta = mergeMeta(map[string]string{
-		"task-id":                        taskID,
-		"task-arn":                       taskMeta.TaskARN,
-		"source":                         "consul-ecs",
-		config.DataplaneBasedMeshTaskTag: "true",
+		"task-id":  taskID,
+		"task-arn": taskMeta.TaskARN,
+		"source":   "consul-ecs",
 	}, c.config.Gateway.Meta)
 
 	taggedAddresses := make(map[string]api.ServiceAddress)

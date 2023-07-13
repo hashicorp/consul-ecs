@@ -32,7 +32,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/controller/mocks"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
@@ -883,10 +882,6 @@ func constructSvcRegInput(node, name, taskID string, dataplaneBasedTask bool) *a
 				"source":  "consul-ecs",
 			},
 		},
-	}
-
-	if dataplaneBasedTask {
-		input.Service.Meta[config.DataplaneBasedMeshTaskTag] = "true"
 	}
 
 	return input

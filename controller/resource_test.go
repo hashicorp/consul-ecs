@@ -40,6 +40,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type ClientCfg struct {
+	cfg *api.Config
+}
+
 const testClusterArn = "arn:aws:ecs:bogus-east-1:000000000000:cluster/my-cluster"
 
 func TestTaskStateListerList(t *testing.T) {
@@ -68,10 +72,21 @@ func TestTaskStateListerList(t *testing.T) {
 	}
 	allTokens := append(loginTokens, nonLoginTokens...)
 
+	services := []*api.CatalogRegistration{
+		constructSvcRegInput(testClusterArn, "service-1", "mesh-task-id-1"),
+		constructSvcRegInput(testClusterArn, "service-2", "mesh-task-id-2"),
+		constructSvcRegInput(testClusterArn, "service-3", "mesh-task-id-3"),
+		constructSvcRegInput("random-cluster-arn", "service-2", "mesh-task-id-5"),
+	}
+
 	tokenIgnoreFields := cmpopts.IgnoreFields(
 		api.ACLTokenListEntry{}, "CreateIndex", "ModifyIndex", "CreateTime", "Hash",
 	)
-	taskStateIgnoreFields := cmpopts.IgnoreFields(TaskState{}, "ConsulClient", "Log")
+	taskStateIgnoreFields := cmpopts.IgnoreFields(TaskState{}, "Log", "SetupConsulClientFn")
+
+	serviceIgnoreFields := cmpopts.IgnoreFields(
+		api.AgentService{}, "Tags", "Weights", "CreateIndex", "ModifyIndex", "Proxy", "Connect",
+	)
 
 	type testCase struct {
 		// tasks to setup in ECS for the test
@@ -80,6 +95,8 @@ func TestTaskStateListerList(t *testing.T) {
 		initTokens []*api.ACLTokenListEntry
 		// setup partitions + namespaces in Consul
 		initPartitions map[string][]string
+		// setup services in Consul catalog
+		initServices []*api.CatalogRegistration
 		// the controller's configured partition
 		partition string
 
@@ -87,39 +104,41 @@ func TestTaskStateListerList(t *testing.T) {
 	}
 	cases := map[string]testCase{
 		"no tasks and no tokens": {},
-		"no mesh tasks and no login tokens": {
+		"no mesh tasks and no login tokens and no services": {
 			initTokens: nonLoginTokens,
 			initTasks:  nonMeshTasks,
 			// TaskStateLister finds no resources.
 		},
-		"no mesh tasks with login tokens": {
-			initTokens: allTokens,
-			initTasks:  nonMeshTasks,
+		"no mesh tasks with login tokens and services": {
+			initTokens:   allTokens,
+			initTasks:    nonMeshTasks,
+			initServices: services,
 			expResources: []Resource{
 				// TaskStateLister finds the tokens but does not find the task
-				makeTaskState("mesh-task-id-1", false, loginTokens[0:2]),
-				makeTaskState("mesh-task-id-2", false, loginTokens[2:4]),
-				makeTaskState("mesh-task-id-3", false, loginTokens[4:6]),
+				makeTaskState("mesh-task-id-1", false, loginTokens[0:2], services[0].Service),
+				makeTaskState("mesh-task-id-2", false, loginTokens[2:4], services[1].Service),
+				makeTaskState("mesh-task-id-3", false, loginTokens[4:6], services[2].Service),
 			},
 		},
-		"mesh tasks without tokens": {
+		"mesh tasks without tokens and services": {
 			initTokens: nonLoginTokens,
 			initTasks:  allTasks,
 			expResources: []Resource{
 				// TaskStateLister finds the tasks but does not find the tokens
-				makeTaskState("mesh-task-id-1", true, nil),
-				makeTaskState("mesh-task-id-2", true, nil),
-				makeTaskState("mesh-task-id-3", true, nil),
+				makeTaskState("mesh-task-id-1", true, nil, nil),
+				makeTaskState("mesh-task-id-2", true, nil, nil),
+				makeTaskState("mesh-task-id-3", true, nil, nil),
 			},
 		},
-		"mesh tasks with tokens": {
-			initTokens: allTokens,
-			initTasks:  allTasks,
+		"mesh tasks with tokens and services": {
+			initTokens:   allTokens,
+			initTasks:    allTasks,
+			initServices: services,
 			expResources: []Resource{
 				// TaskStateLister finds the tasks and tokens
-				makeTaskState("mesh-task-id-1", true, loginTokens[0:2]),
-				makeTaskState("mesh-task-id-2", true, loginTokens[2:4]),
-				makeTaskState("mesh-task-id-3", true, loginTokens[4:6]),
+				makeTaskState("mesh-task-id-1", true, loginTokens[0:2], services[0].Service),
+				makeTaskState("mesh-task-id-2", true, loginTokens[2:4], services[1].Service),
+				makeTaskState("mesh-task-id-3", true, loginTokens[4:6], services[2].Service),
 			},
 		},
 	}
@@ -174,50 +193,58 @@ func TestTaskStateListerList(t *testing.T) {
 		}
 		entAllTokens := append(entLoginTokens, entOtherTokens...)
 
-		cases["no tasks or tokens in partition"] = testCase{
+		entServices := []*api.CatalogRegistration{
+			constructSvcRegInputEnt(testClusterArn, "partition-service-1", "partition-task-1", testNs, testPtn),
+			constructSvcRegInputEnt(testClusterArn, "partition-service-2", "partition-task-2", testNs, testPtn),
+			constructSvcRegInputEnt(testClusterArn, "partition-service-3", "partition-task-3", testNs, testPtn),
+			constructSvcRegInputEnt(testClusterArn, "partition-service-11", "partition-task-11", "default", testPtn),
+		}
+
+		cases["no tasks or tokens/services in partition"] = testCase{
 			initPartitions: allPartitions,
 			partition:      testPtn,
 		}
-		cases["no mesh tasks or login tokens in partition"] = testCase{
+		cases["no mesh tasks or login tokens/services in partition"] = testCase{
 			initTasks:      entOtherTasks,
 			initTokens:     entOtherTokens,
 			initPartitions: allPartitions,
 			partition:      testPtn,
 		}
-		cases["mesh tasks without tokens in partition"] = testCase{
+		cases["mesh tasks without tokens and services in partition"] = testCase{
 			initTasks:      entAllTasks,
 			initTokens:     entOtherTokens,
 			initPartitions: allPartitions,
 			partition:      testPtn,
 			expResources: []Resource{
 				// Finds tasks but no tokens.
-				makeTaskStateEnt("partition-task-1", true, nil, testPtn, testNs),
-				makeTaskStateEnt("partition-task-2", true, nil, testPtn, testNs),
-				makeTaskStateEnt("partition-task-3", true, nil, testPtn, testNs),
+				makeTaskStateEnt("partition-task-1", true, nil, nil, testPtn, testNs),
+				makeTaskStateEnt("partition-task-2", true, nil, nil, testPtn, testNs),
+				makeTaskStateEnt("partition-task-3", true, nil, nil, testPtn, testNs),
 			},
 		}
-		cases["no mesh tasks with tokens in partition"] = testCase{
+		cases["no mesh tasks with tokens and services in partition"] = testCase{
 			initTasks:      entOtherTasks,
 			initTokens:     entAllTokens,
+			initServices:   entServices,
 			initPartitions: allPartitions,
 			partition:      testPtn,
 			expResources: []Resource{
 				// Partition and Namespace are not set from the ACL token.
-				makeTaskStateEnt("partition-task-1", false, entLoginTokens[0:2], "", ""),
-				makeTaskStateEnt("partition-task-2", false, entLoginTokens[2:4], "", ""),
-				makeTaskStateEnt("partition-task-3", false, entLoginTokens[4:6], "", ""),
+				makeTaskStateEnt("partition-task-1", false, entLoginTokens[0:2], entServices[0].Service, "", ""),
+				makeTaskStateEnt("partition-task-2", false, entLoginTokens[2:4], entServices[1].Service, "", ""),
+				makeTaskStateEnt("partition-task-3", false, entLoginTokens[4:6], entServices[2].Service, "", ""),
 			},
 		}
-		cases["mesh tasks with tokens in partition"] = testCase{
+		cases["mesh tasks with tokens and services in partition"] = testCase{
 			initTasks:      entAllTasks,
 			initTokens:     entAllTokens,
 			initPartitions: allPartitions,
 			partition:      testPtn,
 			expResources: []Resource{
 				// Partition and Namespace are not set from the ACL token.
-				makeTaskStateEnt("partition-task-1", true, entLoginTokens[0:2], testPtn, testNs),
-				makeTaskStateEnt("partition-task-2", true, entLoginTokens[2:4], testPtn, testNs),
-				makeTaskStateEnt("partition-task-3", true, entLoginTokens[4:6], testPtn, testNs),
+				makeTaskStateEnt("partition-task-1", true, entLoginTokens[0:2], entServices[0].Service, testPtn, testNs),
+				makeTaskStateEnt("partition-task-2", true, entLoginTokens[2:4], entServices[1].Service, testPtn, testNs),
+				makeTaskStateEnt("partition-task-3", true, entLoginTokens[4:6], entServices[2].Service, testPtn, testNs),
 			},
 		}
 	}
@@ -228,12 +255,14 @@ func TestTaskStateListerList(t *testing.T) {
 
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			consulClient := initConsul(t)
+			consulClient, cfg := initConsul(t)
+			clientCfg := &ClientCfg{cfg: cfg}
+
 			lister := TaskStateLister{
-				ECSClient:    &mocks.ECSClient{Tasks: c.initTasks},
-				ConsulClient: consulClient,
-				ClusterARN:   testClusterArn,
-				Log:          hclog.Default().Named("lister"),
+				ECSClient:           &mocks.ECSClient{Tasks: c.initTasks},
+				SetupConsulClientFn: clientCfg.setupConsulClient,
+				ClusterARN:          testClusterArn,
+				Log:                 hclog.Default().Named("lister"),
 			}
 
 			if enterpriseFlag() {
@@ -245,13 +274,14 @@ func TestTaskStateListerList(t *testing.T) {
 			}
 
 			createTokens(t, consulClient, c.initTokens...)
+			registerServices(t, consulClient, c.initServices)
 
 			resources, err := lister.List()
 			require.NoError(t, err)
 
 			sortTaskStates(resources)
 
-			require.Empty(t, cmp.Diff(c.expResources, resources, tokenIgnoreFields, taskStateIgnoreFields))
+			require.Empty(t, cmp.Diff(c.expResources, resources, tokenIgnoreFields, taskStateIgnoreFields, serviceIgnoreFields))
 		})
 	}
 }
@@ -260,36 +290,65 @@ func TestTaskStateReconcile(t *testing.T) {
 	t.Parallel()
 
 	type testCase struct {
-		initTokens     []*api.ACLTokenListEntry
-		initPartitions map[string][]string
-		state          *TaskState
-		expExist       []*api.ACLTokenListEntry
-		expDeleted     []*api.ACLTokenListEntry
+		initTokens         []*api.ACLTokenListEntry
+		initServices       []*api.CatalogRegistration
+		initPartitions     map[string][]string
+		state              *TaskState
+		expExistTokens     []*api.ACLTokenListEntry
+		expDeletedTokens   []*api.ACLTokenListEntry
+		expExistServices   []*api.AgentService
+		expDeletedServices []*api.AgentService
 	}
 
 	tokens := []*api.ACLTokenListEntry{
 		makeToken(t, "test-task", true),
 	}
+
+	services := []*api.CatalogRegistration{
+		constructSvcRegInput(testClusterArn, "service", "test-task"),
+	}
 	cases := map[string]testCase{
-		"task not found and tokens not found": {
-			initTokens: tokens,
-			state:      makeTaskState("test-task", false, nil),
-			expExist:   tokens,
+		"task not found and tokens and services not found": {
+			initTokens:     tokens,
+			initServices:   services,
+			state:          makeTaskState("test-task", false, nil, nil),
+			expExistTokens: tokens,
+			expExistServices: []*api.AgentService{
+				services[0].Service,
+			},
 		},
-		"task found but tokens not found": {
-			initTokens: tokens,
-			state:      makeTaskState("test-task", true, nil),
-			expExist:   tokens,
+		"task found but tokens and services not found": {
+			initTokens:     tokens,
+			initServices:   services,
+			state:          makeTaskState("test-task", true, nil, nil),
+			expExistTokens: tokens,
+			expExistServices: []*api.AgentService{
+				services[0].Service,
+			},
 		},
 		"task found and tokens found": {
-			initTokens: tokens,
-			state:      makeTaskState("test-task", true, tokens),
-			expExist:   tokens,
+			initTokens:     tokens,
+			state:          makeTaskState("test-task", true, tokens, nil),
+			expExistTokens: tokens,
 		},
 		"task not found but tokens found": {
-			initTokens: tokens,
-			state:      makeTaskState("test-task", false, tokens),
-			expDeleted: tokens,
+			initTokens:       tokens,
+			state:            makeTaskState("test-task", false, tokens, nil),
+			expDeletedTokens: tokens,
+		},
+		"task found and services found": {
+			initServices: services,
+			state:        makeTaskState("test-task", true, nil, services[0].Service),
+			expExistServices: []*api.AgentService{
+				services[0].Service,
+			},
+		},
+		"task not found and services found": {
+			initServices: services,
+			state:        makeTaskState("test-task", false, nil, services[0].Service),
+			expDeletedServices: []*api.AgentService{
+				services[0].Service,
+			},
 		},
 	}
 
@@ -300,47 +359,76 @@ func TestTaskStateReconcile(t *testing.T) {
 		partitions := map[string][]string{
 			"test-ptn": {"test-ns"},
 		}
-		cases["task not found and tokens not found in partition"] = testCase{
-			initTokens:     entTokens,
-			initPartitions: partitions,
-			state:          makeTaskStateEnt("test-task", false, nil, "test-ptn", "test-ns"),
-			expExist:       entTokens,
+		entServices := []*api.CatalogRegistration{
+			constructSvcRegInputEnt(testClusterArn, "service", "test-task", "test-ns", "test-ptn"),
 		}
-		cases["task found but tokens not found in partition"] = testCase{
+		cases["task not found and tokens/services not found in partition"] = testCase{
 			initTokens:     entTokens,
 			initPartitions: partitions,
-			state:          makeTaskStateEnt("test-task", true, nil, "test-ptn", "test-ns"),
-			expExist:       entTokens,
+			initServices:   entServices,
+			state:          makeTaskStateEnt("test-task", false, nil, nil, "test-ptn", "test-ns"),
+			expExistTokens: entTokens,
+			expExistServices: []*api.AgentService{
+				entServices[0].Service,
+			},
+		}
+		cases["task found but tokens/services not found in partition"] = testCase{
+			initTokens:     entTokens,
+			initPartitions: partitions,
+			initServices:   entServices,
+			state:          makeTaskStateEnt("test-task", true, nil, nil, "test-ptn", "test-ns"),
+			expExistTokens: entTokens,
+			expExistServices: []*api.AgentService{
+				entServices[0].Service,
+			},
 		}
 		cases["task found and tokens found in partition"] = testCase{
 			initTokens:     entTokens,
 			initPartitions: partitions,
-			state:          makeTaskStateEnt("test-task", true, entTokens, "test-ptn", "test-ns"),
-			expExist:       entTokens,
+			state:          makeTaskStateEnt("test-task", true, entTokens, nil, "test-ptn", "test-ns"),
+			expExistTokens: entTokens,
 		}
 		cases["task not found but tokens found in partition"] = testCase{
-			initTokens:     entTokens,
+			initTokens:       entTokens,
+			initPartitions:   partitions,
+			state:            makeTaskStateEnt("test-task", false, entTokens, nil, "test-ptn", "test-ns"),
+			expDeletedTokens: entTokens,
+		}
+		cases["task found and services found in partition"] = testCase{
+			initServices:   entServices,
 			initPartitions: partitions,
-			state:          makeTaskStateEnt("test-task", false, entTokens, "test-ptn", "test-ns"),
-			expDeleted:     entTokens,
+			state:          makeTaskStateEnt("test-task", true, nil, entServices[0].Service, "test-ptn", "test-ns"),
+			expExistServices: []*api.AgentService{
+				entServices[0].Service,
+			},
+		}
+		cases["task not found and services found in partition"] = testCase{
+			initServices:   entServices,
+			initPartitions: partitions,
+			state:          makeTaskStateEnt("test-task", false, nil, entServices[0].Service, "test-ptn", "test-ns"),
+			expDeletedServices: []*api.AgentService{
+				entServices[0].Service,
+			},
 		}
 	}
 	for name, c := range cases {
 		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			client := initConsul(t)
+			client, cfg := initConsul(t)
+			clientCfg := &ClientCfg{cfg: cfg}
 
 			if enterpriseFlag() {
 				createPartitions(t, client, c.initPartitions)
 			}
 			createTokens(t, client, c.initTokens...)
+			registerServices(t, client, c.initServices)
 
-			c.state.ConsulClient = client
+			c.state.SetupConsulClientFn = clientCfg.setupConsulClient
 			c.state.Log = hclog.NewNullLogger()
 			require.NoError(t, c.state.Reconcile())
 
-			for _, exp := range c.expDeleted {
+			for _, exp := range c.expDeletedTokens {
 				tok, _, err := client.ACL().TokenRead(exp.AccessorID, &api.QueryOptions{
 					Namespace: exp.Namespace,
 					Partition: exp.Partition,
@@ -349,7 +437,7 @@ func TestTaskStateReconcile(t *testing.T) {
 				require.Contains(t, err.Error(), "ACL not found")
 				require.Nil(t, tok)
 			}
-			for _, exp := range c.expExist {
+			for _, exp := range c.expExistTokens {
 				tok, _, err := client.ACL().TokenRead(exp.AccessorID, &api.QueryOptions{
 					Namespace: exp.Namespace,
 					Partition: exp.Partition,
@@ -357,6 +445,34 @@ func TestTaskStateReconcile(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, tok)
 				require.Equal(t, exp.AccessorID, tok.AccessorID)
+			}
+
+			for _, exp := range c.expDeletedServices {
+				svcs, _, err := client.Catalog().Service(exp.Service, "", &api.QueryOptions{
+					Namespace: exp.Namespace,
+					Partition: exp.Partition,
+				})
+				require.NoError(t, err)
+
+				var svcNames []string
+				for _, svc := range svcs {
+					svcNames = append(svcNames, svc.ServiceName)
+				}
+				require.NotContains(t, svcNames, exp.Service)
+			}
+
+			for _, exp := range c.expExistServices {
+				svcs, _, err := client.Catalog().Service(exp.Service, "", &api.QueryOptions{
+					Namespace: exp.Namespace,
+					Partition: exp.Partition,
+				})
+				require.NoError(t, err)
+
+				var svcNames []string
+				for _, svc := range svcs {
+					svcNames = append(svcNames, svc.ServiceName)
+				}
+				require.Contains(t, svcNames, exp.Service)
 			}
 		})
 	}
@@ -376,7 +492,7 @@ func TestReconcileNamespaces(t *testing.T) {
 		"with partitions disabled": {
 			expNS: map[string][]string{},
 			resources: []Resource{
-				makeTaskStateEnt("some-task-id", true, nil, "default", "test-ns"),
+				makeTaskStateEnt("some-task-id", true, nil, nil, "default", "test-ns"),
 			},
 		},
 	}
@@ -388,9 +504,9 @@ func TestReconcileNamespaces(t *testing.T) {
 			partition: "default",
 			expNS:     map[string][]string{"default": {"default"}},
 			resources: []Resource{
-				makeTaskStateEnt("some-task-id", true, nil, "default", "default"),
+				makeTaskStateEnt("some-task-id", true, nil, nil, "default", "default"),
 				// simulate a task state with an empty string for the namespace
-				makeTaskStateEnt("some-task-id", false, nil, "", ""),
+				makeTaskStateEnt("some-task-id", false, nil, nil, "", ""),
 			},
 			expXnsPolicy: true,
 		}
@@ -400,10 +516,10 @@ func TestReconcileNamespaces(t *testing.T) {
 				"default": {"default", "namespace-1", "namespace-2"},
 			},
 			resources: []Resource{
-				makeTaskStateEnt("task-1", true, nil, "default", "default"),
-				makeTaskStateEnt("task-2", true, nil, "default", "namespace-1"),
-				makeTaskStateEnt("task-3", true, nil, "default", "namespace-1"),
-				makeTaskStateEnt("task-4", true, nil, "default", "namespace-2"),
+				makeTaskStateEnt("task-1", true, nil, nil, "default", "default"),
+				makeTaskStateEnt("task-2", true, nil, nil, "default", "namespace-1"),
+				makeTaskStateEnt("task-3", true, nil, nil, "default", "namespace-1"),
+				makeTaskStateEnt("task-4", true, nil, nil, "default", "namespace-2"),
 			},
 			expXnsPolicy: true,
 		}
@@ -414,10 +530,10 @@ func TestReconcileNamespaces(t *testing.T) {
 				"part-1":  {"default", "namespace-1", "namespace-2"},
 			},
 			resources: []Resource{
-				makeTaskStateEnt("task-1", true, nil, "part-1", "default"),
-				makeTaskStateEnt("task-2", true, nil, "part-1", "namespace-1"),
-				makeTaskStateEnt("task-3", true, nil, "part-1", "namespace-1"),
-				makeTaskStateEnt("task-4", true, nil, "part-1", "namespace-2"),
+				makeTaskStateEnt("task-1", true, nil, nil, "part-1", "default"),
+				makeTaskStateEnt("task-2", true, nil, nil, "part-1", "namespace-1"),
+				makeTaskStateEnt("task-3", true, nil, nil, "part-1", "namespace-1"),
+				makeTaskStateEnt("task-4", true, nil, nil, "part-1", "namespace-2"),
 			},
 			expXnsPolicy: true,
 		}
@@ -426,11 +542,13 @@ func TestReconcileNamespaces(t *testing.T) {
 		c := c
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			consulClient := initConsul(t)
+			consulClient, cfg := initConsul(t)
+			clientCfg := &ClientCfg{cfg: cfg}
+
 			s := TaskStateLister{
-				Log:          hclog.NewNullLogger(),
-				ConsulClient: consulClient,
-				Partition:    c.partition,
+				Log:                 hclog.NewNullLogger(),
+				SetupConsulClientFn: clientCfg.setupConsulClient,
+				Partition:           c.partition,
 			}
 
 			if enterpriseFlag() && c.partition != "" {
@@ -480,198 +598,19 @@ func TestReconcileNamespaces(t *testing.T) {
 	}
 }
 
-func TestReconcileServices(t *testing.T) {
-	t.Parallel()
+// helper func that initializes a Consul test server and returns a Consul API client.
+func initConsul(t *testing.T) (*api.Client, *api.Config) {
+	_, cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+	clientCfg := &ClientCfg{cfg: cfg}
 
-	type testCase struct {
-		setupTest                func(*testing.T, *api.Client, string, string) []Resource
-		partition                string
-		servicesToBeDeregistered []string
-		servicesToBePresent      []string
-	}
+	client, err := clientCfg.setupConsulClient()
+	require.NoError(t, err)
 
-	cases := map[string]*testCase{
-		"all tasks are running": {
-			setupTest: func(t *testing.T, consulClient *api.Client, node, partition string) []Resource {
-				var resources []Resource
-				if partition != "" {
-					require.NoError(t, createNamespace(consulClient, "namespace-1", partition))
-					require.NoError(t, createNamespace(consulClient, "namespace-2", partition))
-					resources = []Resource{
-						makeTaskStateEnt("mesh-task-id-1", true, nil, partition, "default"),
-						makeTaskStateEnt("mesh-task-id-2", true, nil, partition, "default"),
-						makeTaskStateEnt("mesh-task-id-3", true, nil, partition, "namespace-1"),
-						makeTaskStateEnt("mesh-task-id-4", true, nil, partition, "namespace-2"),
-						makeTaskStateEnt("mesh-task-id-5", true, nil, partition, "namespace-1"),
-					}
-					registerServicesEnt(t, consulClient, node, partition)
-					return resources
-				}
-
-				resources = []Resource{
-					makeTaskState("mesh-task-id-1", true, nil),
-					makeTaskState("mesh-task-id-2", true, nil),
-					makeTaskState("mesh-task-id-3", true, nil),
-					makeTaskState("mesh-task-id-4", true, nil),
-					makeTaskState("mesh-task-id-5", true, nil),
-				}
-				registerServices(t, consulClient, node)
-
-				return resources
-			},
-			servicesToBeDeregistered: nil,
-			servicesToBePresent:      []string{"service-1", "service-2", "service-3", "service-4", "service-5"},
-		},
-		"some tasks being managed by consul client are not running": {
-			setupTest: func(t *testing.T, consulClient *api.Client, node, partition string) []Resource {
-				var resources []Resource
-				if partition != "" {
-					require.NoError(t, createNamespace(consulClient, "namespace-1", partition))
-					require.NoError(t, createNamespace(consulClient, "namespace-2", partition))
-					resources = []Resource{
-						makeTaskStateEnt("mesh-task-id-1", true, nil, partition, "default"),
-						makeTaskStateEnt("mesh-task-id-2", false, nil, partition, "default"),
-						makeTaskStateEnt("mesh-task-id-3", true, nil, partition, "namespace-1"),
-						makeTaskStateEnt("mesh-task-id-4", false, nil, partition, "namespace-2"),
-						makeTaskStateEnt("mesh-task-id-5", true, nil, partition, "namespace-1"),
-					}
-					registerServicesEnt(t, consulClient, node, partition)
-					return resources
-				}
-
-				resources = []Resource{
-					makeTaskState("mesh-task-id-1", true, nil),
-					makeTaskState("mesh-task-id-2", false, nil),
-					makeTaskState("mesh-task-id-3", true, nil),
-					makeTaskState("mesh-task-id-4", false, nil),
-					makeTaskState("mesh-task-id-5", true, nil),
-				}
-				registerServices(t, consulClient, node)
-
-				return resources
-			},
-			servicesToBeDeregistered: nil,
-			servicesToBePresent:      []string{"service-1", "service-2", "service-3", "service-4", "service-5"},
-		},
-		"some tasks being managed by consul dataplane are not running": {
-			setupTest: func(t *testing.T, consulClient *api.Client, node, partition string) []Resource {
-				var resources []Resource
-				if partition != "" {
-					require.NoError(t, createNamespace(consulClient, "namespace-1", partition))
-					require.NoError(t, createNamespace(consulClient, "namespace-2", partition))
-					resources = []Resource{
-						makeTaskStateEnt("mesh-task-id-1", true, nil, partition, "default"),
-						makeTaskStateEnt("mesh-task-id-2", false, nil, partition, "default"),
-						makeTaskStateEnt("mesh-task-id-3", false, nil, partition, "namespace-1"),
-						makeTaskStateEnt("mesh-task-id-4", true, nil, partition, "namespace-2"),
-						makeTaskStateEnt("mesh-task-id-5", false, nil, partition, "namespace-1"),
-					}
-					registerServicesEnt(t, consulClient, node, partition)
-					return resources
-				}
-
-				resources = []Resource{
-					makeTaskState("mesh-task-id-1", true, nil),
-					makeTaskState("mesh-task-id-2", false, nil),
-					makeTaskState("mesh-task-id-3", false, nil),
-					makeTaskState("mesh-task-id-4", true, nil),
-					makeTaskState("mesh-task-id-5", false, nil),
-				}
-				registerServices(t, consulClient, node)
-
-				return resources
-			},
-			servicesToBeDeregistered: []string{"service-3", "service-5"},
-			servicesToBePresent:      []string{"service-1", "service-2", "service-4"},
-		},
-		"no task is running": {
-			setupTest: func(t *testing.T, consulClient *api.Client, node, partition string) []Resource {
-				var resources []Resource
-				if partition != "" {
-					require.NoError(t, createNamespace(consulClient, "namespace-1", partition))
-					require.NoError(t, createNamespace(consulClient, "namespace-2", partition))
-					resources = []Resource{
-						makeTaskStateEnt("mesh-task-id-1", false, nil, partition, "default"),
-						makeTaskStateEnt("mesh-task-id-2", false, nil, partition, "default"),
-						makeTaskStateEnt("mesh-task-id-3", false, nil, partition, "namespace-1"),
-						makeTaskStateEnt("mesh-task-id-4", false, nil, partition, "namespace-2"),
-						makeTaskStateEnt("mesh-task-id-5", false, nil, partition, "namespace-1"),
-					}
-					registerServicesEnt(t, consulClient, node, partition)
-					return resources
-				}
-
-				resources = []Resource{
-					makeTaskState("mesh-task-id-1", false, nil),
-					makeTaskState("mesh-task-id-2", false, nil),
-					makeTaskState("mesh-task-id-3", false, nil),
-					makeTaskState("mesh-task-id-4", false, nil),
-					makeTaskState("mesh-task-id-5", false, nil),
-				}
-				registerServices(t, consulClient, node)
-				return resources
-			},
-			servicesToBeDeregistered: []string{"service-1", "service-3", "service-5"},
-			servicesToBePresent:      []string{"service-2", "service-4"},
-		},
-	}
-
-	if enterpriseFlag() {
-		cases["all tasks are running"].partition = "default"
-		cases["some tasks being managed by consul client are not running"].partition = "test-partition"
-		cases["some tasks being managed by consul dataplane are not running"].partition = "test-partition-1"
-		cases["no task is running"].partition = "test-partition-2"
-	}
-
-	for name, c := range cases {
-		c := c
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			consulClient := initConsul(t)
-			s := TaskStateLister{
-				Log:          hclog.NewNullLogger(),
-				ConsulClient: consulClient,
-				Partition:    c.partition,
-				ClusterARN:   "arn:aws:ecs:us-east-1:123456789:cluster/test",
-			}
-
-			if enterpriseFlag() && c.partition != "" {
-				createPartitions(t, consulClient, map[string][]string{c.partition: nil})
-			}
-
-			err := registerNode(consulClient, s.ClusterARN, s.Partition)
-			require.NoError(t, err)
-
-			_ = c.setupTest(t, consulClient, s.ClusterARN, s.Partition)
-
-			//s.ReconcileServices(resources)
-
-			// assertion
-			services, _, err := consulClient.Catalog().Services(&api.QueryOptions{Partition: s.Partition, Namespace: "*"})
-			require.NoError(t, err)
-
-			var serviceNames []string
-			for svc := range services {
-				serviceNames = append(serviceNames, svc)
-			}
-
-			for _, svc := range c.servicesToBeDeregistered {
-				require.NotContains(t, serviceNames, svc)
-			}
-
-			for _, svc := range c.servicesToBePresent {
-				require.Contains(t, serviceNames, svc)
-			}
-		})
-	}
+	return client, cfg
 }
 
-// helper func that initializes a Consul test server and returns a Consul API client.
-func initConsul(t *testing.T) *api.Client {
-	_, cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
-	client, err := api.NewClient(cfg)
-	require.NoError(t, err)
-	return client
+func (c *ClientCfg) setupConsulClient() (*api.Client, error) {
+	return api.NewClient(c.cfg)
 }
 
 // listNamespaces is a helper func that returns a list of namespaces mapped to partition.
@@ -711,7 +650,7 @@ func makeECSTask(t *testing.T, taskId string, tags ...string) *ecs.Task {
 	}
 }
 
-func makeTaskState(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry) *TaskState {
+func makeTaskState(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry, service *api.AgentService) *TaskState {
 	t := &TaskState{
 		TaskID:       TaskID(taskId),
 		ClusterARN:   testClusterArn,
@@ -722,11 +661,16 @@ func makeTaskState(taskId string, taskFound bool, tokens []*api.ACLTokenListEntr
 		t.Partition = DefaultPartition
 		t.NS = DefaultNamespace
 	}
+
+	if service != nil {
+		t.Service = service
+	}
+
 	return t
 }
 
-func makeTaskStateEnt(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry, partition, namespace string) *TaskState {
-	t := makeTaskState(taskId, taskFound, tokens)
+func makeTaskStateEnt(taskId string, taskFound bool, tokens []*api.ACLTokenListEntry, service *api.AgentService, partition, namespace string) *TaskState {
+	t := makeTaskState(taskId, taskFound, tokens, service)
 	t.Partition = partition
 	t.NS = namespace
 	return t
@@ -824,51 +768,23 @@ func enterpriseFlag() bool {
 	return false
 }
 
-func registerNode(consulClient *api.Client, node, partition string) error {
-	regInput := &api.CatalogRegistration{
-		Node:      node,
-		Address:   "127.0.0.1",
-		Partition: partition,
+func registerServices(t *testing.T, consulClient *api.Client, catalogRegInputs []*api.CatalogRegistration) {
+	for _, reg := range catalogRegInputs {
+		_, err := consulClient.Catalog().Register(reg, nil)
+		require.NoError(t, err)
 	}
-
-	_, err := consulClient.Catalog().Register(regInput, nil)
-	return err
 }
 
-func registerServicesEnt(t *testing.T, consulClient *api.Client, node, partition string) {
-	registerServiceEnt(t, consulClient, "service-1", "mesh-task-id-1", node, partition, "default", true)
-	registerServiceEnt(t, consulClient, "service-2", "mesh-task-id-2", node, partition, "default", false)
-	registerServiceEnt(t, consulClient, "service-3", "mesh-task-id-3", node, partition, "namespace-1", true)
-	registerServiceEnt(t, consulClient, "service-4", "mesh-task-id-4", node, partition, "namespace-2", false)
-	registerServiceEnt(t, consulClient, "service-5", "mesh-task-id-5", node, partition, "namespace-1", true)
+func constructSvcRegInputEnt(node, name, taskID, namespace, partition string) *api.CatalogRegistration {
+	input := constructSvcRegInput(node, name, taskID)
+	input.Partition = partition
+	input.Service.Namespace = namespace
+	input.Service.Partition = partition
+
+	return input
 }
 
-func registerServices(t *testing.T, consulClient *api.Client, node string) {
-	registerService(t, consulClient, "service-1", "mesh-task-id-1", node, true)
-	registerService(t, consulClient, "service-2", "mesh-task-id-2", node, false)
-	registerService(t, consulClient, "service-3", "mesh-task-id-3", node, true)
-	registerService(t, consulClient, "service-4", "mesh-task-id-4", node, false)
-	registerService(t, consulClient, "service-5", "mesh-task-id-5", node, true)
-}
-
-func registerService(t *testing.T, consulClient *api.Client, name, taskID, node string, dataplaneBasedTask bool) {
-	regInput := constructSvcRegInput(node, name, taskID, dataplaneBasedTask)
-
-	_, err := consulClient.Catalog().Register(regInput, nil)
-	require.NoError(t, err)
-}
-
-func registerServiceEnt(t *testing.T, consulClient *api.Client, name, taskID, node, partition, namespace string, dataplaneBasedTask bool) {
-	regInput := constructSvcRegInput(node, name, taskID, dataplaneBasedTask)
-	regInput.Partition = partition
-	regInput.Service.Partition = partition
-	regInput.Service.Namespace = namespace
-
-	_, err := consulClient.Catalog().Register(regInput, nil)
-	require.NoError(t, err)
-}
-
-func constructSvcRegInput(node, name, taskID string, dataplaneBasedTask bool) *api.CatalogRegistration {
+func constructSvcRegInput(node, name, taskID string) *api.CatalogRegistration {
 	input := &api.CatalogRegistration{
 		Node:           node,
 		SkipNodeUpdate: true,
@@ -885,14 +801,4 @@ func constructSvcRegInput(node, name, taskID string, dataplaneBasedTask bool) *a
 	}
 
 	return input
-}
-
-func createNamespace(consulClient *api.Client, namespace, partition string) error {
-	_, _, err := consulClient.Namespaces().Create(&api.Namespace{
-		Name:        namespace,
-		Partition:   partition,
-		Description: "This is a test namespace",
-	}, nil)
-
-	return err
 }

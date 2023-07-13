@@ -4,6 +4,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -25,8 +26,23 @@ type Controller struct {
 	Log hclog.Logger
 }
 
+// Run starts the Controller loop. The loop will exit when ctx is canceled.
+func (c *Controller) Run(ctx context.Context) {
+	for {
+		select {
+		case <-time.After(c.PollingInterval):
+			err := c.reconcile()
+			if err != nil {
+				c.Log.Error("error during reconcile", "err", err)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 // Reconcile first lists all resources and then reconciles them with Controller's state.
-func (c *Controller) Reconcile() error {
+func (c *Controller) reconcile() error {
 	c.Log.Debug("starting reconcile")
 	resources, err := c.Resources.List()
 	if err != nil {

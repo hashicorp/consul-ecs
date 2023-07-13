@@ -508,11 +508,17 @@ func (t *TaskState) Reconcile() error {
 
 	var result error
 	if len(t.ACLTokens) > 0 {
-		result = multierror.Append(result, t.Delete(consulClient))
+		err := t.Delete(consulClient)
+		if err != nil {
+			result = multierror.Append(result, err)
+		}
 	}
 
 	if t.Service != nil {
-		result = multierror.Append(result, t.DeregisterService(consulClient))
+		err := t.DeregisterService(consulClient)
+		if err != nil {
+			result = multierror.Append(result, err)
+		}
 	}
 
 	return result

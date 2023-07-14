@@ -122,7 +122,7 @@ func (s TaskStateLister) List() ([]Resource, error) {
 		if _, ok := buildingResources[id]; !ok {
 			buildingResources[id] = state
 		} else {
-			buildingResources[id].Service = state.Service
+			buildingResources[id].Services = append(buildingResources[id].Services, state.Services...)
 		}
 	}
 
@@ -264,8 +264,13 @@ func (s TaskStateLister) fetchServiceStateForTasks(consulClient *api.Client) (ma
 		}
 
 		state := s.newTaskState(taskID, s.ClusterARN)
-		state.Service = service
-		serviceState[taskID] = state
+
+		if found, ok := serviceState[state.TaskID]; ok {
+			found.Services = append(found.Services, service)
+		} else {
+			state.Services = []*api.AgentService{service}
+			serviceState[state.TaskID] = state
+		}
 	}
 
 	return serviceState, result
@@ -488,8 +493,8 @@ type TaskState struct {
 	ECSTaskFound bool
 	// ACLTokens are the Consul ACL tokens found for this task id.
 	ACLTokens []*api.ACLTokenListEntry
-	// Consul Service associated with this ECS task
-	Service *api.AgentService
+	// Service and the sidecar proxy registrations associated with this ECS task
+	Services []*api.AgentService
 
 	Log hclog.Logger
 }
@@ -514,8 +519,8 @@ func (t *TaskState) Reconcile() error {
 		}
 	}
 
-	if t.Service != nil {
-		err := t.DeregisterService(consulClient)
+	if t.Services != nil {
+		err := t.DeregisterServices(consulClient)
 		if err != nil {
 			result = multierror.Append(result, err)
 		}
@@ -541,19 +546,22 @@ func (t *TaskState) Delete(consulClient *api.Client) error {
 	return nil
 }
 
-// DeregisterService removes the service from the Consul catalog
-func (t *TaskState) DeregisterService(consulClient *api.Client) error {
-	opts := &api.WriteOptions{Partition: t.Partition, Namespace: t.Service.Namespace}
-	deregInput := &api.CatalogDeregistration{
-		Node:      t.ClusterARN,
-		ServiceID: t.Service.ID,
-		Partition: t.Partition,
-		Namespace: t.Service.Namespace,
-	}
+// DeregisterServices removes the service and proxy registrations from the Consul catalog
+func (t *TaskState) DeregisterServices(consulClient *api.Client) error {
+	var result error
+	for _, svc := range t.Services {
+		opts := &api.WriteOptions{Partition: t.Partition, Namespace: svc.Namespace}
+		deregInput := &api.CatalogDeregistration{
+			Node:      t.ClusterARN,
+			ServiceID: svc.ID,
+			Partition: t.Partition,
+			Namespace: svc.Namespace,
+		}
 
-	_, err := consulClient.Catalog().Deregister(deregInput, opts)
-	if err != nil {
-		return fmt.Errorf("deregistering service with ID %s: %w", t.Service.ID, err)
+		_, err := consulClient.Catalog().Deregister(deregInput, opts)
+		if err != nil {
+			result = multierror.Append(result, fmt.Errorf("deregistering service with ID %s: %w", svc.ID, err))
+		}
 	}
 	return nil
 }
@@ -574,7 +582,7 @@ func (t *TaskState) ID() TaskID {
 
 // IsACLNotFoundError returns true if the ACL is not found.
 func IsACLNotFoundError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "Unexpected response code: 403 (ACL not found)")
+	return err != nil && strings.Contains(err.Error(), "ACL not found")
 }
 
 func getTaskIDFromServiceMeta(service *api.AgentService) (TaskID, error) {

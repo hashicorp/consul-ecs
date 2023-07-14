@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/require"
 )
@@ -163,7 +164,7 @@ func TestConsulServersHoldsDefaultValues(t *testing.T) {
 				},
 				GRPC: GRPCSettings{
 					Port:      8503,
-					EnableTLS: boolPtr(false),
+					EnableTLS: testutil.BoolPtr(false),
 				},
 				HTTP: HTTPSettings{
 					Port:        8501,
@@ -193,7 +194,7 @@ func TestConsulServersHoldsDefaultValues(t *testing.T) {
 				},
 				HTTP: HTTPSettings{
 					Port:        8500,
-					EnableTLS:   boolPtr(false),
+					EnableTLS:   testutil.BoolPtr(false),
 					EnableHTTPS: false,
 				},
 			},
@@ -232,14 +233,14 @@ func TestConsulServersHoldsDefaultValues(t *testing.T) {
 				},
 				GRPC: GRPCSettings{
 					Port:          8502,
-					EnableTLS:     boolPtr(true),
+					EnableTLS:     testutil.BoolPtr(true),
 					CaCertFile:    "ca-cert-2.pem",
 					TLSServerName: "consul.dc1",
 				},
 				HTTP: HTTPSettings{
 					Port:          8500,
 					EnableHTTPS:   true,
-					EnableTLS:     boolPtr(true),
+					EnableTLS:     testutil.BoolPtr(true),
 					CaCertFile:    "ca-cert-1.pem",
 					TLSServerName: "consul.dc1",
 				},
@@ -351,7 +352,7 @@ func TestHTTPSettingsHoldsDefaultValues(t *testing.T) {
 			expectedHTTPSettings: HTTPSettings{
 				Port:          8501,
 				CaCertFile:    "",
-				EnableTLS:     boolPtr(false),
+				EnableTLS:     testutil.BoolPtr(false),
 				EnableHTTPS:   true,
 				TLSServerName: "",
 			},
@@ -385,7 +386,7 @@ func TestHTTPSettingsHoldsDefaultValues(t *testing.T) {
 			expectedHTTPSettings: HTTPSettings{
 				Port:          8500,
 				CaCertFile:    "cert.pem",
-				EnableTLS:     boolPtr(true),
+				EnableTLS:     testutil.BoolPtr(true),
 				EnableHTTPS:   true,
 				TLSServerName: "consul.dc1",
 			},
@@ -434,7 +435,7 @@ func TestGRPCSettingsHoldsDefaultValues(t *testing.T) {
 			expectedGRPCSettings: GRPCSettings{
 				Port:          8503,
 				CaCertFile:    "",
-				EnableTLS:     boolPtr(false),
+				EnableTLS:     testutil.BoolPtr(false),
 				TLSServerName: "",
 			},
 		},
@@ -451,7 +452,7 @@ func TestGRPCSettingsHoldsDefaultValues(t *testing.T) {
 			expectedGRPCSettings: GRPCSettings{
 				Port:          8502,
 				CaCertFile:    "cert.pem",
-				EnableTLS:     boolPtr(true),
+				EnableTLS:     testutil.BoolPtr(true),
 				TLSServerName: "consul.dc1",
 			},
 		},
@@ -646,7 +647,3 @@ var (
 		},
 	}
 )
-
-func boolPtr(v bool) *bool {
-	return &v
-}

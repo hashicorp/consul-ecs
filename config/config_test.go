@@ -80,7 +80,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					Hosts: "consul.dc1.address",
 					GRPC: GRPCSettings{
 						Port:      8503,
-						EnableTLS: boolPtr(true),
+						EnableTLS: testutil.BoolPtr(true),
 					},
 					Defaults: DefaultSettings{
 						EnableTLS: false,
@@ -123,7 +123,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					SkipServerWatch: true,
 					GRPC: GRPCSettings{
 						Port:          8503,
-						EnableTLS:     boolPtr(true),
+						EnableTLS:     testutil.BoolPtr(true),
 						TLSServerName: "consul.dc1.address",
 					},
 					Defaults: DefaultSettings{
@@ -150,7 +150,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					SkipServerWatch: true,
 					GRPC: GRPCSettings{
 						Port:      8502,
-						EnableTLS: boolPtr(false),
+						EnableTLS: testutil.BoolPtr(false),
 					},
 					Defaults: DefaultSettings{
 						EnableTLS:     true,
@@ -275,7 +275,7 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 					Hosts: "consul.dc1.address",
 					GRPC: GRPCSettings{
 						Port:       8503,
-						EnableTLS:  boolPtr(true),
+						EnableTLS:  testutil.BoolPtr(true),
 						CaCertFile: caFile.Name(),
 					},
 					Defaults: DefaultSettings{
@@ -294,7 +294,7 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 					Hosts: "consul.dc1.address",
 					GRPC: GRPCSettings{
 						Port:      8503,
-						EnableTLS: boolPtr(true),
+						EnableTLS: testutil.BoolPtr(true),
 					},
 					Defaults: DefaultSettings{
 						EnableTLS: false,
@@ -407,7 +407,7 @@ func TestClientConfig(t *testing.T) {
 					HTTP: HTTPSettings{
 						Port:        8501,
 						EnableHTTPS: true,
-						EnableTLS:   boolPtr(true),
+						EnableTLS:   testutil.BoolPtr(true),
 						CaCertFile:  caFile.Name(),
 					},
 					Defaults: DefaultSettings{
@@ -430,7 +430,7 @@ func TestClientConfig(t *testing.T) {
 					Hosts: "consul.dc1.address",
 					HTTP: HTTPSettings{
 						Port:      8500,
-						EnableTLS: boolPtr(false),
+						EnableTLS: testutil.BoolPtr(false),
 					},
 					Defaults: DefaultSettings{
 						EnableTLS:  true,
@@ -452,7 +452,7 @@ func TestClientConfig(t *testing.T) {
 					Hosts: "exec=/usr/local/bin/query-servers",
 					HTTP: HTTPSettings{
 						Port:          8501,
-						EnableTLS:     boolPtr(true),
+						EnableTLS:     testutil.BoolPtr(true),
 						EnableHTTPS:   true,
 						TLSServerName: "consul.dc1.address",
 					},

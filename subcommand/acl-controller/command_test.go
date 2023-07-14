@@ -110,10 +110,15 @@ func testUpsertConsulResources(t *testing.T, cases map[string]iamAuthTestCase) {
 						IAMRolePath: "/path/to/roles",
 					},
 					ConsulServers: config.ConsulServers{
-						Hosts:           serverHost,
-						GRPCPort:        serverGRPCPort,
-						HTTPPort:        serverHTTPPort,
-						EnableTLS:       false,
+						Hosts: serverHost,
+						GRPC: config.GRPCSettings{
+							Port:      serverGRPCPort,
+							EnableTLS: testutil.BoolPtr(false),
+						},
+						HTTP: config.HTTPSettings{
+							Port:      serverHTTPPort,
+							EnableTLS: testutil.BoolPtr(false),
+						},
 						SkipServerWatch: true,
 					},
 				},
@@ -329,10 +334,15 @@ func TestUpsertAuthMethod(t *testing.T) {
 		log: hclog.Default().Named("acl-controller"),
 		config: &config.Config{
 			ConsulServers: config.ConsulServers{
-				Hosts:           serverHost,
-				GRPCPort:        serverGRPCPort,
-				HTTPPort:        serverHTTPPort,
-				EnableTLS:       false,
+				Hosts: serverHost,
+				GRPC: config.GRPCSettings{
+					Port:      serverGRPCPort,
+					EnableTLS: testutil.BoolPtr(false),
+				},
+				HTTP: config.HTTPSettings{
+					Port:      serverHTTPPort,
+					EnableTLS: testutil.BoolPtr(false),
+				},
 				SkipServerWatch: true,
 			},
 		},
@@ -522,10 +532,15 @@ func testUpsertAnonymousTokenPolicy(t *testing.T, cases map[string]anonTokenTest
 						PartitionsEnabled: c.partitionsEnabled,
 					},
 					ConsulServers: config.ConsulServers{
-						Hosts:           serverHost,
-						GRPCPort:        serverGRPCPort,
-						HTTPPort:        serverHTTPPort,
-						EnableTLS:       false,
+						Hosts: serverHost,
+						GRPC: config.GRPCSettings{
+							Port:      serverGRPCPort,
+							EnableTLS: testutil.BoolPtr(false),
+						},
+						HTTP: config.HTTPSettings{
+							Port:      serverHTTPPort,
+							EnableTLS: testutil.BoolPtr(false),
+						},
 						SkipServerWatch: true,
 					},
 				},

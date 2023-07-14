@@ -68,7 +68,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 						Port:          8503,
 						CaCertFile:    "/consul/ca-cert.pem",
 						TLSServerName: "consul.dc1",
-						EnableTLS:     boolPtr(true),
+						EnableTLS:     testutil.BoolPtr(true),
 					},
 				},
 			},
@@ -110,7 +110,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					SkipServerWatch: false,
 					GRPC: config.GRPCSettings{
 						Port:      8502,
-						EnableTLS: boolPtr(false),
+						EnableTLS: testutil.BoolPtr(false),
 					},
 				},
 				ConsulToken: "test-token-123",
@@ -156,7 +156,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 						Port:          8503,
 						CaCertFile:    "/consul/ca-cert.pem",
 						TLSServerName: "consul.dc1",
-						EnableTLS:     boolPtr(true),
+						EnableTLS:     testutil.BoolPtr(true),
 					},
 				},
 				ConsulToken: "test-token-123",
@@ -213,8 +213,4 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 			require.JSONEq(t, expectedJSON, string(actualJSON))
 		})
 	}
-}
-
-func boolPtr(v bool) *bool {
-	return &v
 }

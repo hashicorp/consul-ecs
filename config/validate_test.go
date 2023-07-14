@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/require"
 	"github.com/xeipuuv/gojsonschema"
@@ -207,14 +208,14 @@ var (
 				Port:          8503,
 				CaCertFile:    "/consul/ca-cert-1.pem",
 				TLSServerName: "consul.dc2",
-				EnableTLS:     boolPtr(true),
+				EnableTLS:     testutil.BoolPtr(true),
 			},
 			HTTP: HTTPSettings{
 				Port:          8501,
 				EnableHTTPS:   true,
 				CaCertFile:    "/consul/ca-cert-2.pem",
 				TLSServerName: "consul.dc3",
-				EnableTLS:     boolPtr(true),
+				EnableTLS:     testutil.BoolPtr(true),
 			},
 		},
 		ConsulLogin: ConsulLogin{

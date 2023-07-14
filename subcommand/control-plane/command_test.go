@@ -753,11 +753,11 @@ func TestGateway(t *testing.T) {
 				Hosts: "127.0.0.1",
 				GRPC: config.GRPCSettings{
 					Port:      serverGRPCPort,
-					EnableTLS: boolPtr(false),
+					EnableTLS: testutil.BoolPtr(false),
 				},
 				HTTP: config.HTTPSettings{
 					Port:      serverHTTPPort,
-					EnableTLS: boolPtr(false),
+					EnableTLS: testutil.BoolPtr(false),
 				},
 				SkipServerWatch: true,
 			}
@@ -1140,8 +1140,4 @@ func signalSIGTERM(t *testing.T) {
 	require.NoError(t, err)
 	// Give it time to react
 	time.Sleep(100 * time.Millisecond)
-}
-
-func boolPtr(v bool) *bool {
-	return &v
 }

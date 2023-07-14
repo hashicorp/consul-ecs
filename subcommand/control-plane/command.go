@@ -318,7 +318,7 @@ func (c *Command) setupConsulAPIClient(state discovery.State) (*api.Client, erro
 
 	// Client config for the client that talks directly to the server agent
 	cfg := c.config.ClientConfig()
-	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTPPort), 10))
+	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTP.Port), 10))
 	if state.Token != "" {
 		// In case the token is not replicated across the consul server followers, we might get a
 		// `ACL token not found` error till the replication completes. Server connection manager

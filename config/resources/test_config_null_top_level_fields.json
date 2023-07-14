@@ -2,20 +2,14 @@
   "bootstrapDir": "/consul/",
   "healthSyncContainers": null,
   "logLevel": null,
-  "consulHTTPAddr": null,
-  "consulCACertFile": null,
   "consulLogin": null,
   "controller": null,
   "consulServers": {
     "hosts": "",
-    "https": null,
-    "httpPort": null,
-    "grpcPort": null,
-    "httpsCACertFile": null,
-    "caCertFile": null,
-    "tls": null,
-    "tlsServerName": null,
-    "skipServerWatch": null
+    "skipServerWatch": null,
+    "defaults": null,
+    "grpc": null,
+    "http": null
   },
   "service": {
     "name": null,

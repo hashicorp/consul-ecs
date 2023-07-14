@@ -14,10 +14,6 @@ const (
 	// ServiceTokenFilename is the file in the BootstrapDir where the service token is written by `consul login`.
 	ServiceTokenFilename = "service-token"
 
-	// ClientTokenFilename is the file in the BootstrapDir where the Consul client token is expected.
-	// The consul-ecs binary does not write this file, but health-sync will attempt to do a `consul logout` for this token.
-	ClientTokenFilename = "client-token"
-
 	// DefaultAuthMethodName is the default name of the Consul IAM auth method used for `consul login`.
 	DefaultAuthMethodName = "iam-ecs-service-token"
 
@@ -50,8 +46,6 @@ const (
 // Config is the top-level config object.
 type Config struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
-	ConsulHTTPAddr       string                          `json:"consulHTTPAddr"`
-	ConsulCACertFile     string                          `json:"consulCACertFile"`
 	ConsulLogin          ConsulLogin                     `json:"consulLogin"`
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	LogLevel             string                          `json:"logLevel,omitempty"`
@@ -107,15 +101,11 @@ func (c *ConsulLogin) UnmarshalJSON(data []byte) error {
 // ConsulServers configures options that helps the ECS control plane discover
 // the consul servers.
 type ConsulServers struct {
-	Hosts           string `json:"hosts"`
-	EnableHTTPS     bool   `json:"https"`
-	HTTPPort        int    `json:"httpPort"`
-	GRPCPort        int    `json:"grpcPort"`
-	EnableTLS       bool   `json:"tls"`
-	HTTPSCACertFile string `json:"httpsCACertFile"`
-	CACertFile      string `json:"caCertFile"`
-	TLSServerName   string `json:"tlsServerName"`
-	SkipServerWatch bool   `json:"skipServerWatch"`
+	Hosts           string          `json:"hosts"`
+	SkipServerWatch bool            `json:"skipServerWatch"`
+	Defaults        DefaultSettings `json:"defaults"`
+	GRPC            GRPCSettings    `json:"grpc"`
+	HTTP            HTTPSettings    `json:"http"`
 }
 
 // UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields
@@ -124,10 +114,9 @@ func (c *ConsulServers) UnmarshalJSON(data []byte) error {
 	alias := struct {
 		*Alias
 
-		RawEnableHTTPS *bool `json:"https"`
-		RawHTTPPort    *int  `json:"httpPort"`
-		RawGRPCPort    *int  `json:"grpcPort"`
-		RawEnableTLS   *bool `json:"tls"`
+		RawDefaultSettings *DefaultSettings `json:"defaults"`
+		RawGRPCSettings    *GRPCSettings    `json:"grpc"`
+		RawHTTPSettings    *HTTPSettings    `json:"http"`
 	}{
 		Alias: (*Alias)(c), // Unmarshal other fields into *c
 	}
@@ -136,32 +125,143 @@ func (c *ConsulServers) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// Default RawEnableHTTPS to true
-	if alias.RawEnableHTTPS == nil {
-		c.EnableHTTPS = true
+	// Assign defaults, if the user hasn't provided
+	// values for `consulServers.defaults`
+	if alias.RawDefaultSettings == nil {
+		c.Defaults = DefaultSettings{
+			EnableTLS: true,
+		}
 	} else {
-		c.EnableHTTPS = *alias.RawEnableHTTPS
+		c.Defaults = *alias.RawDefaultSettings
+	}
+
+	// Assign defaults, if the user hasn't provided
+	// values for `consulServers.grpc`
+	if alias.RawGRPCSettings == nil {
+		c.GRPC = GRPCSettings{
+			Port: defaultGRPCPort,
+		}
+	} else {
+		c.GRPC = *alias.RawGRPCSettings
+	}
+
+	// Assign defaults, if the user hasn't provided
+	// values for `consulServers.http`
+	if alias.RawHTTPSettings == nil {
+		c.HTTP = HTTPSettings{
+			Port:        defaultHTTPPort,
+			EnableHTTPS: true,
+		}
+	} else {
+		c.HTTP = *alias.RawHTTPSettings
+	}
+
+	return nil
+}
+
+// DefaultSettings hold the default TLS settings for Consul server's RPC and HTTP interfaces
+type DefaultSettings struct {
+	CaCertFile    string `json:"caCertFile"`
+	EnableTLS     bool   `json:"tls"`
+	TLSServerName string `json:"tlsServerName"`
+}
+
+// UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields
+func (d *DefaultSettings) UnmarshalJSON(data []byte) error {
+	type Alias DefaultSettings
+	alias := struct {
+		*Alias
+
+		RawEnableTLS *bool `json:"tls"`
+	}{
+		Alias: (*Alias)(d),
+	}
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
 	}
 
 	// Default EnableTLS to true
 	if alias.RawEnableTLS == nil {
-		c.EnableTLS = true
+		d.EnableTLS = true
 	} else {
-		c.EnableTLS = *alias.RawEnableTLS
+		d.EnableTLS = *alias.RawEnableTLS
 	}
 
-	// Default HTTPPort to 8501
-	if alias.RawHTTPPort == nil {
-		c.HTTPPort = defaultHTTPPort
-	} else {
-		c.HTTPPort = *alias.RawHTTPPort
+	return nil
+}
+
+// GRPCSettings hold the settings for Consul server's RPC interfaces.
+// Overrides the configuration present in DefaultSettings for TLS.
+type GRPCSettings struct {
+	Port          int    `json:"port"`
+	CaCertFile    string `json:"caCertFile"`
+	EnableTLS     *bool  `json:"tls"`
+	TLSServerName string `json:"tlsServerName"`
+}
+
+// UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields
+func (g *GRPCSettings) UnmarshalJSON(data []byte) error {
+	type Alias GRPCSettings
+	alias := struct {
+		*Alias
+
+		RawPort *int `json:"port"`
+	}{
+		Alias: (*Alias)(g),
 	}
 
-	// Default GRPCPort to 8503
-	if alias.RawGRPCPort == nil {
-		c.GRPCPort = defaultGRPCPort
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Default Port to 8503
+	if alias.RawPort == nil {
+		g.Port = defaultGRPCPort
 	} else {
-		c.GRPCPort = *alias.RawGRPCPort
+		g.Port = *alias.RawPort
+	}
+	return nil
+}
+
+// HTTPSettings hold the settings for Consul server's HTTP interfaces.
+// Overrides the configuration present in DefaultSettings for TLS.
+type HTTPSettings struct {
+	Port          int    `json:"port"`
+	EnableHTTPS   bool   `json:"https"`
+	CaCertFile    string `json:"caCertFile"`
+	EnableTLS     *bool  `json:"tls"`
+	TLSServerName string `json:"tlsServerName"`
+}
+
+// UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields
+func (h *HTTPSettings) UnmarshalJSON(data []byte) error {
+	type Alias HTTPSettings
+	alias := struct {
+		*Alias
+
+		RawPort        *int  `json:"port"`
+		RawEnableHTTPS *bool `json:"https"`
+	}{
+		Alias: (*Alias)(h),
+	}
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Default EnableHTTPS to true
+	if alias.RawEnableHTTPS == nil {
+		h.EnableHTTPS = true
+	} else {
+		h.EnableHTTPS = *alias.RawEnableHTTPS
+	}
+
+	// Default Port to 8501
+	if alias.RawPort == nil {
+		h.Port = defaultHTTPPort
+	} else {
+		h.Port = *alias.RawPort
 	}
 	return nil
 }

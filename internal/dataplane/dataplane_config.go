@@ -30,7 +30,7 @@ func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 	cfg := &dataplaneConfig{
 		Consul: ConsulConfig{
 			Addresses:       i.ConsulServerConfig.Hosts,
-			GRPCPort:        i.ConsulServerConfig.GRPCPort,
+			GRPCPort:        i.ConsulServerConfig.GRPC.Port,
 			SkipServerWatch: i.ConsulServerConfig.SkipServerWatch,
 		},
 		Service: ServiceConfig{
@@ -45,10 +45,11 @@ func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 		},
 	}
 
-	if i.ConsulServerConfig.EnableTLS {
+	grpcTLSSettings := i.ConsulServerConfig.GetGRPCTLSSettings()
+	if grpcTLSSettings.Enabled {
 		cfg.Consul.TLS = &TLSConfig{
-			GRPCCACertPath: i.ConsulServerConfig.CACertFile,
-			TLSServerName:  i.ConsulServerConfig.TLSServerName,
+			GRPCCACertPath: grpcTLSSettings.CaCertFile,
+			TLSServerName:  grpcTLSSettings.TLSServerName,
 		}
 	}
 

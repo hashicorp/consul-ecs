@@ -13,14 +13,25 @@
   },
   "consulServers": {
     "hosts": "",
-    "https": null,
-    "httpPort": null,
-    "grpcPort": null,
-    "httpsCACertFile": null,
-    "caCertFile": null,
-    "tls": null,
-    "tlsServerName": null,
-    "skipServerWatch": null
+    "skipServerWatch": null,
+    "defaults": {
+      "caCertFile": null,
+      "tlsServerName": null,
+      "tls": null
+    },
+    "grpc": {
+      "port": null,
+      "caCertFile": null,
+      "tlsServerName": null,
+      "tls": null
+    },
+    "http": {
+      "https": null,
+      "port": null,
+      "caCertFile": null,
+      "tlsServerName": null,
+      "tls": null
+    }
   },
   "controller": {
     "iamRolePath": null,

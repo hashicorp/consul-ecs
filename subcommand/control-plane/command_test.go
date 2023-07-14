@@ -354,10 +354,13 @@ func TestRun(t *testing.T) {
 				HealthSyncContainers: containersToSync,
 				ConsulLogin:          c.consulLogin,
 				ConsulServers: config.ConsulServers{
-					Hosts:           "127.0.0.1",
-					GRPCPort:        serverGRPCPort,
-					HTTPPort:        serverHTTPPort,
-					EnableTLS:       false,
+					Hosts: "127.0.0.1",
+					GRPC: config.GRPCSettings{
+						Port: serverGRPCPort,
+					},
+					HTTP: config.HTTPSettings{
+						Port: serverHTTPPort,
+					},
 					SkipServerWatch: c.skipServerWatch,
 				},
 				Proxy: &config.AgentServiceConnectProxyConfig{
@@ -747,10 +750,15 @@ func TestGateway(t *testing.T) {
 			_, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
 			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
 			c.config.ConsulServers = config.ConsulServers{
-				Hosts:           "127.0.0.1",
-				GRPCPort:        serverGRPCPort,
-				HTTPPort:        serverHTTPPort,
-				EnableTLS:       false,
+				Hosts: "127.0.0.1",
+				GRPC: config.GRPCSettings{
+					Port:      serverGRPCPort,
+					EnableTLS: boolPtr(false),
+				},
+				HTTP: config.HTTPSettings{
+					Port:      serverHTTPPort,
+					EnableTLS: boolPtr(false),
+				},
 				SkipServerWatch: true,
 			}
 
@@ -1132,4 +1140,8 @@ func signalSIGTERM(t *testing.T) {
 	require.NoError(t, err)
 	// Give it time to react
 	time.Sleep(100 * time.Millisecond)
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }

@@ -4,8 +4,6 @@
       "frontend"
     ],
     "logLevel": "DEBUG",
-    "consulHTTPAddr": "consul.example.com",
-    "consulCACertFile": "/consul/consul-ca-cert.pem",
     "consulLogin": {
       "enabled": true,
       "method": "my-auth-method",
@@ -26,14 +24,19 @@
     },
     "consulServers": {
       "hosts": "consul.dc1",
-      "https": true,
-      "httpPort": 8501,
-      "grpcPort": 8503,
-      "httpsCACertFile": "/consul/ca-https-cert.pem",
-      "caCertFile": "/consul/ca-cert.pem",
-      "tls": true,
-      "tlsServerName": "consul.dc1",
-      "skipServerWatch": true
+      "skipServerWatch": true,
+      "defaults": {
+        "caCertFile": "/consul/ca-https-cert.pem",
+        "tlsServerName": "consul.dc1",
+        "tls": true
+      },
+      "grpc": {
+        "port": 8503
+      },
+      "http": {
+        "https": true,
+        "port": 8501
+      }
     },
     "service": {
       "name": "frontend",

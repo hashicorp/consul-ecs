@@ -15,14 +15,6 @@
       "type": "string",
       "minLength": 1
     },
-    "consulHTTPAddr": {
-      "description": "The HTTP(S) URL of the Consul server. Required when `authMethod.enabled` is set",
-      "type": ["string", "null"]
-    },
-    "consulCACertFile": {
-      "description": "The file path of the Consul server CA certificate.",
-      "type": ["string", "null"]
-    },
     "consulLogin": {
       "description": "Configuration for logging into the AWS IAM auth method.",
       "type": ["object", "null"],
@@ -94,33 +86,71 @@
           "description": "The Consul server hosts. This can be an IP or hostname, or an exec command, such as `exec=<cmd>`. The exec command should return a list of IP addresses.",
           "type": "string"
         },
-        "https": {
-          "description": "Whether to use HTTPS connections to the `consulServers.hosts`. Defaults to true.",
-          "type": ["boolean", "null"]
+        "defaults": {
+          "description": "Default TLS settings for Consul's http and gRPC interfaces",
+          "type": ["object", "null"],
+          "properties": {
+            "caCertFile": {
+              "description": "The CA certificate file for Consul's internal HTTP and gRPC interfaces.",
+              "type": ["string", "null"]
+            },
+            "tls": {
+              "description": "Whether to enable tls for internal RPC and HTTP traffic to the consul servers. Defaults to true",
+              "type": ["boolean", "null"]
+            },
+            "tlsServerName": {
+              "description": "The server name to use as the SNI host when connecting via TLS.",
+              "type": ["string", "null"]
+            }
+          }
         },
-        "httpPort": {
-          "description": "The Consul server HTTP(S) port. Defaults to 8501",
-          "type": ["integer", "null"]
+        "http": {
+          "description": "HTTP specific settings. Overrides `consulServers.defaults` for http.",
+          "type": ["object", "null"],
+          "properties": {
+            "caCertFile": {
+              "description": "The CA certificate file for Consul's internal HTTP interfaces. Overrides `consulServers.defaults.caCertFile`",
+              "type": ["string", "null"]
+            },
+            "https": {
+              "description": "Whether to use HTTPS connections to the `consulServers.hosts`. Defaults to true.",
+              "type": ["boolean", "null"]
+            },
+            "port": {
+              "description": "The Consul server HTTP(S) port. Defaults to 8501",
+              "type": ["integer", "null"]
+            },
+            "tls": {
+              "description": "Whether to enable tls for internal HTTP traffic to the consul servers. Overrides `consulServers.defaults.tls`",
+              "type": ["boolean", "null"]
+            },
+            "tlsServerName": {
+              "description": "The server name to use as the SNI host when connecting via TLS. Overrides `consulServers.defaults.tlsServerName`",
+              "type": ["string", "null"]
+            }
+          }
         },
-        "grpcPort": {
-          "description": "The Consul server gRPC port. Defaults to 8503",
-          "type": ["integer", "null"]
-        },
-        "caCertFile": {
-          "description": "The Consul server CA cert file for internal gRPC communication.",
-          "type": ["string", "null"]
-        },
-        "httpsCACertFile": {
-          "description": "The CA certificate file for Consul's internal HTTP interface.",
-          "type": ["string", "null"]
-        },
-        "tls": {
-          "description": "Whether to enable tls for internal RPC traffic to the consul servers. Defaults to true",
-          "type": ["boolean", "null"]
-        },
-        "tlsServerName": {
-          "description": "The server name to use as the SNI host when connecting via TLS.",
-          "type": ["string", "null"]
+        "grpc": {
+          "description": "gRPC specific settings. Overrides `consulServers.defaults` for gRPC.",
+          "type": ["object", "null"],
+          "properties": {
+            "caCertFile": {
+              "description": "The Consul server CA cert file for internal gRPC communication. Overrides `consulServers.defaults.caCertFile`",
+              "type": ["string", "null"]
+            },
+            "port": {
+              "description": "The Consul server gRPC port. Defaults to 8503",
+              "type": ["integer", "null"]
+            },
+            "tls": {
+              "description": "Whether to enable tls for internal RPC traffic to the consul servers. Overrides `consulServers.defaults.tls`",
+              "type": ["boolean", "null"]
+            },
+            "tlsServerName": {
+              "description": "The server name to use as the SNI host when connecting via TLS. Overrides `consulServers.defaults.tlsServerName`",
+              "type": ["string", "null"]
+            }
+          }
         },
         "skipServerWatch": {
           "description": "If true, the dataplane skips watching upstream server changes. Useful when servers are behind a load balancer. Defaults to false",

@@ -158,7 +158,7 @@ func (c *Command) setupConsulAPIClient() (*api.Client, error) {
 	}
 
 	cfg := c.config.ClientConfig()
-	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTPPort), 10))
+	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTP.Port), 10))
 
 	token := os.Getenv(bootstrapTokenEnvVar)
 	if token != "" {

@@ -1,7 +1,7 @@
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package aclcontroller
+package controller
 
 import (
 	"bytes"
@@ -51,6 +51,8 @@ type Command struct {
 	ctx    context.Context
 
 	logging.LogOpts
+
+	watcher *discovery.Watcher
 }
 
 func (c *Command) init() {
@@ -106,29 +108,15 @@ func (c *Command) run() error {
 		return fmt.Errorf("constructing server connection manager config: %w", err)
 	}
 
-	watcher, err := discovery.NewWatcher(c.ctx, serverConnMgrCfg, c.log)
+	c.watcher, err = discovery.NewWatcher(c.ctx, serverConnMgrCfg, c.log)
 	if err != nil {
 		return fmt.Errorf("unable to create consul server watcher: %w", err)
 	}
 
-	go watcher.Run()
-	defer watcher.Stop()
+	go c.watcher.Run()
+	defer c.watcher.Stop()
 
-	state, err := watcher.State()
-	if err != nil {
-		return fmt.Errorf("unable to fetch consul server watcher state: %w", err)
-	}
-
-	// Client config for the client that talks directly to the server agent
-	cfg := c.config.ClientConfig()
-	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTP.Port), 10))
-
-	token := os.Getenv(bootstrapTokenEnvVar)
-	if token != "" {
-		cfg.Token = token
-	}
-
-	consulClient, err := api.NewClient(cfg)
+	consulClient, err := c.setupConsulAPIClient()
 	if err != nil {
 		return fmt.Errorf("constructing Consul API client from config: %w", err)
 	}
@@ -138,11 +126,11 @@ func (c *Command) run() error {
 	}
 
 	taskStateLister := &controller.TaskStateLister{
-		ECSClient:    ecsClient,
-		ConsulClient: consulClient,
-		ClusterARN:   clusterArn,
-		Partition:    c.config.Controller.Partition,
-		Log:          c.log,
+		ECSClient:           ecsClient,
+		SetupConsulClientFn: c.setupConsulAPIClient,
+		ClusterARN:          clusterArn,
+		Partition:           c.config.Controller.Partition,
+		Log:                 c.log,
 	}
 	ctrl := controller.Controller{
 		Resources:       taskStateLister,
@@ -156,11 +144,28 @@ func (c *Command) run() error {
 }
 
 func (c *Command) Synopsis() string {
-	return "ECS ACL controller"
+	return "ECS controller"
 }
 
 func (c *Command) Help() string {
 	return ""
+}
+
+func (c *Command) setupConsulAPIClient() (*api.Client, error) {
+	state, err := c.watcher.State()
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch consul server watcher state: %w", err)
+	}
+
+	cfg := c.config.ClientConfig()
+	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTPPort), 10))
+
+	token := os.Getenv(bootstrapTokenEnvVar)
+	if token != "" {
+		cfg.Token = token
+	}
+
+	return api.NewClient(cfg)
 }
 
 // upsertConsulResources creates the necessary resources in Consul if they do not exist.
@@ -397,7 +402,7 @@ func (c *Command) upsertBindingRule(consulClient *api.Client, bindingRule *api.A
 
 // upsertAnonymousTokenPolicy ensures that the anonymous ACL token has the correct permissions
 // to allow cross-DC communication via mesh gateways.
-// If the ACL controller is in the primary datacenter then we need to update the anonymous token
+// If the controller is in the primary datacenter then we need to update the anonymous token
 // with service:read and node:read.
 // Tokens are stripped from cross DC API calls so cross DC API calls use the anonymous
 // token. Mesh gateway proxies use the anonymous token to talk cross-DC and they require

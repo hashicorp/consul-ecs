@@ -1,7 +1,7 @@
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package aclcontroller
+package controller
 
 import (
 	"context"
@@ -122,7 +122,7 @@ func testUpsertConsulResources(t *testing.T, cases map[string]iamAuthTestCase) {
 						SkipServerWatch: true,
 					},
 				},
-				log: hclog.Default().Named("acl-controller"),
+				log: hclog.Default().Named("controller"),
 			}
 			if c.partitionsEnabled {
 				cmd.config.Controller.Partition = testPartitionName
@@ -331,7 +331,7 @@ func TestUpsertAuthMethod(t *testing.T) {
 	_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
 
 	cmd := Command{
-		log: hclog.Default().Named("acl-controller"),
+		log: hclog.Default().Named("controller"),
 		config: &config.Config{
 			ConsulServers: config.ConsulServers{
 				Hosts: serverHost,
@@ -348,7 +348,7 @@ func TestUpsertAuthMethod(t *testing.T) {
 		},
 	}
 
-	// Simulate two ACL controllers adding auth method config.
+	// Simulate two controllers adding auth method config.
 	allPrincipals := []interface{}{
 		"arn:aws:iam::123456789:role/path/1/*",
 		"arn:aws:iam::123456789:role/path/2/*",
@@ -526,7 +526,7 @@ func testUpsertAnonymousTokenPolicy(t *testing.T, cases map[string]anonTokenTest
 			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
 
 			cmd := Command{
-				log: hclog.Default().Named("acl-controller"),
+				log: hclog.Default().Named("controller"),
 				config: &config.Config{
 					Controller: config.Controller{
 						PartitionsEnabled: c.partitionsEnabled,

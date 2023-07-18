@@ -1182,7 +1182,10 @@ func getExpectedDataplaneCfgJSON() string {
 	"consul": {
 	  "addresses": "127.0.0.1",
 	  "grpcPort": %d,
-	  "serverWatchDisabled": %t%s
+	  "serverWatchDisabled": %t,
+	  "tls": {
+		"disabled": true
+	   }%s
 	},
 	"service": {
 	  "nodeName": "arn:aws:ecs:us-east-1:123456789:cluster/test",
@@ -1191,8 +1194,7 @@ func getExpectedDataplaneCfgJSON() string {
 	  "partition": "%s"
 	},
 	"xdsServer": {
-	  "bindAddress": "127.0.0.1",
-	  "bindPort": 20000
+	  "bindAddress": "127.0.0.1"
 	}
   }`
 }

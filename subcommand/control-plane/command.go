@@ -67,6 +67,7 @@ type Command struct {
 
 const (
 	dataplaneConfigFileName = "consul-dataplane.json"
+	caCertFileName          = "mesh-task-consul-ca-cert.pem"
 
 	defaultHealthCheckBindAddr = "127.0.0.1"
 	defaultHealthCheckBindPort = "10000"
@@ -191,7 +192,12 @@ func (c *Command) realRun() error {
 		return err
 	}
 
-	err = c.generateAndWriteDataplaneConfig(proxyRegistration, state.Token)
+	rpcCACertFile, err := c.writeRPCCACertToSharedVolume()
+	if err != nil {
+		return err
+	}
+
+	err = c.generateAndWriteDataplaneConfig(proxyRegistration, state.Token, rpcCACertFile)
 	if err != nil {
 		return err
 	}
@@ -485,11 +491,12 @@ func (c *Command) copyECSBinaryToSharedVolume() error {
 // generateAndWriteDataplaneConfig generates the configuration json
 // needed for dataplane to configure itself and writes it to a shared
 // volume.
-func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.CatalogRegistration, consulToken string) error {
+func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.CatalogRegistration, consulToken, caCertFilePath string) error {
 	input := &dataplane.GetDataplaneConfigJSONInput{
 		ProxyRegistration:  proxyRegistration,
 		ConsulServerConfig: c.config.ConsulServers,
 		ConsulToken:        consulToken,
+		CACertFile:         caCertFilePath,
 	}
 
 	dataplaneConfigPath := path.Join(c.config.BootstrapDir, dataplaneConfigFileName)
@@ -504,6 +511,34 @@ func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.Catalog
 	}
 	c.log.Info("wrote dataplane config to ", dataplaneConfigPath)
 	return nil
+}
+
+// writeRPCCACertToSharedVolume writes the cert PEM to a shared volume
+// in the following conditions
+//  1. TLS must be enabled for gRPC
+//  2. CONSUL_GRPC_CACERT_PEM should contain the PEM. If not,
+//     we rely on `consulServers.defaults.caCertFile` or `consulServers.grpc.caCertFile`
+//
+// This is done because dataplane always expects a CA cert file path to be passed for
+// configuring it's own TLS settings.
+func (c *Command) writeRPCCACertToSharedVolume() (string, error) {
+	tlsSettings := c.config.ConsulServers.GetGRPCTLSSettings()
+	if !tlsSettings.Enabled {
+		return "", nil
+	}
+
+	pem := os.Getenv(config.ConsulGRPCCACertPemEnvVar)
+	if pem == "" {
+		return tlsSettings.CaCertFile, nil
+	}
+
+	caCertPath := path.Join(c.config.BootstrapDir, caCertFileName)
+	err := os.WriteFile(caCertPath, []byte(pem), 0444)
+	if err != nil {
+		return "", err
+	}
+
+	return caCertPath, nil
 }
 
 func (c *Command) deregisterServiceAndProxy(consulClient *api.Client, clusterARN string, serviceRegistration, proxyRegistration *api.CatalogRegistration) error {

@@ -19,15 +19,18 @@ import (
 )
 
 const (
+	// Cert used for internal RPC communication to the servers
+	ConsulGRPCCACertPemEnvVar = "CONSUL_GRPC_CACERT_PEM"
+
 	defaultGRPCPort    = 8503
 	defaultHTTPPort    = 8501
 	defaultIAMRolePath = "/consul-ecs/"
 
-	// Cert used for internal RPC communication to the servers
-	consulGRPCCACertPemEnvVar = "CONSUL_GRPC_CACERT_PEM"
-
 	// Cert used for securing HTTP traffic towards the server
 	consulHTTPSCertPemEnvVar = "CONSUL_HTTPS_CACERT_PEM"
+
+	// Token containing `acl:write`, `operator:write` and `node:write` privileges against the server
+	bootstrapTokenEnvVar = "CONSUL_HTTP_TOKEN"
 )
 
 type TLSSettings struct {
@@ -46,7 +49,7 @@ func (c *Config) ConsulServerConnMgrConfig(taskMeta awsutil.ECSTaskMeta) (discov
 	if grpcTLSSettings.Enabled {
 		tlsConfig := &tls.Config{}
 
-		caCert := os.Getenv(consulGRPCCACertPemEnvVar)
+		caCert := os.Getenv(ConsulGRPCCACertPemEnvVar)
 		if caCert != "" {
 			err := rootcerts.ConfigureTLS(tlsConfig, &rootcerts.Config{
 				CACertificate: []byte(caCert),
@@ -67,8 +70,17 @@ func (c *Config) ConsulServerConnMgrConfig(taskMeta awsutil.ECSTaskMeta) (discov
 		cfg.TLS.ServerName = grpcTLSSettings.TLSServerName
 	}
 
-	if c.ConsulLogin.Enabled {
-		credentials, err := c.getDiscoveryCredentials(taskMeta)
+	// We skip login if CONSUL_HTTP_TOKEN is non empty
+	token := GetConsulToken()
+	if token != "" {
+		cfg.Credentials = discovery.Credentials{
+			Type: discovery.CredentialsTypeStatic,
+			Static: discovery.StaticTokenCredential{
+				Token: token,
+			},
+		}
+	} else if c.ConsulLogin.Enabled {
+		credentials, err := c.getLoginDiscoveryCredentials(taskMeta)
 		if err != nil {
 			return discovery.Config{}, err
 		}
@@ -139,7 +151,11 @@ func (c *ConsulServers) GetGRPCTLSSettings() *TLSSettings {
 	}
 }
 
-func (c *Config) getDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (discovery.Credentials, error) {
+func GetConsulToken() string {
+	return os.Getenv(bootstrapTokenEnvVar)
+}
+
+func (c *Config) getLoginDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (discovery.Credentials, error) {
 	cfg := discovery.Credentials{
 		Type: discovery.CredentialsTypeLogin,
 		Login: discovery.LoginCredential{

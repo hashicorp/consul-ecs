@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"reflect"
 	"sort"
 	"strconv"
@@ -37,9 +36,6 @@ const (
 	anonTokenID    = "00000000-0000-0000-0000-000000000002"
 	anonPolicyName = "anonymous-token-policy"
 	anonPolicyDesc = "Anonymous token Policy"
-
-	// Token containing `acl:write`, `operator:write` and `node:write` privileges against the server
-	bootstrapTokenEnvVar = "CONSUL_HTTP_TOKEN"
 )
 
 type Command struct {
@@ -103,6 +99,11 @@ func (c *Command) run() error {
 	// Set up ECS client.
 	ecsClient := ecs.New(clientSession)
 
+	token := config.GetConsulToken()
+	if token != "" {
+		return fmt.Errorf("CONSUL_HTTP_TOKEN should be non empty")
+	}
+
 	serverConnMgrCfg, err := c.config.ConsulServerConnMgrConfig(ecsMeta)
 	if err != nil {
 		return fmt.Errorf("constructing server connection manager config: %w", err)
@@ -160,7 +161,7 @@ func (c *Command) setupConsulAPIClient() (*api.Client, error) {
 	cfg := c.config.ClientConfig()
 	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTP.Port), 10))
 
-	token := os.Getenv(bootstrapTokenEnvVar)
+	token := config.GetConsulToken()
 	if token != "" {
 		cfg.Token = token
 	}

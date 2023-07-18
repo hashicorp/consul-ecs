@@ -3,7 +3,7 @@
 
 //go:build enterprise
 
-package aclcontroller
+package controller
 
 import (
 	"testing"

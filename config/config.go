@@ -30,13 +30,20 @@ const (
 	consulHTTPSCertPemEnvVar = "CONSUL_HTTPS_CACERT_PEM"
 )
 
+type TLSSettings struct {
+	Enabled       bool
+	CaCertFile    string
+	TLSServerName string
+}
+
 func (c *Config) ConsulServerConnMgrConfig(taskMeta awsutil.ECSTaskMeta) (discovery.Config, error) {
 	cfg := discovery.Config{
 		Addresses: c.ConsulServers.Hosts,
-		GRPCPort:  c.ConsulServers.GRPCPort,
+		GRPCPort:  c.ConsulServers.GRPC.Port,
 	}
 
-	if c.ConsulServers.EnableTLS {
+	grpcTLSSettings := c.ConsulServers.GetGRPCTLSSettings()
+	if grpcTLSSettings.Enabled {
 		tlsConfig := &tls.Config{}
 
 		caCert := os.Getenv(consulGRPCCACertPemEnvVar)
@@ -47,9 +54,9 @@ func (c *Config) ConsulServerConnMgrConfig(taskMeta awsutil.ECSTaskMeta) (discov
 			if err != nil {
 				return discovery.Config{}, err
 			}
-		} else if c.ConsulServers.CACertFile != "" {
+		} else if grpcTLSSettings.CaCertFile != "" {
 			err := rootcerts.ConfigureTLS(tlsConfig, &rootcerts.Config{
-				CAFile: c.ConsulServers.CACertFile,
+				CAFile: grpcTLSSettings.CaCertFile,
 			})
 			if err != nil {
 				return discovery.Config{}, err
@@ -57,7 +64,7 @@ func (c *Config) ConsulServerConnMgrConfig(taskMeta awsutil.ECSTaskMeta) (discov
 		}
 
 		cfg.TLS = tlsConfig
-		cfg.TLS.ServerName = c.ConsulServers.TLSServerName
+		cfg.TLS.ServerName = grpcTLSSettings.TLSServerName
 	}
 
 	if c.ConsulLogin.Enabled {
@@ -83,19 +90,20 @@ func (c *Config) ClientConfig() *api.Config {
 		Scheme:    "http",
 	}
 
-	if c.ConsulServers.EnableHTTPS {
+	httpTLSSettings := c.ConsulServers.getHTTPTLSSettings()
+	if c.ConsulServers.HTTP.EnableHTTPS {
 		cfg.Scheme = "https"
 		cfg.TLSConfig = api.TLSConfig{}
 
 		caCert := os.Getenv(consulHTTPSCertPemEnvVar)
 		if caCert != "" {
 			cfg.TLSConfig.CAPem = []byte(caCert)
-		} else if c.ConsulServers.HTTPSCACertFile != "" {
-			cfg.TLSConfig.CAFile = c.ConsulServers.HTTPSCACertFile
+		} else if httpTLSSettings.CaCertFile != "" {
+			cfg.TLSConfig.CAFile = httpTLSSettings.CaCertFile
 		}
 
-		if c.ConsulServers.TLSServerName != "" {
-			cfg.TLSConfig.Address = c.ConsulServers.TLSServerName
+		if httpTLSSettings.TLSServerName != "" {
+			cfg.TLSConfig.Address = httpTLSSettings.TLSServerName
 		} else if !strings.HasPrefix(c.ConsulServers.Hosts, "exec=") {
 			cfg.TLSConfig.Address = c.ConsulServers.Hosts
 		}
@@ -106,6 +114,29 @@ func (c *Config) ClientConfig() *api.Config {
 
 func (c *Config) IsGateway() bool {
 	return c.Gateway != nil && c.Gateway.Kind != ""
+}
+
+func (c *ConsulServers) GetGRPCTLSSettings() *TLSSettings {
+	enableTLS := c.Defaults.EnableTLS
+	if c.GRPC.EnableTLS != nil {
+		enableTLS = *c.GRPC.EnableTLS
+	}
+
+	caCertFile := c.Defaults.CaCertFile
+	if c.GRPC.CaCertFile != "" {
+		caCertFile = c.GRPC.CaCertFile
+	}
+
+	tlsServerName := c.Defaults.TLSServerName
+	if c.GRPC.TLSServerName != "" {
+		tlsServerName = c.GRPC.TLSServerName
+	}
+
+	return &TLSSettings{
+		Enabled:       enableTLS,
+		TLSServerName: tlsServerName,
+		CaCertFile:    caCertFile,
+	}
 }
 
 func (c *Config) getDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (discovery.Credentials, error) {
@@ -219,6 +250,29 @@ func (c *Config) createAWSBearerToken(taskMeta awsutil.ECSTaskMeta) (string, err
 		return "", err
 	}
 	return string(loginDataJson), err
+}
+
+func (c *ConsulServers) getHTTPTLSSettings() *TLSSettings {
+	enableTLS := c.Defaults.EnableTLS
+	if c.HTTP.EnableTLS != nil {
+		enableTLS = *c.HTTP.EnableTLS
+	}
+
+	caCertFile := c.Defaults.CaCertFile
+	if c.HTTP.CaCertFile != "" {
+		caCertFile = c.HTTP.CaCertFile
+	}
+
+	tlsServerName := c.Defaults.TLSServerName
+	if c.HTTP.TLSServerName != "" {
+		tlsServerName = c.HTTP.TLSServerName
+	}
+
+	return &TLSSettings{
+		Enabled:       enableTLS,
+		TLSServerName: tlsServerName,
+		CaCertFile:    caCertFile,
+	}
 }
 
 func mergeMeta(m1, m2 map[string]string) map[string]string {

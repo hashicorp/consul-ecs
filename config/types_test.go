@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/require"
 )
@@ -105,81 +106,144 @@ func TestConsulServersHoldsDefaultValues(t *testing.T) {
 				}
 			}`,
 			expectedConsulServerCfg: ConsulServers{
-				Hosts:       "consul.dc1",
-				EnableTLS:   true,
-				EnableHTTPS: true,
-				HTTPPort:    8501,
-				GRPCPort:    8503,
+				Hosts: "consul.dc1",
+				Defaults: DefaultSettings{
+					EnableTLS: true,
+				},
+				GRPC: GRPCSettings{
+					Port: 8503,
+				},
+				HTTP: HTTPSettings{
+					Port:        8501,
+					EnableHTTPS: true,
+				},
 			},
 		},
-		"Empty HTTPS input": {
+		"only `consulServers.default` is provided": {
 			data: `{
 				"key1": "value1",
 				"consulServers": {
 					"hosts": "consul.dc1",
-					"httpPort": 8501,
-					"grpcPort": 8502,
-					"tls": false
+					"defaults": {
+						"tls": true,
+						"tlsServerName": "consul.dc1",
+						"caCertFile": "ca-cert.pem"
+					}
 				}
 			}`,
 			expectedConsulServerCfg: ConsulServers{
-				Hosts:       "consul.dc1",
-				EnableTLS:   false,
-				HTTPPort:    8501,
-				GRPCPort:    8502,
-				EnableHTTPS: true,
+				Hosts: "consul.dc1",
+				Defaults: DefaultSettings{
+					EnableTLS:     true,
+					CaCertFile:    "ca-cert.pem",
+					TLSServerName: "consul.dc1",
+				},
+				GRPC: GRPCSettings{
+					Port: 8503,
+				},
+				HTTP: HTTPSettings{
+					Port:        8501,
+					EnableHTTPS: true,
+				},
 			},
 		},
-		"Empty TLS input": {
+		"only `consulServers.grpc` is provided": {
 			data: `{
 				"key1": "value1",
 				"consulServers": {
 					"hosts": "consul.dc1",
-					"httpPort": 8500,
-					"grpcPort": 8502,
-					"https": false
+					"grpc": {
+						"tls": false
+					}
 				}
 			}`,
 			expectedConsulServerCfg: ConsulServers{
-				Hosts:       "consul.dc1",
-				EnableTLS:   true,
-				EnableHTTPS: false,
-				HTTPPort:    8500,
-				GRPCPort:    8502,
+				Hosts: "consul.dc1",
+				Defaults: DefaultSettings{
+					EnableTLS: true,
+				},
+				GRPC: GRPCSettings{
+					Port:      8503,
+					EnableTLS: testutil.BoolPtr(false),
+				},
+				HTTP: HTTPSettings{
+					Port:        8501,
+					EnableHTTPS: true,
+				},
 			},
 		},
-		"Empty HTTP port input": {
+		"only `consulServers.http` is provided": {
 			data: `{
 				"key1": "value1",
 				"consulServers": {
 					"hosts": "consul.dc1",
-					"tls": false,
-					"grpcPort": 8502
+					"http": {
+						"port": 8500,
+						"tls": false,
+						"https": false
+					}
 				}
 			}`,
 			expectedConsulServerCfg: ConsulServers{
-				Hosts:       "consul.dc1",
-				EnableTLS:   false,
-				EnableHTTPS: true,
-				HTTPPort:    8501,
-				GRPCPort:    8502,
+				Hosts: "consul.dc1",
+				Defaults: DefaultSettings{
+					EnableTLS: true,
+				},
+				GRPC: GRPCSettings{
+					Port: 8503,
+				},
+				HTTP: HTTPSettings{
+					Port:        8500,
+					EnableTLS:   testutil.BoolPtr(false),
+					EnableHTTPS: false,
+				},
 			},
 		},
-		"Empty GRPC port input": {
+		"all fields are provided": {
 			data: `{
 				"key1": "value1",
 				"consulServers": {
 					"hosts": "consul.dc1",
-					"tls": true,
-					"httpPort": 8501
+					"defaults": {
+						"tls": true,
+						"tlsServerName": "consul.dc1",
+						"caCertFile": "ca-cert.pem"
+					},
+					"http": {
+						"port": 8500,
+						"https": true,
+						"tls": true,
+						"tlsServerName": "consul.dc1",
+						"caCertFile": "ca-cert-1.pem"
+					},
+					"grpc": {
+						"port": 8502,
+						"tls": true,
+						"tlsServerName": "consul.dc1",
+						"caCertFile": "ca-cert-2.pem"
+					}
 				}
 			}`,
 			expectedConsulServerCfg: ConsulServers{
-				Hosts:       "consul.dc1",
-				EnableTLS:   true,
-				EnableHTTPS: true,
-				HTTPPort:    8501,
-				GRPCPort:    8503,
+				Hosts: "consul.dc1",
+				Defaults: DefaultSettings{
+					EnableTLS:     true,
+					CaCertFile:    "ca-cert.pem",
+					TLSServerName: "consul.dc1",
+				},
+				GRPC: GRPCSettings{
+					Port:          8502,
+					EnableTLS:     testutil.BoolPtr(true),
+					CaCertFile:    "ca-cert-2.pem",
+					TLSServerName: "consul.dc1",
+				},
+				HTTP: HTTPSettings{
+					Port:          8500,
+					EnableHTTPS:   true,
+					EnableTLS:     testutil.BoolPtr(true),
+					CaCertFile:    "ca-cert-1.pem",
+					TLSServerName: "consul.dc1",
+				},
 			},
 		},
 	}
@@ -190,6 +254,216 @@ func TestConsulServersHoldsDefaultValues(t *testing.T) {
 			err := json.Unmarshal([]byte(c.data), &unmarshalledCfg)
 			require.NoError(t, err)
 			require.Equal(t, c.expectedConsulServerCfg, unmarshalledCfg.ConsulServers)
+		})
+	}
+}
+
+func TestDefaultSettingsHoldsDefaultValues(t *testing.T) {
+	type TestStruct struct {
+		Key1     string          `json:"key1"`
+		Defaults DefaultSettings `json:"defaults"`
+	}
+
+	cases := map[string]struct {
+		data                    string
+		expectedDefaultSettings DefaultSettings
+	}{
+		"all fields are empty": {
+			data: `{
+				"key1": "value1",
+				"defaults": {}
+			}`,
+			expectedDefaultSettings: DefaultSettings{
+				CaCertFile:    "",
+				EnableTLS:     true,
+				TLSServerName: "",
+			},
+		},
+		"tls is disabled": {
+			data: `{
+				"key1": "value1",
+				"defaults": {
+					"tls": false
+				}
+			}`,
+			expectedDefaultSettings: DefaultSettings{
+				CaCertFile:    "",
+				EnableTLS:     false,
+				TLSServerName: "",
+			},
+		},
+		"all fields are provided": {
+			data: `{
+				"key1": "value1",
+				"defaults": {
+					"caCertFile": "cert.pem",
+					"tls": true,
+					"tlsServerName": "consul.dc1"
+				}
+			}`,
+			expectedDefaultSettings: DefaultSettings{
+				CaCertFile:    "cert.pem",
+				EnableTLS:     true,
+				TLSServerName: "consul.dc1",
+			},
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var unmarshalledCfg TestStruct
+			err := json.Unmarshal([]byte(c.data), &unmarshalledCfg)
+			require.NoError(t, err)
+			require.Equal(t, c.expectedDefaultSettings, unmarshalledCfg.Defaults)
+		})
+	}
+}
+
+func TestHTTPSettingsHoldsDefaultValues(t *testing.T) {
+	type TestStruct struct {
+		Key1 string       `json:"key1"`
+		HTTP HTTPSettings `json:"http"`
+	}
+
+	cases := map[string]struct {
+		data                 string
+		expectedHTTPSettings HTTPSettings
+	}{
+		"all fields are empty": {
+			data: `{
+				"key1": "value1",
+				"http": {}
+			}`,
+			expectedHTTPSettings: HTTPSettings{
+				Port:          8501,
+				CaCertFile:    "",
+				EnableTLS:     nil,
+				EnableHTTPS:   true,
+				TLSServerName: "",
+			},
+		},
+		"tls is disabled": {
+			data: `{
+				"key1": "value1",
+				"http": {
+					"tls": false
+				}
+			}`,
+			expectedHTTPSettings: HTTPSettings{
+				Port:          8501,
+				CaCertFile:    "",
+				EnableTLS:     testutil.BoolPtr(false),
+				EnableHTTPS:   true,
+				TLSServerName: "",
+			},
+		},
+		"https is disabled": {
+			data: `{
+				"key1": "value1",
+				"http": {
+					"https": false
+				}
+			}`,
+			expectedHTTPSettings: HTTPSettings{
+				Port:          8501,
+				CaCertFile:    "",
+				EnableTLS:     nil,
+				EnableHTTPS:   false,
+				TLSServerName: "",
+			},
+		},
+		"all fields are provided": {
+			data: `{
+				"key1": "value1",
+				"http": {
+					"https": true,
+					"tls": true,
+					"caCertFile": "cert.pem",
+					"tlsServerName": "consul.dc1",
+					"port": 8500
+				}
+			}`,
+			expectedHTTPSettings: HTTPSettings{
+				Port:          8500,
+				CaCertFile:    "cert.pem",
+				EnableTLS:     testutil.BoolPtr(true),
+				EnableHTTPS:   true,
+				TLSServerName: "consul.dc1",
+			},
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var unmarshalledCfg TestStruct
+			err := json.Unmarshal([]byte(c.data), &unmarshalledCfg)
+			require.NoError(t, err)
+			require.Equal(t, c.expectedHTTPSettings, unmarshalledCfg.HTTP)
+		})
+	}
+}
+
+func TestGRPCSettingsHoldsDefaultValues(t *testing.T) {
+	type TestStruct struct {
+		Key1 string       `json:"key1"`
+		GRPC GRPCSettings `json:"grpc"`
+	}
+
+	cases := map[string]struct {
+		data                 string
+		expectedGRPCSettings GRPCSettings
+	}{
+		"all fields are empty": {
+			data: `{
+				"key1": "value1",
+				"grpc": {}
+			}`,
+			expectedGRPCSettings: GRPCSettings{
+				Port:          8503,
+				CaCertFile:    "",
+				EnableTLS:     nil,
+				TLSServerName: "",
+			},
+		},
+		"tls is disabled": {
+			data: `{
+				"key1": "value1",
+				"grpc": {
+					"tls": false
+				}
+			}`,
+			expectedGRPCSettings: GRPCSettings{
+				Port:          8503,
+				CaCertFile:    "",
+				EnableTLS:     testutil.BoolPtr(false),
+				TLSServerName: "",
+			},
+		},
+		"all fields are provided": {
+			data: `{
+				"key1": "value1",
+				"grpc": {
+					"tls": true,
+					"caCertFile": "cert.pem",
+					"tlsServerName": "consul.dc1",
+					"port": 8502
+				}
+			}`,
+			expectedGRPCSettings: GRPCSettings{
+				Port:          8502,
+				CaCertFile:    "cert.pem",
+				EnableTLS:     testutil.BoolPtr(true),
+				TLSServerName: "consul.dc1",
+			},
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var unmarshalledCfg TestStruct
+			err := json.Unmarshal([]byte(c.data), &unmarshalledCfg)
+			require.NoError(t, err)
+			require.Equal(t, c.expectedGRPCSettings, unmarshalledCfg.GRPC)
 		})
 	}
 }

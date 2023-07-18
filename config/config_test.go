@@ -41,8 +41,10 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 		"basic flags without TLS or ACLs": {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
-					Hosts:    "consul.dc1.address",
-					GRPCPort: 8502,
+					Hosts: "consul.dc1.address",
+					GRPC: GRPCSettings{
+						Port: 8502,
+					},
 				},
 			},
 			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
@@ -52,12 +54,16 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				}
 			},
 		},
-		"TLS enabled": {
+		"TLS enabled only in default Settings": {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
-					Hosts:     "consul.dc1.address",
-					GRPCPort:  8503,
-					EnableTLS: true,
+					Hosts: "consul.dc1.address",
+					GRPC: GRPCSettings{
+						Port: 8503,
+					},
+					Defaults: DefaultSettings{
+						EnableTLS: true,
+					},
 				},
 			},
 			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
@@ -68,14 +74,62 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				}
 			},
 		},
-		"TLS enabled with TLS Server Name and server watch disabled": {
+		"TLS enabled in GRPC Settings": {
+			cfg: &Config{
+				ConsulServers: ConsulServers{
+					Hosts: "consul.dc1.address",
+					GRPC: GRPCSettings{
+						Port:      8503,
+						EnableTLS: testutil.BoolPtr(true),
+					},
+					Defaults: DefaultSettings{
+						EnableTLS: false,
+					},
+				},
+			},
+			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+				return discovery.Config{
+					Addresses: "consul.dc1.address",
+					GRPCPort:  8503,
+					TLS:       &tls.Config{},
+				}
+			},
+		},
+		"TLS enabled only in default Settings with TLS ServerName": {
+			cfg: &Config{
+				ConsulServers: ConsulServers{
+					Hosts: "consul.dc1.address",
+					GRPC: GRPCSettings{
+						Port: 8503,
+					},
+					Defaults: DefaultSettings{
+						EnableTLS:     true,
+						TLSServerName: "consul.dc1.address",
+					},
+				},
+			},
+			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+				return discovery.Config{
+					Addresses: "consul.dc1.address",
+					GRPCPort:  8503,
+					TLS:       &tls.Config{},
+				}
+			},
+		},
+		"test if grpc TLS settings overrides the default TLS configuration": {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
 					Hosts:           "exec=/usr/local/bin/discover-servers",
-					GRPCPort:        8503,
-					EnableTLS:       true,
-					TLSServerName:   "consul.dc1.address",
 					SkipServerWatch: true,
+					GRPC: GRPCSettings{
+						Port:          8503,
+						EnableTLS:     testutil.BoolPtr(true),
+						TLSServerName: "consul.dc1.address",
+					},
+					Defaults: DefaultSettings{
+						EnableTLS:     true,
+						TLSServerName: "consul.dc2.address",
+					},
 				},
 			},
 			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
@@ -85,6 +139,30 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					TLS: &tls.Config{
 						ServerName: "consul.dc1.address",
 					},
+					ServerWatchDisabled: true,
+				}
+			},
+		},
+		"TLS enabled in default settings but disabled in grpc settings": {
+			cfg: &Config{
+				ConsulServers: ConsulServers{
+					Hosts:           "exec=/usr/local/bin/discover-servers",
+					SkipServerWatch: true,
+					GRPC: GRPCSettings{
+						Port:      8502,
+						EnableTLS: testutil.BoolPtr(false),
+					},
+					Defaults: DefaultSettings{
+						EnableTLS:     true,
+						TLSServerName: "consul.dc2.address",
+					},
+				},
+			},
+			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+				return discovery.Config{
+					Addresses:           "exec=/usr/local/bin/discover-servers",
+					GRPCPort:            8502,
+					TLS:                 &tls.Config{},
 					ServerWatchDisabled: true,
 				}
 			},
@@ -177,12 +255,33 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 		cfg      *Config
 		setupEnv func(*testing.T)
 	}{
-		"TLS with CACertFile": {
+		"TLS with CACertFile provided via default settings": {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
-					Hosts:      "consul.dc1.address",
-					EnableTLS:  true,
-					CACertFile: caFile.Name(),
+					Hosts: "consul.dc1.address",
+					GRPC: GRPCSettings{
+						Port: 8503,
+					},
+					Defaults: DefaultSettings{
+						EnableTLS:  true,
+						CaCertFile: caFile.Name(),
+					},
+				},
+			},
+		},
+		"test if grpc settings overrides the default tls configuration": {
+			cfg: &Config{
+				ConsulServers: ConsulServers{
+					Hosts: "consul.dc1.address",
+					GRPC: GRPCSettings{
+						Port:       8503,
+						EnableTLS:  testutil.BoolPtr(true),
+						CaCertFile: caFile.Name(),
+					},
+					Defaults: DefaultSettings{
+						EnableTLS:  true,
+						CaCertFile: "test-ca-cert",
+					},
 				},
 			},
 		},
@@ -192,8 +291,14 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 			},
 			cfg: &Config{
 				ConsulServers: ConsulServers{
-					Hosts:     "consul.dc1.address",
-					EnableTLS: true,
+					Hosts: "consul.dc1.address",
+					GRPC: GRPCSettings{
+						Port:      8503,
+						EnableTLS: testutil.BoolPtr(true),
+					},
+					Defaults: DefaultSettings{
+						EnableTLS: false,
+					},
 				},
 			},
 		},
@@ -223,6 +328,9 @@ func TestClientConfig(t *testing.T) {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
 					Hosts: "consul.dc1.address",
+					Defaults: DefaultSettings{
+						EnableTLS: false,
+					},
 				},
 			},
 			expConfig: &api.Config{
@@ -233,6 +341,9 @@ func TestClientConfig(t *testing.T) {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
 					Hosts: "consul.dc1.address",
+					Defaults: DefaultSettings{
+						EnableTLS: false,
+					},
 				},
 				Service: ServiceRegistration{
 					Name:      "test-service",
@@ -250,6 +361,9 @@ func TestClientConfig(t *testing.T) {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
 					Hosts: "consul.dc1.address",
+					Defaults: DefaultSettings{
+						EnableTLS: false,
+					},
 				},
 				Gateway: &GatewayRegistration{
 					Name:      "test-service",
@@ -264,12 +378,18 @@ func TestClientConfig(t *testing.T) {
 				Partition: "test-par",
 			},
 		},
-		"TLS with CaCertFile": {
+		"TLS with CaCertFile provided via default settings": {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
-					Hosts:           "consul.dc1.address",
-					EnableHTTPS:     true,
-					HTTPSCACertFile: caFile.Name(),
+					Hosts: "consul.dc1.address",
+					HTTP: HTTPSettings{
+						Port:        8501,
+						EnableHTTPS: true,
+					},
+					Defaults: DefaultSettings{
+						EnableTLS:  true,
+						CaCertFile: caFile.Name(),
+					},
 				},
 			},
 			expConfig: &api.Config{
@@ -280,15 +400,65 @@ func TestClientConfig(t *testing.T) {
 				},
 			},
 		},
+		"test if http tls settings override the default tls configuration": {
+			cfg: &Config{
+				ConsulServers: ConsulServers{
+					Hosts: "consul.dc1.address",
+					HTTP: HTTPSettings{
+						Port:        8501,
+						EnableHTTPS: true,
+						EnableTLS:   testutil.BoolPtr(true),
+						CaCertFile:  caFile.Name(),
+					},
+					Defaults: DefaultSettings{
+						EnableTLS:  true,
+						CaCertFile: "test-ca-cert.pem",
+					},
+				},
+			},
+			expConfig: &api.Config{
+				Scheme: "https",
+				TLSConfig: api.TLSConfig{
+					Address: "consul.dc1.address",
+					CAFile:  caFile.Name(),
+				},
+			},
+		},
+		"TLS enabled via default settings but disabled in http settings": {
+			cfg: &Config{
+				ConsulServers: ConsulServers{
+					Hosts: "consul.dc1.address",
+					HTTP: HTTPSettings{
+						Port:      8500,
+						EnableTLS: testutil.BoolPtr(false),
+					},
+					Defaults: DefaultSettings{
+						EnableTLS:  true,
+						CaCertFile: caFile.Name(),
+					},
+				},
+			},
+			expConfig: &api.Config{
+				Scheme:    "http",
+				TLSConfig: api.TLSConfig{},
+			},
+		},
 		"TLS with CaCertPEM": {
 			setupEnv: func(t *testing.T) {
 				t.Setenv(consulHTTPSCertPemEnvVar, testCA)
 			},
 			cfg: &Config{
 				ConsulServers: ConsulServers{
-					Hosts:         "exec=/usr/local/bin/query-servers",
-					EnableHTTPS:   true,
-					TLSServerName: "consul.dc1.address",
+					Hosts: "exec=/usr/local/bin/query-servers",
+					HTTP: HTTPSettings{
+						Port:          8501,
+						EnableTLS:     testutil.BoolPtr(true),
+						EnableHTTPS:   true,
+						TLSServerName: "consul.dc1.address",
+					},
+					Defaults: DefaultSettings{
+						EnableTLS: false,
+					},
 				},
 			},
 			expConfig: &api.Config{

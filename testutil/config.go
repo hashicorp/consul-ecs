@@ -55,3 +55,7 @@ func EnterpriseFlag() bool {
 	}
 	return false
 }
+
+func BoolPtr(v bool) *bool {
+	return &v
+}

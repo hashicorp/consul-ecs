@@ -26,8 +26,10 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					},
 				},
 				ConsulServerConfig: config.ConsulServers{
-					Hosts:           "consul.dc1",
-					GRPCPort:        8503,
+					Hosts: "consul.dc1",
+					GRPC: config.GRPCSettings{
+						Port: 8503,
+					},
 					SkipServerWatch: true,
 				},
 			},
@@ -61,11 +63,13 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				},
 				ConsulServerConfig: config.ConsulServers{
 					Hosts:           "consul.dc1",
-					GRPCPort:        8503,
 					SkipServerWatch: true,
-					EnableTLS:       true,
-					TLSServerName:   "consul.dc1",
-					CACertFile:      "/consul/ca-cert.pem",
+					GRPC: config.GRPCSettings{
+						Port:          8503,
+						CaCertFile:    "/consul/ca-cert.pem",
+						TLSServerName: "consul.dc1",
+						EnableTLS:     testutil.BoolPtr(true),
+					},
 				},
 			},
 			expectedJSON: `{
@@ -103,9 +107,11 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				},
 				ConsulServerConfig: config.ConsulServers{
 					Hosts:           "consul.dc1",
-					GRPCPort:        8502,
 					SkipServerWatch: false,
-					EnableTLS:       false,
+					GRPC: config.GRPCSettings{
+						Port:      8502,
+						EnableTLS: testutil.BoolPtr(false),
+					},
 				},
 				ConsulToken: "test-token-123",
 			},
@@ -145,11 +151,13 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				},
 				ConsulServerConfig: config.ConsulServers{
 					Hosts:           "consul.dc1",
-					GRPCPort:        8503,
 					SkipServerWatch: true,
-					EnableTLS:       true,
-					TLSServerName:   "consul.dc1",
-					CACertFile:      "/consul/ca-cert.pem",
+					GRPC: config.GRPCSettings{
+						Port:          8503,
+						CaCertFile:    "/consul/ca-cert.pem",
+						TLSServerName: "consul.dc1",
+						EnableTLS:     testutil.BoolPtr(true),
+					},
 				},
 				ConsulToken: "test-token-123",
 			},

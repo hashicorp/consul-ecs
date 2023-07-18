@@ -99,6 +99,7 @@ func (c *Command) run() error {
 	// Set up ECS client.
 	ecsClient := ecs.New(clientSession)
 
+	// Token containing `acl:write`, `operator:write` and `node:write` privileges against the server
 	token := config.GetConsulToken()
 	if token != "" {
 		return fmt.Errorf("CONSUL_HTTP_TOKEN should be non empty")

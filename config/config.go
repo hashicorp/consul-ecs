@@ -29,7 +29,6 @@ const (
 	// Cert used for securing HTTP traffic towards the server
 	consulHTTPSCertPemEnvVar = "CONSUL_HTTPS_CACERT_PEM"
 
-	// Token containing `acl:write`, `operator:write` and `node:write` privileges against the server
 	bootstrapTokenEnvVar = "CONSUL_HTTP_TOKEN"
 )
 

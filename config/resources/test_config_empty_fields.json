@@ -25,6 +25,7 @@
     "meta": {},
     "namespace": "",
     "partition": "",
+    "healthCheckPort": 0,
     "proxy": {}
   },
   "proxy": {}

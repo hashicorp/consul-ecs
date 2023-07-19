@@ -242,6 +242,9 @@
           "description": "The public listener port for Envoy used for service-to-service communication. Defaults to 20000.",
           "type": ["integer", "null"]
         },
+        "healthCheckPort": {
+          "description": "The port where a health check endpoint is configured to indicate Envoy's readiness. Defaults to 22000."
+        },
         "upstreams": {
           "description": "The list of the upstream services that the proxy should create listeners for.",
           "type": ["array", "null"],
@@ -412,6 +415,9 @@
         "partition": {
           "description": "Consul admin partition in which the gateway will be registered [Consul Enterprise].",
           "type": ["string", "null"]
+        },
+        "healthCheckPort": {
+          "description": "The port where a health check endpoint is configured to indicate Envoy's readiness. Defaults to 22000."
         },
         "proxy": {
           "description": "Object that contains the proxy parameters.",

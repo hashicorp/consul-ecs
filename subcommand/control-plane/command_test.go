@@ -397,15 +397,16 @@ func TestRun(t *testing.T) {
 			expectedAddress := "127.0.0.1"
 
 			expectedService := &api.CatalogService{
-				Node:        expectedNodeName,
-				NodeMeta:    getNodeMeta(),
-				Address:     expectedAddress,
-				ServiceID:   expServiceID,
-				ServiceName: expectedServiceName,
-				ServicePort: c.servicePort,
-				ServiceMeta: expectedTaskMeta,
-				ServiceTags: expectedTags,
-				Datacenter:  "dc1",
+				Node:           expectedNodeName,
+				NodeMeta:       getNodeMeta(),
+				Address:        expectedAddress,
+				ServiceID:      expServiceID,
+				ServiceName:    expectedServiceName,
+				ServicePort:    c.servicePort,
+				ServiceMeta:    expectedTaskMeta,
+				ServiceTags:    expectedTags,
+				ServiceAddress: expectedAddress,
+				Datacenter:     "dc1",
 				ServiceWeights: api.Weights{
 					Passing: 1,
 					Warning: 1,
@@ -416,12 +417,13 @@ func TestRun(t *testing.T) {
 			}
 
 			expectedProxy := &api.CatalogService{
-				Node:        expectedNodeName,
-				NodeMeta:    getNodeMeta(),
-				Address:     expectedAddress,
-				ServiceID:   expSidecarServiceID,
-				ServiceName: fmt.Sprintf("%s-sidecar-proxy", expectedServiceName),
-				ServicePort: c.proxyPort,
+				Node:           expectedNodeName,
+				NodeMeta:       getNodeMeta(),
+				Address:        expectedAddress,
+				ServiceID:      expSidecarServiceID,
+				ServiceName:    fmt.Sprintf("%s-sidecar-proxy", expectedServiceName),
+				ServicePort:    c.proxyPort,
+				ServiceAddress: expectedAddress,
 				ServiceProxy: &api.AgentServiceConnectProxyConfig{
 					DestinationServiceName: expectedServiceName,
 					DestinationServiceID:   expServiceID,
@@ -818,7 +820,7 @@ func TestGateway(t *testing.T) {
 				ServiceID:              c.expServiceID,
 				ServiceName:            c.expServiceName,
 				ServiceProxy:           &api.AgentServiceConnectProxyConfig{},
-				ServiceAddress:         c.expLanAddress,
+				ServiceAddress:         taskIP,
 				ServicePort:            c.expLanPort,
 				ServiceMeta:            expectedTaskMeta,
 				ServiceTags:            []string{},
@@ -830,6 +832,10 @@ func TestGateway(t *testing.T) {
 					Passing: 1,
 					Warning: 1,
 				},
+			}
+
+			if c.expLanAddress != "" {
+				expectedService.Address = c.expLanAddress
 			}
 
 			expectedCheck := &api.HealthCheck{
@@ -1195,6 +1201,10 @@ func getExpectedDataplaneCfgJSON() string {
 	},
 	"xdsServer": {
 	  "bindAddress": "127.0.0.1"
+	},
+	"envoy": {
+		"readyBindAddress": "127.0.0.1",
+		"readyBindPort": 22000
 	}
   }`
 }

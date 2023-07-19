@@ -23,6 +23,9 @@ const (
 	// DefaultPublicListenerPort is the default public listener port for sidecar proxies.
 	DefaultPublicListenerPort = 20000
 
+	// DefaultProxyHealthCheckPort is the default HTTP health check port for the proxy.
+	DefaultProxyHealthCheckPort = 22000
+
 	// TaggedAddressLAN is the map key for LAN tagged addresses.
 	TaggedAddressLAN = "lan"
 
@@ -375,6 +378,7 @@ func (w *AgentWeights) ToConsulType() api.AgentWeights {
 type AgentServiceConnectProxyConfig struct {
 	Config             map[string]interface{} `json:"config,omitempty"`
 	PublicListenerPort int                    `json:"publicListenerPort,omitempty"`
+	HealthCheckPort    int                    `json:"healthCheckPort,omitempty"`
 	Upstreams          []Upstream             `json:"upstreams,omitempty"`
 	MeshGateway        *MeshGatewayConfig     `json:"meshGateway,omitempty"`
 	Expose             *ExposeConfig          `json:"expose,omitempty"`
@@ -403,6 +407,14 @@ func (a *AgentServiceConnectProxyConfig) GetPublicListenerPort() int {
 	}
 	return DefaultPublicListenerPort
 
+}
+
+func (a *AgentServiceConnectProxyConfig) GetHealthCheckPort() int {
+	if a.HealthCheckPort != 0 {
+		return a.HealthCheckPort
+	}
+
+	return DefaultProxyHealthCheckPort
 }
 
 // Upstream describes an upstream Consul Service.
@@ -483,15 +495,16 @@ func (e *ExposePath) ToConsulType() api.ExposePath {
 }
 
 type GatewayRegistration struct {
-	Kind       api.ServiceKind     `json:"kind"`
-	LanAddress *GatewayAddress     `json:"lanAddress,omitempty"`
-	WanAddress *GatewayAddress     `json:"wanAddress,omitempty"`
-	Name       string              `json:"name,omitempty"`
-	Tags       []string            `json:"tags,omitempty"`
-	Meta       map[string]string   `json:"meta,omitempty"`
-	Namespace  string              `json:"namespace,omitempty"`
-	Partition  string              `json:"partition,omitempty"`
-	Proxy      *GatewayProxyConfig `json:"proxy,omitempty"`
+	Kind            api.ServiceKind     `json:"kind"`
+	LanAddress      *GatewayAddress     `json:"lanAddress,omitempty"`
+	WanAddress      *GatewayAddress     `json:"wanAddress,omitempty"`
+	Name            string              `json:"name,omitempty"`
+	Tags            []string            `json:"tags,omitempty"`
+	Meta            map[string]string   `json:"meta,omitempty"`
+	Namespace       string              `json:"namespace,omitempty"`
+	Partition       string              `json:"partition,omitempty"`
+	Proxy           *GatewayProxyConfig `json:"proxy,omitempty"`
+	HealthCheckPort int                 `json:"healthCheckPort,omitempty"`
 }
 
 func (g *GatewayRegistration) ToConsulType() *api.AgentService {
@@ -510,6 +523,14 @@ func (g *GatewayRegistration) ToConsulType() *api.AgentService {
 	}
 
 	return result
+}
+
+func (g *GatewayRegistration) GetHealthCheckPort() int {
+	if g.HealthCheckPort != 0 {
+		return g.HealthCheckPort
+	}
+
+	return DefaultProxyHealthCheckPort
 }
 
 type GatewayProxyConfig struct {

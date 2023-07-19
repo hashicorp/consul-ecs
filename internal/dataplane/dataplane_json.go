@@ -8,6 +8,7 @@ type dataplaneConfig struct {
 	Consul    ConsulConfig    `json:"consul"`
 	Service   ServiceConfig   `json:"service"`
 	XDSServer XDSServerConfig `json:"xdsServer"`
+	Envoy     EnvoyConfig     `json:"envoy"`
 }
 
 type ConsulConfig struct {
@@ -42,6 +43,11 @@ type ServiceConfig struct {
 
 type XDSServerConfig struct {
 	Address string `json:"bindAddress"`
+}
+
+type EnvoyConfig struct {
+	ReadyBindAddr string `json:"readyBindAddress"`
+	ReadyBindPort int    `json:"readyBindPort"`
 }
 
 func (d *dataplaneConfig) generateJSON() ([]byte, error) {

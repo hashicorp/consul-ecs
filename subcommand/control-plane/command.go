@@ -374,6 +374,7 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clu
 	service.ID = serviceID
 	service.Service = serviceName
 	service.Meta = fullMeta
+	service.Address = taskMeta.NodeIP()
 
 	return c.constructCatalogRegistrationPayload(service, taskMeta, clusterARN)
 }
@@ -385,6 +386,7 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.CatalogReg
 		ID:                proxySvcID,
 		Service:           proxySvcName,
 		Kind:              api.ServiceKindConnectProxy,
+		Address:           taskMeta.NodeIP(),
 		Port:              c.config.Proxy.GetPublicListenerPort(),
 		Meta:              serviceRegistration.Service.Meta,
 		Tags:              serviceRegistration.Service.Tags,
@@ -411,6 +413,7 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 	gatewaySvc := c.config.Gateway.ToConsulType()
 	gatewaySvc.ID = serviceID
 	gatewaySvc.Service = serviceName
+	gatewaySvc.Address = taskMeta.NodeIP()
 	gatewaySvc.Meta = mergeMeta(map[string]string{
 		"task-id":  taskID,
 		"task-arn": taskMeta.TaskARN,
@@ -497,6 +500,12 @@ func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.Catalog
 		ConsulServerConfig: c.config.ConsulServers,
 		ConsulToken:        consulToken,
 		CACertFile:         caCertFilePath,
+	}
+
+	if c.config.IsGateway() {
+		input.ProxyHealthCheckPort = c.config.Gateway.GetHealthCheckPort()
+	} else {
+		input.ProxyHealthCheckPort = c.config.Proxy.GetHealthCheckPort()
 	}
 
 	dataplaneConfigPath := path.Join(c.config.BootstrapDir, dataplaneConfigFileName)

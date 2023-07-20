@@ -67,7 +67,7 @@ type Command struct {
 
 const (
 	dataplaneConfigFileName = "consul-dataplane.json"
-	caCertFileName          = "mesh-task-consul-ca-cert.pem"
+	caCertFileName          = "consul-grpc-ca-cert.pem"
 
 	defaultHealthCheckBindAddr = "127.0.0.1"
 	defaultHealthCheckBindPort = "10000"

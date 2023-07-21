@@ -22,6 +22,9 @@ type GetDataplaneConfigJSONInput struct {
 	// If empty, credential details are not populated in the resulting
 	// dataplane config JSON.
 	ConsulToken string
+
+	// Path of the CA cert file for Consul server's RPC interface
+	CACertFile string
 }
 
 // GetDataplaneConfigJSON returns back a configuration JSON which
@@ -41,14 +44,18 @@ func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 		},
 		XDSServer: XDSServerConfig{
 			Address: localhostAddr,
-			Port:    20000,
 		},
+	}
+
+	cfg.Consul.TLS = &TLSConfig{
+		Disabled: true,
 	}
 
 	grpcTLSSettings := i.ConsulServerConfig.GetGRPCTLSSettings()
 	if grpcTLSSettings.Enabled {
 		cfg.Consul.TLS = &TLSConfig{
-			GRPCCACertPath: grpcTLSSettings.CaCertFile,
+			Disabled:       false,
+			GRPCCACertPath: i.CACertFile,
 			TLSServerName:  grpcTLSSettings.TLSServerName,
 		}
 	}

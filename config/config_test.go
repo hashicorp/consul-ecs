@@ -34,9 +34,10 @@ APQczkCoIFiLlGp0GYeHEfjvrdm2g8Q3BUDjeAUfZPaW
 
 func TestConsulServerConnManagerConfig(t *testing.T) {
 	cases := map[string]struct {
-		cfg       *Config
-		taskMeta  awsutil.ECSTaskMeta
-		expConfig func(awsutil.ECSTaskMeta) discovery.Config
+		cfg                    *Config
+		taskMeta               awsutil.ECSTaskMeta
+		consulHTTPTokenPresent bool
+		expConfig              func(awsutil.ECSTaskMeta) discovery.Config
 	}{
 		"basic flags without TLS or ACLs": {
 			cfg: &Config{
@@ -208,12 +209,34 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				}
 			},
 		},
+		"Consul HTTP token is non empty": {
+			cfg: &Config{
+				ConsulServers: ConsulServers{
+					Hosts: "consul.dc1.address",
+				},
+				ConsulLogin: ConsulLogin{
+					Enabled: true,
+				},
+			},
+			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+				return discovery.Config{
+					Addresses: "consul.dc1.address",
+					Credentials: discovery.Credentials{
+						Type: discovery.CredentialsTypeStatic,
+						Static: discovery.StaticTokenCredential{
+							Token: "test-token",
+						},
+					},
+				}
+			},
+			consulHTTPTokenPresent: true,
+		},
 	}
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			var srvConfig testutil.ServerConfigCallback
-			if c.cfg.ConsulLogin.Enabled {
+			if c.cfg.ConsulLogin.Enabled && !c.consulHTTPTokenPresent {
 				// Enable ACLs to test with the auth method
 				srvConfig = testutil.ConsulACLConfigFn
 				_, apiCfg := testutil.ConsulServer(t, srvConfig)
@@ -223,6 +246,8 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 
 				// Use the fake local AWS server.
 				c.cfg.ConsulLogin.STSEndpoint = fakeAws.URL + "/sts"
+			} else if c.cfg.ConsulLogin.Enabled {
+				t.Setenv(bootstrapTokenEnvVar, "test-token")
 			}
 
 			cfg, err := c.cfg.ConsulServerConnMgrConfig(c.taskMeta)
@@ -235,7 +260,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				expectedCfg.Credentials.Login.Partition = "test-partition"
 			}
 
-			if c.cfg.ConsulLogin.Enabled {
+			if c.cfg.ConsulLogin.Enabled && !c.consulHTTPTokenPresent {
 				require.Equal(t, expectedCfg.Credentials.Type, cfg.Credentials.Type)
 				require.Equal(t, expectedCfg.Credentials.Login.AuthMethod, cfg.Credentials.Login.AuthMethod)
 				require.Equal(t, expectedCfg.Credentials.Login.Namespace, cfg.Credentials.Login.Namespace)
@@ -287,7 +312,7 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 		},
 		"TLS with CACertPEM": {
 			setupEnv: func(t *testing.T) {
-				t.Setenv(consulGRPCCACertPemEnvVar, testCA)
+				t.Setenv(ConsulGRPCCACertPemEnvVar, testCA)
 			},
 			cfg: &Config{
 				ConsulServers: ConsulServers{

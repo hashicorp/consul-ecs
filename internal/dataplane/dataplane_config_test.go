@@ -37,7 +37,10 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				"consul": {
 				  "addresses": "consul.dc1",
 				  "grpcPort": 8503,
-				  "serverWatchDisabled": true
+				  "serverWatchDisabled": true,
+				  "tls": {
+					"disabled": true
+				  }
 				},
 				"service": {
 				  "nodeName": "test-node-name",
@@ -46,8 +49,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				  "partition": "%s"
 				},
 				"xdsServer": {
-				  "bindAddress": "127.0.0.1",
-				  "bindPort": 20000
+				  "bindAddress": "127.0.0.1"
 				}
 			}`,
 		},
@@ -71,6 +73,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 						EnableTLS:     testutil.BoolPtr(true),
 					},
 				},
+				CACertFile: "/consul/ca-cert.pem",
 			},
 			expectedJSON: `{
 				"consul": {
@@ -90,8 +93,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				  "partition": "%s"
 				},
 				"xdsServer": {
-				  "bindAddress": "127.0.0.1",
-				  "bindPort": 20000
+				  "bindAddress": "127.0.0.1"
 				}
 			}`,
 		},
@@ -120,6 +122,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				  "addresses": "consul.dc1",
 				  "grpcPort": 8502,
 				  "serverWatchDisabled": false,
+				  "tls": {
+					"disabled": true
+				  },
 				  "credentials": {
 					"type": "static",
 					"static": {
@@ -134,8 +139,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				  "partition": "%s"
 				},
 				"xdsServer": {
-				  "bindAddress": "127.0.0.1",
-				  "bindPort": 20000
+				  "bindAddress": "127.0.0.1"
 				}
 			}`,
 		},
@@ -160,6 +164,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					},
 				},
 				ConsulToken: "test-token-123",
+				CACertFile:  "/consul/ca-cert.pem",
 			},
 			expectedJSON: `{
 				"consul": {
@@ -185,8 +190,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				  "partition": "%s"
 				},
 				"xdsServer": {
-				  "bindAddress": "127.0.0.1",
-				  "bindPort": 20000
+				  "bindAddress": "127.0.0.1"
 				}
 			}`,
 		},

@@ -20,8 +20,8 @@ type ConsulConfig struct {
 
 type TLSConfig struct {
 	Disabled       bool   `json:"disabled"`
-	GRPCCACertPath string `json:"caCertsPath"`
-	TLSServerName  string `json:"tlsServerName"`
+	GRPCCACertPath string `json:"caCertsPath,omitempty"`
+	TLSServerName  string `json:"tlsServerName,omitempty"`
 }
 
 type CredentialsConfig struct {
@@ -42,7 +42,6 @@ type ServiceConfig struct {
 
 type XDSServerConfig struct {
 	Address string `json:"bindAddress"`
-	Port    int    `json:"bindPort"`
 }
 
 func (d *dataplaneConfig) generateJSON() ([]byte, error) {

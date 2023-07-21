@@ -926,6 +926,68 @@ func TestMakeProxyServiceIDAndName(t *testing.T) {
 	require.Equal(t, expectedName, actualName)
 }
 
+func TestWriteCACertToVolume(t *testing.T) {
+	cases := map[string]struct {
+		serverConfig               config.ConsulServers
+		expectedFileName           string
+		caCertPemProvidedViaEnvVar bool
+	}{
+		"TLS disabled": {
+			serverConfig: config.ConsulServers{
+				Defaults: config.DefaultSettings{
+					EnableTLS: false,
+				},
+			},
+		},
+		"TLS enabled and CA cert not provided via env variable": {
+			serverConfig: config.ConsulServers{
+				Defaults: config.DefaultSettings{
+					EnableTLS:  true,
+					CaCertFile: "consul-ca-cert.pem",
+				},
+			},
+			expectedFileName: "consul-ca-cert.pem",
+		},
+		"TLS enabled and CA cert provided via env variable": {
+			serverConfig: config.ConsulServers{
+				Defaults: config.DefaultSettings{
+					EnableTLS:  true,
+					CaCertFile: "consul-ca-cert.pem",
+				},
+			},
+			caCertPemProvidedViaEnvVar: true,
+			expectedFileName:           caCertFileName,
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+
+			ui := cli.NewMockUi()
+			cmd := Command{UI: ui, isTestEnv: true}
+
+			cmd.config = &config.Config{
+				BootstrapDir:  testutil.TempDir(t),
+				ConsulServers: c.serverConfig,
+			}
+
+			if c.caCertPemProvidedViaEnvVar {
+				t.Setenv(config.ConsulGRPCCACertPemEnvVar, "SAMPLE_CA_CERT_PEM")
+			}
+
+			caCertFilePath, err := cmd.writeRPCCACertToSharedVolume()
+			require.NoError(t, err)
+			require.Contains(t, caCertFilePath, c.expectedFileName)
+
+			if c.caCertPemProvidedViaEnvVar {
+				contents, err := os.ReadFile(caCertFilePath)
+				require.NoError(t, err)
+				require.Equal(t, string(contents), "SAMPLE_CA_CERT_PEM")
+			}
+		})
+	}
+}
+
 func assertServiceAndProxyRegistrations(t *testing.T, consulClient *api.Client, expectedService, expectedProxy *api.CatalogService, serviceName, proxyName string) {
 	// Note: TaggedAddressees may be set, but it seems like a race.
 	// We don't support tproxy in ECS, so I don't think we care about this?
@@ -1120,7 +1182,10 @@ func getExpectedDataplaneCfgJSON() string {
 	"consul": {
 	  "addresses": "127.0.0.1",
 	  "grpcPort": %d,
-	  "serverWatchDisabled": %t%s
+	  "serverWatchDisabled": %t,
+	  "tls": {
+		"disabled": true
+	   }%s
 	},
 	"service": {
 	  "nodeName": "arn:aws:ecs:us-east-1:123456789:cluster/test",
@@ -1129,8 +1194,7 @@ func getExpectedDataplaneCfgJSON() string {
 	  "partition": "%s"
 	},
 	"xdsServer": {
-	  "bindAddress": "127.0.0.1",
-	  "bindPort": 20000
+	  "bindAddress": "127.0.0.1"
 	}
   }`
 }

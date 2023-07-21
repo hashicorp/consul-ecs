@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"reflect"
 	"sort"
 	"strconv"
@@ -37,9 +36,6 @@ const (
 	anonTokenID    = "00000000-0000-0000-0000-000000000002"
 	anonPolicyName = "anonymous-token-policy"
 	anonPolicyDesc = "Anonymous token Policy"
-
-	// Token containing `acl:write`, `operator:write` and `node:write` privileges against the server
-	bootstrapTokenEnvVar = "CONSUL_HTTP_TOKEN"
 )
 
 type Command struct {
@@ -160,7 +156,7 @@ func (c *Command) setupConsulAPIClient() (*api.Client, error) {
 	cfg := c.config.ClientConfig()
 	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTP.Port), 10))
 
-	token := os.Getenv(bootstrapTokenEnvVar)
+	token := config.GetConsulToken()
 	if token != "" {
 		cfg.Token = token
 	}

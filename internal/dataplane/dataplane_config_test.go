@@ -32,7 +32,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					},
 					SkipServerWatch: true,
 				},
-				ProxyHealthCheckPort: 22000,
+				ProxyHealthCheckPort: 22000
 			},
 			expectedJSON: `{
 				"consul": {
@@ -79,7 +79,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					},
 				},
 				CACertFile:           "/consul/ca-cert.pem",
-				ProxyHealthCheckPort: 22000,
+				ProxyHealthCheckPort: 22000
 			},
 			expectedJSON: `{
 				"consul": {
@@ -126,7 +126,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					},
 				},
 				ConsulToken:          "test-token-123",
-				ProxyHealthCheckPort: 22000,
+				ProxyHealthCheckPort: 22000
 			},
 			expectedJSON: `{
 				"consul": {

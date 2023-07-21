@@ -28,6 +28,7 @@ type GetDataplaneConfigJSONInput struct {
 
 	// The HTTP health check port that indicates envoy's readiness
 	ProxyHealthCheckPort int
+
 }
 
 // GetDataplaneConfigJSON returns back a configuration JSON which
@@ -52,6 +53,10 @@ func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 			ReadyBindAddr: localhostAddr,
 			ReadyBindPort: i.ProxyHealthCheckPort,
 		},
+	}
+
+	cfg.Consul.TLS = &TLSConfig{
+		Disabled: true,
 	}
 
 	cfg.Consul.TLS = &TLSConfig{

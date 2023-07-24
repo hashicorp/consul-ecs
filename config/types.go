@@ -409,14 +409,6 @@ func (a *AgentServiceConnectProxyConfig) GetPublicListenerPort() int {
 
 }
 
-func (a *AgentServiceConnectProxyConfig) GetHealthCheckPort() int {
-	if a.HealthCheckPort != 0 {
-		return a.HealthCheckPort
-	}
-
-	return DefaultProxyHealthCheckPort
-}
-
 // Upstream describes an upstream Consul Service.
 //
 // NOTE: The LocalBindSocketPath and LocalBindSocketMode are excluded. This level of control/restriction
@@ -525,14 +517,6 @@ func (g *GatewayRegistration) ToConsulType() *api.AgentService {
 	return result
 }
 
-func (g *GatewayRegistration) GetHealthCheckPort() int {
-	if g.HealthCheckPort != 0 {
-		return g.HealthCheckPort
-	}
-
-	return DefaultProxyHealthCheckPort
-}
-
 type GatewayProxyConfig struct {
 	Config map[string]interface{} `json:"config,omitempty"`
 }
@@ -555,4 +539,12 @@ func (a *GatewayAddress) ToConsulType() api.ServiceAddress {
 		result.Port = DefaultGatewayPort
 	}
 	return result
+}
+
+func GetHealthCheckPort(p int) int {
+	if p != 0 {
+		return p
+	}
+
+	return DefaultProxyHealthCheckPort
 }

@@ -503,9 +503,9 @@ func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.Catalog
 	}
 
 	if c.config.IsGateway() {
-		input.ProxyHealthCheckPort = c.config.Gateway.GetHealthCheckPort()
+		input.ProxyHealthCheckPort = config.GetHealthCheckPort(c.config.Gateway.HealthCheckPort)
 	} else {
-		input.ProxyHealthCheckPort = c.config.Proxy.GetHealthCheckPort()
+		input.ProxyHealthCheckPort = config.GetHealthCheckPort(c.config.Proxy.HealthCheckPort)
 	}
 
 	dataplaneConfigPath := path.Join(c.config.BootstrapDir, dataplaneConfigFileName)

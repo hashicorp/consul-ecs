@@ -28,7 +28,6 @@ type GetDataplaneConfigJSONInput struct {
 
 	// The HTTP health check port that indicates envoy's readiness
 	ProxyHealthCheckPort int
-
 }
 
 // GetDataplaneConfigJSON returns back a configuration JSON which

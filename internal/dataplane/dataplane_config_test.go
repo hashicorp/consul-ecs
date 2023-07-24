@@ -32,6 +32,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					},
 					SkipServerWatch: true,
 				},
+				ProxyHealthCheckPort: 22000,
 			},
 			expectedJSON: `{
 				"consul": {
@@ -50,6 +51,10 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				},
 				"xdsServer": {
 				  "bindAddress": "127.0.0.1"
+				},
+				"envoy": {
+					"readyBindAddress": "127.0.0.1",
+					"readyBindPort": 22000
 				}
 			}`,
 		},
@@ -73,7 +78,8 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 						EnableTLS:     testutil.BoolPtr(true),
 					},
 				},
-				CACertFile: "/consul/ca-cert.pem",
+				CACertFile:           "/consul/ca-cert.pem",
+				ProxyHealthCheckPort: 22000,
 			},
 			expectedJSON: `{
 				"consul": {
@@ -94,6 +100,10 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				},
 				"xdsServer": {
 				  "bindAddress": "127.0.0.1"
+				},
+				"envoy": {
+					"readyBindAddress": "127.0.0.1",
+					"readyBindPort": 22000
 				}
 			}`,
 		},
@@ -115,7 +125,8 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 						EnableTLS: testutil.BoolPtr(false),
 					},
 				},
-				ConsulToken: "test-token-123",
+				ConsulToken:          "test-token-123",
+				ProxyHealthCheckPort: 22000,
 			},
 			expectedJSON: `{
 				"consul": {
@@ -140,6 +151,10 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				},
 				"xdsServer": {
 				  "bindAddress": "127.0.0.1"
+				},
+				"envoy": {
+					"readyBindAddress": "127.0.0.1",
+					"readyBindPort": 22000
 				}
 			}`,
 		},
@@ -163,8 +178,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 						EnableTLS:     testutil.BoolPtr(true),
 					},
 				},
-				ConsulToken: "test-token-123",
-				CACertFile:  "/consul/ca-cert.pem",
+				ConsulToken:          "test-token-123",
+				CACertFile:           "/consul/ca-cert.pem",
+				ProxyHealthCheckPort: 23000,
 			},
 			expectedJSON: `{
 				"consul": {
@@ -191,6 +207,10 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				},
 				"xdsServer": {
 				  "bindAddress": "127.0.0.1"
+				},
+				"envoy": {
+					"readyBindAddress": "127.0.0.1",
+					"readyBindPort": 23000
 				}
 			}`,
 		},

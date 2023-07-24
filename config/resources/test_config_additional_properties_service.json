@@ -79,6 +79,7 @@
       },
       "namespace": "ns1",
       "partition": "ptn1",
+      "healthCheckPort": 22000,
       "proxy": {
         "config": {
           "data": "some-config-data"
@@ -87,6 +88,7 @@
     },
     "proxy": {
       "publicListenerPort": 21000,
+      "healthCheckPort": 22000,
       "config": {
         "data": "some-config-data"
       },

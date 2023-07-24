@@ -263,8 +263,9 @@ var (
 				"env":     "test",
 				"version": "x.y.z",
 			},
-			Namespace: "ns1",
-			Partition: "ptn1",
+			Namespace:       "ns1",
+			Partition:       "ptn1",
+			HealthCheckPort: 22000,
 			Proxy: &GatewayProxyConfig{
 				Config: map[string]interface{}{
 					"data": "some-config-data",
@@ -276,6 +277,7 @@ var (
 				"data": "some-config-data",
 			},
 			PublicListenerPort: 21000,
+			HealthCheckPort:    22000,
 			Upstreams: []Upstream{
 				{
 					DestinationType:      api.UpstreamDestTypeService,
@@ -351,15 +353,16 @@ var (
 			ServerIDHeaderValue: "",
 		},
 		Gateway: &GatewayRegistration{
-			Kind:       "mesh-gateway",
-			LanAddress: nil,
-			WanAddress: nil,
-			Name:       "",
-			Tags:       nil,
-			Meta:       nil,
-			Namespace:  "",
-			Partition:  "",
-			Proxy:      nil,
+			Kind:            "mesh-gateway",
+			LanAddress:      nil,
+			WanAddress:      nil,
+			Name:            "",
+			Tags:            nil,
+			Meta:            nil,
+			Namespace:       "",
+			Partition:       "",
+			Proxy:           nil,
+			HealthCheckPort: 0,
 		},
 		Service: ServiceRegistration{
 			Name:              "",
@@ -424,11 +427,12 @@ var (
 				Address: "",
 				Port:    0,
 			},
-			Name:      "",
-			Tags:      nil,
-			Meta:      nil,
-			Namespace: "",
-			Partition: "",
+			Name:            "",
+			Tags:            nil,
+			Meta:            nil,
+			Namespace:       "",
+			Partition:       "",
+			HealthCheckPort: 22000,
 			Proxy: &GatewayProxyConfig{
 				Config: nil,
 			},
@@ -446,6 +450,7 @@ var (
 		Proxy: &AgentServiceConnectProxyConfig{
 			Config:             nil,
 			PublicListenerPort: 0,
+			HealthCheckPort:    0,
 			Upstreams: []Upstream{
 				{
 					DestinationType:      "",
@@ -504,15 +509,16 @@ var (
 			},
 		},
 		Gateway: &GatewayRegistration{
-			Kind:       "mesh-gateway",
-			LanAddress: &GatewayAddress{},
-			WanAddress: &GatewayAddress{},
-			Name:       "",
-			Tags:       []string{},
-			Meta:       map[string]string{},
-			Namespace:  "",
-			Partition:  "",
-			Proxy:      &GatewayProxyConfig{},
+			Kind:            "mesh-gateway",
+			LanAddress:      &GatewayAddress{},
+			WanAddress:      &GatewayAddress{},
+			Name:            "",
+			Tags:            []string{},
+			Meta:            map[string]string{},
+			Namespace:       "",
+			Partition:       "",
+			Proxy:           &GatewayProxyConfig{},
+			HealthCheckPort: 0,
 		},
 		Service: ServiceRegistration{
 			Name:              "",
@@ -530,6 +536,7 @@ var (
 			Upstreams:          nil,
 			MeshGateway:        nil,
 			Expose:             nil,
+			HealthCheckPort:    0,
 		},
 	}
 )

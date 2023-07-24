@@ -30,7 +30,8 @@
     "meta": null,
     "namespace": null,
     "partition": null,
-    "proxy": null
+    "proxy": null,
+    "healthCheckPort": null
   },
   "proxy": null
 }

@@ -62,6 +62,7 @@
     "meta": null,
     "namespace": null,
     "partition": null,
+    "healthCheckPort": 22000,
     "proxy": {
       "config": null
     }
@@ -69,6 +70,7 @@
   "proxy": {
     "config": null,
     "publicListenerPort": null,
+    "healthCheckPort": null,
     "upstreams": [
       {
         "destinationType": null,

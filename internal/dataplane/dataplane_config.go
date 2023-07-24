@@ -25,6 +25,9 @@ type GetDataplaneConfigJSONInput struct {
 
 	// Path of the CA cert file for Consul server's RPC interface
 	CACertFile string
+
+	// The HTTP health check port that indicates envoy's readiness
+	ProxyHealthCheckPort int
 }
 
 // GetDataplaneConfigJSON returns back a configuration JSON which
@@ -45,6 +48,14 @@ func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 		XDSServer: XDSServerConfig{
 			Address: localhostAddr,
 		},
+		Envoy: EnvoyConfig{
+			ReadyBindAddr: localhostAddr,
+			ReadyBindPort: i.ProxyHealthCheckPort,
+		},
+	}
+
+	cfg.Consul.TLS = &TLSConfig{
+		Disabled: true,
 	}
 
 	cfg.Consul.TLS = &TLSConfig{

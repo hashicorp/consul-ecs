@@ -190,6 +190,10 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				Family:  "family-service",
 			},
 			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+				clusterARN, err := t.ClusterARN()
+				if err != nil {
+					return discovery.Config{}
+				}
 				return discovery.Config{
 					Addresses: "consul.dc1.address",
 					Credentials: discovery.Credentials{
@@ -202,7 +206,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 								"key1":                         "value1",
 								"key2":                         "value2",
 								"consul.hashicorp.com/task-id": t.TaskID(),
-								"consul.hashicorp.com/cluster": t.Cluster,
+								"consul.hashicorp.com/cluster": clusterARN,
 							},
 						},
 					},

@@ -169,10 +169,15 @@ func (c *Config) getLoginDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (dis
 	}
 	cfg.Login.AuthMethod = authMethod
 
+	clusterARN, err := taskMeta.ClusterARN()
+	if err != nil {
+		return discovery.Credentials{}, err
+	}
+
 	cfg.Login.Meta = mergeMeta(
 		map[string]string{
 			"consul.hashicorp.com/task-id": taskMeta.TaskID(),
-			"consul.hashicorp.com/cluster": taskMeta.Cluster,
+			"consul.hashicorp.com/cluster": clusterARN,
 		},
 		c.ConsulLogin.Meta,
 	)

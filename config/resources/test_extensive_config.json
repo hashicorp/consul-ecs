@@ -99,6 +99,7 @@
         "destinationNamespace": "test-ns",
         "destinationPartition": "test-partition",
         "destinationName": "backend",
+        "destinationPeer": "test-peer",
         "datacenter": "dc2",
         "localBindAddress": "localhost",
         "localBindPort": 1234,

@@ -269,6 +269,10 @@
                 "description": "Specifies the name of the upstream service or prepared query to route the service mesh to.",
                 "type": "string"
               },
+              "destinationPeer": {
+                "description": "Specifies the name of the peer cluster which contains the upstream service.",
+                "type": ["string", "null"]
+              },
               "datacenter": {
                 "description": "Specifies the datacenter to issue the discovery query to.",
                 "type": ["string", "null"]

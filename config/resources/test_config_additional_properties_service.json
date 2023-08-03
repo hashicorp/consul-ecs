@@ -97,6 +97,7 @@
           "destinationType": "service",
           "destinationNamespace": "test-ns",
           "destinationPartition": "test-partition",
+          "destinationPeer": "test-peer",
           "destinationName": "backend",
           "datacenter": "dc2",
           "localBindAddress": "localhost",

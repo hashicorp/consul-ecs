@@ -418,6 +418,7 @@ type Upstream struct {
 	DestinationNamespace string                 `json:"destinationNamespace,omitempty"`
 	DestinationPartition string                 `json:"destinationPartition,omitempty"`
 	DestinationName      string                 `json:"destinationName,omitempty"`
+	DestinationPeer      string                 `json:"destinationPeer,omitempty"`
 	Datacenter           string                 `json:"datacenter,omitempty"`
 	LocalBindAddress     string                 `json:"localBindAddress,omitempty"`
 	LocalBindPort        int                    `json:"localBindPort,omitempty"`
@@ -431,6 +432,7 @@ func (u *Upstream) ToConsulType() api.Upstream {
 		DestinationNamespace: u.DestinationNamespace,
 		DestinationPartition: u.DestinationPartition,
 		DestinationName:      u.DestinationName,
+		DestinationPeer:      u.DestinationPeer,
 		Datacenter:           u.Datacenter,
 		LocalBindAddress:     u.LocalBindAddress,
 		LocalBindPort:        u.LocalBindPort,

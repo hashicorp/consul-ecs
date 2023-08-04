@@ -37,7 +37,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 		cfg                    *Config
 		taskMeta               awsutil.ECSTaskMeta
 		consulHTTPTokenPresent bool
-		expConfig              func(awsutil.ECSTaskMeta) discovery.Config
+		expConfig              func(t *testing.T, e awsutil.ECSTaskMeta) discovery.Config
 	}{
 		"basic flags without TLS or ACLs": {
 			cfg: &Config{
@@ -48,7 +48,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					},
 				},
 			},
-			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+			expConfig: func(_ *testing.T, _ awsutil.ECSTaskMeta) discovery.Config {
 				return discovery.Config{
 					Addresses: "consul.dc1.address",
 					GRPCPort:  8502,
@@ -67,7 +67,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					},
 				},
 			},
-			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+			expConfig: func(_ *testing.T, _ awsutil.ECSTaskMeta) discovery.Config {
 				return discovery.Config{
 					Addresses: "consul.dc1.address",
 					GRPCPort:  8503,
@@ -88,7 +88,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					},
 				},
 			},
-			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+			expConfig: func(_ *testing.T, _ awsutil.ECSTaskMeta) discovery.Config {
 				return discovery.Config{
 					Addresses: "consul.dc1.address",
 					GRPCPort:  8503,
@@ -109,7 +109,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					},
 				},
 			},
-			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+			expConfig: func(_ *testing.T, _ awsutil.ECSTaskMeta) discovery.Config {
 				return discovery.Config{
 					Addresses: "consul.dc1.address",
 					GRPCPort:  8503,
@@ -133,7 +133,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					},
 				},
 			},
-			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+			expConfig: func(_ *testing.T, _ awsutil.ECSTaskMeta) discovery.Config {
 				return discovery.Config{
 					Addresses: "exec=/usr/local/bin/discover-servers",
 					GRPCPort:  8503,
@@ -159,7 +159,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					},
 				},
 			},
-			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+			expConfig: func(_ *testing.T, _ awsutil.ECSTaskMeta) discovery.Config {
 				return discovery.Config{
 					Addresses:           "exec=/usr/local/bin/discover-servers",
 					GRPCPort:            8502,
@@ -189,11 +189,9 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				TaskARN: "arn:aws:ecs:us-east-1:123456789:task/test/abcdef",
 				Family:  "family-service",
 			},
-			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
-				clusterARN, err := t.ClusterARN()
-				if err != nil {
-					return discovery.Config{}
-				}
+			expConfig: func(t *testing.T, e awsutil.ECSTaskMeta) discovery.Config {
+				clusterARN, err := e.ClusterARN()
+				require.NoError(t, err)
 				return discovery.Config{
 					Addresses: "consul.dc1.address",
 					Credentials: discovery.Credentials{
@@ -205,7 +203,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 							Meta: map[string]string{
 								"key1":                         "value1",
 								"key2":                         "value2",
-								"consul.hashicorp.com/task-id": t.TaskID(),
+								"consul.hashicorp.com/task-id": e.TaskID(),
 								"consul.hashicorp.com/cluster": clusterARN,
 							},
 						},
@@ -222,7 +220,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					Enabled: true,
 				},
 			},
-			expConfig: func(t awsutil.ECSTaskMeta) discovery.Config {
+			expConfig: func(_ *testing.T, _ awsutil.ECSTaskMeta) discovery.Config {
 				return discovery.Config{
 					Addresses: "consul.dc1.address",
 					Credentials: discovery.Credentials{
@@ -257,7 +255,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 			cfg, err := c.cfg.ConsulServerConnMgrConfig(c.taskMeta)
 			require.NoError(t, err)
 
-			expectedCfg := c.expConfig(c.taskMeta)
+			expectedCfg := c.expConfig(t, c.taskMeta)
 			require.Equal(t, expectedCfg.Addresses, cfg.Addresses)
 
 			if testutil.EnterpriseFlag() {

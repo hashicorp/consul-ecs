@@ -7,6 +7,10 @@
 # Every target has a BIN_NAME argument that must be provided via --build-arg=BIN_NAME=<name>
 # when building.
 
+# go-discover builds the discover binary
+FROM golang:1.20.7-alpine as go-discover
+RUN CGO_ENABLED=0 go install github.com/hashicorp/go-discover/cmd/discover@214571b6a5309addf3db7775f4ee8cf4d264fd5f
+
 FROM docker.mirror.hashicorp.services/alpine:latest AS release-default
 
 ARG BIN_NAME=consul-ecs
@@ -59,6 +63,7 @@ RUN ln -s /lib/libc.so.6 /usr/lib/libresolv.so.2
 USER $BIN_NAME
 ENTRYPOINT ["/bin/consul-ecs"]
 COPY dist/$TARGETOS/$TARGETARCH/$BIN_NAME /bin/
+COPY --from=go-discover /go/bin/discover /bin/
 
 # Separate FIPS target to accomodate CRT label assumptions
 FROM release-default AS release-fips-default

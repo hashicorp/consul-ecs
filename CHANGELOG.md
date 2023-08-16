@@ -1,3 +1,44 @@
+## Unreleased
+
+FEATURES
+* Removes the need for a Consul client when running Consul on ECS and transitions to the [Consul Dataplane](https://developer.hashicorp.com/consul/docs/connect/dataplane) based architecture.
+* control-plane: Add a new `control-plane` command which replaces the `mesh-init` command. The control-plane command starts a long running process with the following responsibilities
+   - Discover and connect to the Consul servers with the help of [connection manager](https://github.com/hashicorp/consul-server-connection-manager).
+   - Perform a login against the Consul servers with the configured IAM Auth methods if ACLs are enabled in the servers.
+   - Setup a client that can directly talk to the server instead of the local client agent.
+   - Perform the service and proxy registration by directly hitting the Consul Catalog endpoints in the Consul servers.
+   - Write the `consul-ecs` binary to a shared volume.
+   - Expose a health endpoint. ECS uses this to determine the control plane container's health.
+   - Bootstrap the configuration JSON needed for Consul Dataplane and write it to a shared volume so that Consul Dataplane can use it to start itself up and configure the Envoy sidecar.
+   - Enter into a reconciliation loop where ECS health checks are synced into Consul catalog for specific containers defined in the `healthSyncContainers` field in the schema json.
+   - Watch for changes in the Consul servers and reconfigure the client with the new server's address.
+   - Upon SIGTERM, mark all the checks as critical and wait for Consul Dataplane container to shutdown.
+   - Add a monitor that continuously the status of the Consul Dataplane container. The monitor signals the control-plane when Consul Dataplane gets terminated.
+   - Deregisters the service and proxy and performs a Consul Logout after Consul Dataplane shuts down successfully.
+* Remove the `health-sync` command and move its logic into the `control-plane` command.
+* controller: Add a new `controller` command in place of the `acl-controller` command with the following changes
+   - Remove existing CLI flags and pass the whole `ECS_CONFIG_JSON` variable to the `controller` command.
+   - Discover and connect to the Consul servers with the help of [connection manager](https://github.com/hashicorp/consul-server-connection-manager).
+   - Setup a client that can directly talk to the server instead of the local client agent with the bootstrap token passed via the `CONSUL_HTTP_TOKEN` environment variable.
+   - Remove logic for creating client based auth method, policy, role & binding rule.
+   - Register the ECS cluster as a synthetic node in Consul's catalog.
+   - In addition to monitoring ACL state for tasks, monitor and deregister the service and proxy instances of those tasks that go missing/get finished.
+* Changes to `ECS_CONFIG_JSON` schema.
+   - Remove the `consulHTTPAddr` and `consulCACertFile` fields.
+   - Add the `datacenter` field to the `consulLogin` top level field.
+   - Add a new top level field called `controller` top level field. Contains `iamRolePath`, `partitionsEnabled` and `partition` as nested fields.
+   - Add a new top level required field `consulServers` to help ecs commands connect to the Consul servers without the client agent. Holds details about the server address and protocol specific TLS settings.
+   - Remove the `service.checks` field. Without client agent, Consul will no longer be able to run user defined checks for their service instances.
+   - Add the `proxy.healthCheckPort` field which can be hit to determine Envoy's readiness.
+   - Add the `proxy.upstreams.destinationPeer` field to enable the proxy to hit upstreams present in peer Consul clusters.
+   - Add the `meshGateway.healthCheckPort` field which can be hit to determine Envoy's readiness.
+* Allow configuring TLS certs for gRPC traffic to Consul servers with `CONSUL_GRPC_CACERT_PEM` or `consulServers.defaults.caCertFile` or `consulServers.grpc.caCertFile` config option.
+* Allow configuring TLS certs for HTTP traffic to Consul servers with `CONSUL_HTTPS_CACERT_PEM` or `consulServers.defaults.caCertFile` or `consulServers.http.caCertFile` config option.
+* Add the [go-discover](https://github.com/hashicorp/go-discover) binary to the Consul ECS image to better support the discovery of Consul servers.
+
+BREAKING CHANGES
+* Makes a huge architectural change for Consul on ECS by removing Client agent containers from individual ECS tasks. The whole release is a breaking change to previous installations of Consul on ECS.
+
 ## 0.6.0 (Mar 15, 2023)
 
 FEATURES

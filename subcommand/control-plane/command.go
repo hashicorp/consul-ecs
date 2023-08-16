@@ -261,7 +261,7 @@ func (c *Command) realRun() error {
 }
 
 func (c *Command) Synopsis() string {
-	return "Initializes a mesh app"
+	return "Initializes and monitors a mesh app"
 }
 
 func (c *Command) Help() string {

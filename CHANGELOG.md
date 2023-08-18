@@ -31,9 +31,6 @@ BREAKING CHANGES
    - Add the `meshGateway.healthCheckPort` field which can be hit to determine Envoy's readiness.
 * Add the [go-discover](https://github.com/hashicorp/go-discover) binary to the Consul ECS image to better support [cloud auto-join](https://developer.hashicorp.com/consul/docs/install/cloud-auto-join).[[GH-160](https://github.com/hashicorp/consul-ecs/pull/160)]
 
-BREAKING CHANGES
-* Makes a huge architectural change for Consul on ECS by removing Client agent containers from individual ECS tasks. The whole release is a breaking change to previous installations of Consul on ECS.
-
 ## 0.6.0 (Mar 15, 2023)
 
 FEATURES

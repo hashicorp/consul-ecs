@@ -13,17 +13,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/go-hclog"
 )
 
 var (
 	nonAppContainers = map[string]struct{}{
-		"consul-client":          {},
-		"sidecar-proxy":          {},
-		"consul-ecs-health-sync": {},
-		"consul-ecs-mesh-init":   {},
+		"consul-ecs-control-plane": {},
 	}
 )
 
@@ -96,7 +92,7 @@ func (t *AppContainerMonitor) waitForSIGTERM() bool {
 func allAppContainersStopped(taskMeta awsutil.ECSTaskMeta) bool {
 	allStopped := true
 	for _, container := range taskMeta.Containers {
-		if isApplication(container) && !isStopped(container) {
+		if isApplication(container) && !container.HasStopped() {
 			allStopped = false
 		}
 	}
@@ -106,9 +102,4 @@ func allAppContainersStopped(taskMeta awsutil.ECSTaskMeta) bool {
 func isApplication(container awsutil.ECSTaskMetaContainer) bool {
 	_, ok := nonAppContainers[container.Name]
 	return !ok
-}
-
-func isStopped(container awsutil.ECSTaskMetaContainer) bool {
-	return container.DesiredStatus == ecs.DesiredStatusStopped &&
-		container.KnownStatus == ecs.DesiredStatusStopped
 }

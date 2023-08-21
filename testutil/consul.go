@@ -4,7 +4,9 @@
 package testutil
 
 import (
+	"net"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/hashicorp/consul/api"
@@ -16,8 +18,9 @@ type ServerConfigCallback = testutil.ServerConfigCallback
 
 const AdminToken = "123e4567-e89b-12d3-a456-426614174000"
 
-// ConsulServer initializes a Consul test server and returns Consul client config.
-func ConsulServer(t *testing.T, cb ServerConfigCallback) *api.Config {
+// ConsulServer initializes a Consul test server and returns Consul client config
+// and the configured test server
+func ConsulServer(t *testing.T, cb ServerConfigCallback) (*testutil.TestServer, *api.Config) {
 	server, err := testutil.NewTestServerConfigT(t,
 		func(c *testutil.TestServerConfig) {
 			if cb != nil {
@@ -41,13 +44,13 @@ func ConsulServer(t *testing.T, cb ServerConfigCallback) *api.Config {
 		cfg.Token = server.Config.ACL.Tokens.InitialManagement
 	}
 
-	// Set CONSUL_HTTP_ADDR for mesh-init. Required to invoke the consul binary (i.e. in mesh-init).
+	// Set CONSUL_HTTP_ADDR for control-plane. Required to invoke the consul binary (i.e. in control-plane).
 	require.NoError(t, os.Setenv("CONSUL_HTTP_ADDR", server.HTTPAddr))
 	t.Cleanup(func() {
 		_ = os.Unsetenv("CONSUL_HTTP_ADDR")
 	})
 
-	return cfg
+	return server, cfg
 }
 
 // ConsulACLConfigFn configures a Consul test server with ACLs.
@@ -55,4 +58,18 @@ func ConsulACLConfigFn(c *testutil.TestServerConfig) {
 	c.ACL.Enabled = true
 	c.ACL.Tokens.InitialManagement = AdminToken
 	c.ACL.DefaultPolicy = "deny"
+}
+
+func GetHostAndPortFromAddress(address string) (string, int) {
+	host, portStr, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", 0
+	}
+
+	port, err := strconv.ParseInt(portStr, 10, 0)
+	if err != nil {
+		return "", 0
+	}
+
+	return host, int(port)
 }

@@ -14,10 +14,6 @@ const (
 	// ServiceTokenFilename is the file in the BootstrapDir where the service token is written by `consul login`.
 	ServiceTokenFilename = "service-token"
 
-	// ClientTokenFilename is the file in the BootstrapDir where the Consul client token is expected.
-	// The consul-ecs binary does not write this file, but health-sync will attempt to do a `consul logout` for this token.
-	ClientTokenFilename = "client-token"
-
 	// DefaultAuthMethodName is the default name of the Consul IAM auth method used for `consul login`.
 	DefaultAuthMethodName = "iam-ecs-service-token"
 
@@ -27,11 +23,17 @@ const (
 	// DefaultPublicListenerPort is the default public listener port for sidecar proxies.
 	DefaultPublicListenerPort = 20000
 
+	// DefaultProxyHealthCheckPort is the default HTTP health check port for the proxy.
+	DefaultProxyHealthCheckPort = 22000
+
 	// TaggedAddressLAN is the map key for LAN tagged addresses.
 	TaggedAddressLAN = "lan"
 
 	// TaggedAddressWAN is the map key for WAN tagged addresses.
 	TaggedAddressWAN = "wan"
+
+	// Name of the dataplane's container
+	ConsulDataplaneContainerName = "consul-dataplane"
 
 	// Match Consul: https://github.com/hashicorp/consul/blob/68e79b8180ca89e8cfca291b40a30d943039bd49/agent/consul/authmethod/awsauth/aws.go#L16-L20
 	AuthMethodType         string = "aws-iam"
@@ -40,19 +42,21 @@ const (
 	GetEntityURLHeader     string = "X-Consul-IAM-GetEntity-URL"
 	GetEntityHeadersHeader string = "X-Consul-IAM-GetEntity-Headers"
 	GetEntityBodyHeader    string = "X-Consul-IAM-GetEntity-Body"
+
+	SyntheticNode string = "synthetic-node"
 )
 
 // Config is the top-level config object.
 type Config struct {
 	BootstrapDir         string                          `json:"bootstrapDir"`
-	ConsulHTTPAddr       string                          `json:"consulHTTPAddr"`
-	ConsulCACertFile     string                          `json:"consulCACertFile"`
 	ConsulLogin          ConsulLogin                     `json:"consulLogin"`
 	HealthSyncContainers []string                        `json:"healthSyncContainers,omitempty"`
 	LogLevel             string                          `json:"logLevel,omitempty"`
 	Proxy                *AgentServiceConnectProxyConfig `json:"proxy"`
 	Gateway              *GatewayRegistration            `json:"gateway,omitempty"`
 	Service              ServiceRegistration             `json:"service"`
+	ConsulServers        ConsulServers                   `json:"consulServers"`
+	Controller           Controller                      `json:"controller"`
 }
 
 // ConsulLogin configures login options for the Consul IAM auth method.
@@ -62,6 +66,7 @@ type ConsulLogin struct {
 	IncludeEntity bool              `json:"includeEntity"`
 	Meta          map[string]string `json:"meta"`
 	Region        string            `json:"region"`
+	Datacenter    string            `json:"datacenter"`
 
 	// These are passed through to the consul-awsauth library.
 	STSEndpoint         string `json:"stsEndpoint"`
@@ -96,108 +101,247 @@ func (c *ConsulLogin) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// ConsulServers configures options that helps the ECS control plane discover
+// the consul servers.
+type ConsulServers struct {
+	Hosts           string          `json:"hosts"`
+	SkipServerWatch bool            `json:"skipServerWatch"`
+	Defaults        DefaultSettings `json:"defaults"`
+	GRPC            GRPCSettings    `json:"grpc"`
+	HTTP            HTTPSettings    `json:"http"`
+}
+
+// UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields
+func (c *ConsulServers) UnmarshalJSON(data []byte) error {
+	type Alias ConsulServers
+	alias := struct {
+		*Alias
+
+		RawDefaultSettings *DefaultSettings `json:"defaults"`
+		RawGRPCSettings    *GRPCSettings    `json:"grpc"`
+		RawHTTPSettings    *HTTPSettings    `json:"http"`
+	}{
+		Alias: (*Alias)(c), // Unmarshal other fields into *c
+	}
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Assign defaults, if the user hasn't provided
+	// values for `consulServers.defaults`
+	if alias.RawDefaultSettings == nil {
+		c.Defaults = DefaultSettings{
+			EnableTLS: true,
+		}
+	} else {
+		c.Defaults = *alias.RawDefaultSettings
+	}
+
+	// Assign defaults, if the user hasn't provided
+	// values for `consulServers.grpc`
+	if alias.RawGRPCSettings == nil {
+		c.GRPC = GRPCSettings{
+			Port: defaultGRPCPort,
+		}
+	} else {
+		c.GRPC = *alias.RawGRPCSettings
+	}
+
+	// Assign defaults, if the user hasn't provided
+	// values for `consulServers.http`
+	if alias.RawHTTPSettings == nil {
+		c.HTTP = HTTPSettings{
+			Port:        defaultHTTPPort,
+			EnableHTTPS: true,
+		}
+	} else {
+		c.HTTP = *alias.RawHTTPSettings
+	}
+
+	return nil
+}
+
+// DefaultSettings hold the default TLS settings for Consul server's RPC and HTTP interfaces
+type DefaultSettings struct {
+	CaCertFile    string `json:"caCertFile"`
+	EnableTLS     bool   `json:"tls"`
+	TLSServerName string `json:"tlsServerName"`
+}
+
+// UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields
+func (d *DefaultSettings) UnmarshalJSON(data []byte) error {
+	type Alias DefaultSettings
+	alias := struct {
+		*Alias
+
+		RawEnableTLS *bool `json:"tls"`
+	}{
+		Alias: (*Alias)(d),
+	}
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Default EnableTLS to true
+	if alias.RawEnableTLS == nil {
+		d.EnableTLS = true
+	} else {
+		d.EnableTLS = *alias.RawEnableTLS
+	}
+
+	return nil
+}
+
+// GRPCSettings hold the settings for Consul server's RPC interfaces.
+// Overrides the configuration present in DefaultSettings for TLS.
+type GRPCSettings struct {
+	Port          int    `json:"port"`
+	CaCertFile    string `json:"caCertFile"`
+	EnableTLS     *bool  `json:"tls"`
+	TLSServerName string `json:"tlsServerName"`
+}
+
+// UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields
+func (g *GRPCSettings) UnmarshalJSON(data []byte) error {
+	type Alias GRPCSettings
+	alias := struct {
+		*Alias
+
+		RawPort *int `json:"port"`
+	}{
+		Alias: (*Alias)(g),
+	}
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Default Port to 8503
+	if alias.RawPort == nil {
+		g.Port = defaultGRPCPort
+	} else {
+		g.Port = *alias.RawPort
+	}
+	return nil
+}
+
+// HTTPSettings hold the settings for Consul server's HTTP interfaces.
+// Overrides the configuration present in DefaultSettings for TLS.
+type HTTPSettings struct {
+	Port          int    `json:"port"`
+	EnableHTTPS   bool   `json:"https"`
+	CaCertFile    string `json:"caCertFile"`
+	EnableTLS     *bool  `json:"tls"`
+	TLSServerName string `json:"tlsServerName"`
+}
+
+// UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields
+func (h *HTTPSettings) UnmarshalJSON(data []byte) error {
+	type Alias HTTPSettings
+	alias := struct {
+		*Alias
+
+		RawPort        *int  `json:"port"`
+		RawEnableHTTPS *bool `json:"https"`
+	}{
+		Alias: (*Alias)(h),
+	}
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Default EnableHTTPS to true
+	if alias.RawEnableHTTPS == nil {
+		h.EnableHTTPS = true
+	} else {
+		h.EnableHTTPS = *alias.RawEnableHTTPS
+	}
+
+	// Default Port to 8501
+	if alias.RawPort == nil {
+		h.Port = defaultHTTPPort
+	} else {
+		h.Port = *alias.RawPort
+	}
+	return nil
+}
+
+// Controller configures the options to start the consul-ecs-controller command.
+type Controller struct {
+	IAMRolePath       string `json:"iamRolePath"`
+	PartitionsEnabled bool   `json:"partitionsEnabled"`
+	Partition         string `json:"partition"`
+}
+
+// UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields
+func (c *Controller) UnmarshalJSON(data []byte) error {
+	type Alias Controller
+	alias := struct {
+		*Alias
+
+		RawIAMRolePath *string `json:"iamRolePath"`
+	}{
+		Alias: (*Alias)(c), // Unmarshal other fields into *c
+	}
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Default iamRolePath to /consul-ecs/
+	if alias.RawIAMRolePath == nil {
+		c.IAMRolePath = defaultIAMRolePath
+	} else {
+		c.IAMRolePath = *alias.RawIAMRolePath
+	}
+
+	if c.IAMRolePath == "" {
+		c.IAMRolePath = defaultIAMRolePath
+	}
+
+	return nil
+}
+
 // ServiceRegistration configures the Consul service registration.
 //
 // NOTE:
-// - The Kind and Id fields are set by mesh-init during service/proxy registration.
+// - The Kind and Id fields are set by control-plane during service/proxy registration.
 // - The Address field excluded. The agent's address (task ip) should always be used in ECS.
 // - The Connect field is not supported:
 //   - No Connect-native support for now. We assume Envoy is used.
 //   - Proxy registration occurs in a separate request, so no need to inline the proxy config.
 //     See the SidecarProxyRegistration type.
 type ServiceRegistration struct {
-	Name              string              `json:"name"`
-	Tags              []string            `json:"tags,omitempty"`
-	Port              int                 `json:"port"`
-	EnableTagOverride bool                `json:"enableTagOverride,omitempty"`
-	Meta              map[string]string   `json:"meta,omitempty"`
-	Weights           *AgentWeights       `json:"weights,omitempty"`
-	Checks            []AgentServiceCheck `json:"checks,omitempty"`
-	Namespace         string              `json:"namespace,omitempty"`
-	Partition         string              `json:"partition,omitempty"`
+	Name              string            `json:"name"`
+	Tags              []string          `json:"tags,omitempty"`
+	Port              int               `json:"port"`
+	EnableTagOverride bool              `json:"enableTagOverride,omitempty"`
+	Meta              map[string]string `json:"meta,omitempty"`
+	Weights           *AgentWeights     `json:"weights,omitempty"`
+	Namespace         string            `json:"namespace,omitempty"`
+	Partition         string            `json:"partition,omitempty"`
 }
 
-func (r *ServiceRegistration) ToConsulType() *api.AgentServiceRegistration {
-	result := &api.AgentServiceRegistration{
-		Name:              r.Name,
+func (r *ServiceRegistration) ToConsulType() *api.AgentService {
+	result := &api.AgentService{
+		Service:           r.Name,
 		Tags:              r.Tags,
-		Port:              r.Port,
-		EnableTagOverride: r.EnableTagOverride,
 		Meta:              r.Meta,
-		Weights:           nil,
-		Checks:            nil,
+		Port:              r.Port,
+		Weights:           api.AgentWeights{},
+		EnableTagOverride: r.EnableTagOverride,
 		Namespace:         r.Namespace,
 		Partition:         r.Partition,
 	}
+
 	if r.Weights != nil {
 		result.Weights = r.Weights.ToConsulType()
 	}
-	for _, check := range r.Checks {
-		result.Checks = append(result.Checks, check.ToConsulType())
-	}
+
 	return result
-
-}
-
-// AgentServiceCheck configures a Consul Check.
-//
-// NOTE:
-//   - The DockerContainerID and Shell fields are excluded. Shell is only used for Docker checks, and
-//     Docker checks won't work on ECS. They cannot work on Fargate, and require specific config to access
-//     the host's Docker daemon on the EC2 launch type.
-//   - DeregisterCriticalServiceAfter is also excluded. We have health check support to handle service deregistration.
-type AgentServiceCheck struct {
-	CheckID                string              `json:"checkId,omitempty"`
-	Name                   string              `json:"name,omitempty"`
-	Args                   []string            `json:"args,omitempty"`
-	Interval               string              `json:"interval,omitempty"`
-	Timeout                string              `json:"timeout,omitempty"`
-	TTL                    string              `json:"ttl,omitempty"`
-	HTTP                   string              `json:"http,omitempty"`
-	Header                 map[string][]string `json:"header,omitempty"`
-	Method                 string              `json:"method,omitempty"`
-	Body                   string              `json:"body,omitempty"`
-	TCP                    string              `json:"tcp,omitempty"`
-	Status                 string              `json:"status,omitempty"`
-	Notes                  string              `json:"notes,omitempty"`
-	TLSServerName          string              `json:"tlsServerName,omitempty"`
-	TLSSkipVerify          bool                `json:"tlsSkipVerify,omitempty"`
-	GRPC                   string              `json:"grpc,omitempty"`
-	GRPCUseTLS             bool                `json:"grpcUseTls,omitempty"`
-	H2PPING                string              `json:"h2ping,omitempty"`
-	H2PingUseTLS           bool                `json:"h2pingUseTLS,omitempty"`
-	AliasNode              string              `json:"aliasNode,omitempty"`
-	AliasService           string              `json:"aliasService,omitempty"`
-	SuccessBeforePassing   int                 `json:"successBeforePassing,omitempty"`
-	FailuresBeforeCritical int                 `json:"failuresBeforeCritical,omitempty"`
-}
-
-func (c *AgentServiceCheck) ToConsulType() *api.AgentServiceCheck {
-	return &api.AgentServiceCheck{
-		CheckID:                c.CheckID,
-		Name:                   c.Name,
-		Args:                   c.Args,
-		Interval:               c.Interval,
-		Timeout:                c.Timeout,
-		TTL:                    c.TTL,
-		HTTP:                   c.HTTP,
-		Header:                 c.Header,
-		Method:                 c.Method,
-		Body:                   c.Body,
-		TCP:                    c.TCP,
-		Status:                 c.Status,
-		Notes:                  c.Notes,
-		TLSServerName:          c.TLSServerName,
-		TLSSkipVerify:          c.TLSSkipVerify,
-		GRPC:                   c.GRPC,
-		GRPCUseTLS:             c.GRPCUseTLS,
-		H2PING:                 c.H2PPING,
-		H2PingUseTLS:           c.H2PingUseTLS,
-		AliasNode:              c.AliasNode,
-		AliasService:           c.AliasService,
-		SuccessBeforePassing:   c.SuccessBeforePassing,
-		FailuresBeforeCritical: c.FailuresBeforeCritical,
-	}
 }
 
 type AgentWeights struct {
@@ -205,8 +349,8 @@ type AgentWeights struct {
 	Warning int `json:"warning"`
 }
 
-func (w *AgentWeights) ToConsulType() *api.AgentWeights {
-	return &api.AgentWeights{
+func (w *AgentWeights) ToConsulType() api.AgentWeights {
+	return api.AgentWeights{
 		Passing: w.Passing,
 		Warning: w.Warning,
 	}
@@ -215,25 +359,26 @@ func (w *AgentWeights) ToConsulType() *api.AgentWeights {
 // AgentServiceConnectProxyConfig defines the sidecar proxy configuration.
 //
 // NOTE: For the proxy registration request (api.AgentServiceRegistration in Consul),
-//   - The Kind and Port are set by mesh-init, so these fields are not configurable.
+//   - The Kind and Port are set by control-plane, so these fields are not configurable.
 //   - The ID, Name, Tags, Meta, EnableTagOverride, and Weights fields are inferred or copied
-//     from the service registration by mesh-init.
+//     from the service registration by control-plane.
 //   - The bind address is always localhost in ECS, so the Address and SocketPath are excluded.
 //   - The Connect field is excluded. Since the sidecar proxy is being used, it's not a Connect-native
 //     service, and we don't need the nested proxy config included in the Connect field.
-//   - The Partition field is excluded. mesh-init will use the partition from the service registration.
-//   - The Namespace field is excluded. mesh-init will use the namespace from the service registration.
+//   - The Partition field is excluded. control-plane will use the partition from the service registration.
+//   - The Namespace field is excluded. control-plane will use the namespace from the service registration.
 //   - There's not a use-case for specifying TaggedAddresses with Consul ECS, and Enable
 //
 // For the proxy configuration (api.AgentServiceConnectProxyConfig in Consul),
 //   - The DestinationServiceName, DestinationServiceId, LocalServiceAddress, and LocalServicePort
-//     are all set by mesh-init, based on the service configuration.
-//   - The LocalServiceSocketPath is excluded, since it would conflict with the address/port set by mesh-init.
-//   - Checks are excluded. mesh-init automatically configures useful checks for the proxy.
+//     are all set by control-plane, based on the service configuration.
+//   - The LocalServiceSocketPath is excluded, since it would conflict with the address/port set by control-plane.
+//   - Checks are excluded. control-plane automatically configures useful checks for the proxy.
 //   - TProxy is not supported on ECS, so the Mode and TransparentProxy fields are excluded.
 type AgentServiceConnectProxyConfig struct {
 	Config             map[string]interface{} `json:"config,omitempty"`
 	PublicListenerPort int                    `json:"publicListenerPort,omitempty"`
+	HealthCheckPort    int                    `json:"healthCheckPort,omitempty"`
 	Upstreams          []Upstream             `json:"upstreams,omitempty"`
 	MeshGateway        *MeshGatewayConfig     `json:"meshGateway,omitempty"`
 	Expose             *ExposeConfig          `json:"expose,omitempty"`
@@ -273,6 +418,7 @@ type Upstream struct {
 	DestinationNamespace string                 `json:"destinationNamespace,omitempty"`
 	DestinationPartition string                 `json:"destinationPartition,omitempty"`
 	DestinationName      string                 `json:"destinationName,omitempty"`
+	DestinationPeer      string                 `json:"destinationPeer,omitempty"`
 	Datacenter           string                 `json:"datacenter,omitempty"`
 	LocalBindAddress     string                 `json:"localBindAddress,omitempty"`
 	LocalBindPort        int                    `json:"localBindPort,omitempty"`
@@ -286,6 +432,7 @@ func (u *Upstream) ToConsulType() api.Upstream {
 		DestinationNamespace: u.DestinationNamespace,
 		DestinationPartition: u.DestinationPartition,
 		DestinationName:      u.DestinationName,
+		DestinationPeer:      u.DestinationPeer,
 		Datacenter:           u.Datacenter,
 		LocalBindAddress:     u.LocalBindAddress,
 		LocalBindPort:        u.LocalBindPort,
@@ -342,22 +489,23 @@ func (e *ExposePath) ToConsulType() api.ExposePath {
 }
 
 type GatewayRegistration struct {
-	Kind       api.ServiceKind     `json:"kind"`
-	LanAddress *GatewayAddress     `json:"lanAddress,omitempty"`
-	WanAddress *GatewayAddress     `json:"wanAddress,omitempty"`
-	Name       string              `json:"name,omitempty"`
-	Tags       []string            `json:"tags,omitempty"`
-	Meta       map[string]string   `json:"meta,omitempty"`
-	Namespace  string              `json:"namespace,omitempty"`
-	Partition  string              `json:"partition,omitempty"`
-	Proxy      *GatewayProxyConfig `json:"proxy,omitempty"`
+	Kind            api.ServiceKind     `json:"kind"`
+	LanAddress      *GatewayAddress     `json:"lanAddress,omitempty"`
+	WanAddress      *GatewayAddress     `json:"wanAddress,omitempty"`
+	Name            string              `json:"name,omitempty"`
+	Tags            []string            `json:"tags,omitempty"`
+	Meta            map[string]string   `json:"meta,omitempty"`
+	Namespace       string              `json:"namespace,omitempty"`
+	Partition       string              `json:"partition,omitempty"`
+	Proxy           *GatewayProxyConfig `json:"proxy,omitempty"`
+	HealthCheckPort int                 `json:"healthCheckPort,omitempty"`
 }
 
-func (g *GatewayRegistration) ToConsulType() *api.AgentServiceRegistration {
-	result := &api.AgentServiceRegistration{
+func (g *GatewayRegistration) ToConsulType() *api.AgentService {
+	result := &api.AgentService{
 		Kind:      g.Kind,
 		Port:      DefaultGatewayPort,
-		Name:      g.Name,
+		Service:   g.Name,
 		Tags:      g.Tags,
 		Meta:      g.Meta,
 		Namespace: g.Namespace,
@@ -393,4 +541,12 @@ func (a *GatewayAddress) ToConsulType() api.ServiceAddress {
 		result.Port = DefaultGatewayPort
 	}
 	return result
+}
+
+func GetHealthCheckPort(p int) int {
+	if p != 0 {
+		return p
+	}
+
+	return DefaultProxyHealthCheckPort
 }

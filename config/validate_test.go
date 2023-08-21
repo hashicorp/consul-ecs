@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/require"
 	"github.com/xeipuuv/gojsonschema"
@@ -68,6 +69,7 @@ func TestParseErrors(t *testing.T) {
 			filename: "resources/test_config_missing_fields.json",
 			expectedErrors: []string{
 				"bootstrapDir: String length must be greater than or equal to 1",
+				"consulServers is required",
 			},
 		},
 		"uppercase_service_names": {
@@ -75,6 +77,12 @@ func TestParseErrors(t *testing.T) {
 			expectedErrors: []string{
 				"gateway.name: Does not match pattern",
 				"service.name: Does not match pattern",
+			},
+		},
+		"service_with_additional_properties": {
+			filename: "resources/test_config_additional_properties_service.json",
+			expectedErrors: []string{
+				"service: Additional property checks is not allowed",
 			},
 		},
 	}
@@ -121,9 +129,15 @@ func OpenFile(t *testing.T, path string) string {
 var (
 	expectedConfig = &Config{
 		LogLevel: "",
+		Controller: Controller{
+			IAMRolePath:       "",
+			PartitionsEnabled: false,
+			Partition:         "",
+		},
 		ConsulLogin: ConsulLogin{
-			Enabled: false,
-			Method:  "",
+			Enabled:    false,
+			Method:     "",
+			Datacenter: "",
 			// Because ConsulLogin is not a pointer, when `consulLogin` is absent from
 			// the JSON, UnmarshalJSON is not called, so IncludeEntity is not defaulted
 			// to `true`. This is okay since if Enabled=false, IncludeEntity is not used.
@@ -132,6 +146,28 @@ var (
 			Region:              "",
 			STSEndpoint:         "",
 			ServerIDHeaderValue: "",
+		},
+		ConsulServers: ConsulServers{
+			Hosts:           "consul.dc1",
+			SkipServerWatch: false,
+			Defaults: DefaultSettings{
+				CaCertFile:    "",
+				TLSServerName: "",
+				EnableTLS:     true,
+			},
+			GRPC: GRPCSettings{
+				Port:          8503,
+				CaCertFile:    "",
+				TLSServerName: "",
+				EnableTLS:     nil,
+			},
+			HTTP: HTTPSettings{
+				Port:          8501,
+				EnableHTTPS:   true,
+				CaCertFile:    "",
+				TLSServerName: "",
+				EnableTLS:     nil,
+			},
 		},
 		Service: ServiceRegistration{
 			Name: "blah",
@@ -155,11 +191,37 @@ var (
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: []string{"frontend"},
 		LogLevel:             "DEBUG",
-		ConsulHTTPAddr:       "consul.example.com",
-		ConsulCACertFile:     "/consul/consul-ca-cert.pem",
+		Controller: Controller{
+			PartitionsEnabled: true,
+			Partition:         "default",
+			IAMRolePath:       "/consul-iam/",
+		},
+		ConsulServers: ConsulServers{
+			Hosts:           "consul.dc1",
+			SkipServerWatch: true,
+			Defaults: DefaultSettings{
+				CaCertFile:    "/consul/ca-cert.pem",
+				TLSServerName: "consul.dc1",
+				EnableTLS:     true,
+			},
+			GRPC: GRPCSettings{
+				Port:          8503,
+				CaCertFile:    "/consul/ca-cert-1.pem",
+				TLSServerName: "consul.dc2",
+				EnableTLS:     testutil.BoolPtr(true),
+			},
+			HTTP: HTTPSettings{
+				Port:          8501,
+				EnableHTTPS:   true,
+				CaCertFile:    "/consul/ca-cert-2.pem",
+				TLSServerName: "consul.dc3",
+				EnableTLS:     testutil.BoolPtr(true),
+			},
+		},
 		ConsulLogin: ConsulLogin{
 			Enabled:       true,
 			Method:        "my-auth-method",
+			Datacenter:    "dc1",
 			IncludeEntity: false,
 			Meta: map[string]string{
 				"tag-1": "val-1",
@@ -182,58 +244,6 @@ var (
 				Passing: 6,
 				Warning: 5,
 			},
-			Checks: []AgentServiceCheck{
-				{
-					CheckID: "frontend-http",
-					Name:    "frontend-http",
-					HTTP:    "http://localhost:8080/health",
-					Method:  "POST",
-					Body:    "{\"method\": \"health\"}",
-					Notes:   "Health check for the frontend service",
-					Header: map[string][]string{
-						"Content-Type": {"application/json"},
-					},
-					Interval:               "30s",
-					Timeout:                "10s",
-					SuccessBeforePassing:   3,
-					FailuresBeforeCritical: 4,
-				},
-				{
-					CheckID:  "frontend-tcp",
-					Name:     "frontend-tcp",
-					TCP:      "localhost:8080",
-					Interval: "15s",
-					Timeout:  "5s",
-				},
-				{
-					CheckID:    "frontend-grpc",
-					Name:       "frontend-grpc",
-					GRPC:       "localhost:8080",
-					GRPCUseTLS: true,
-					Interval:   "20s",
-					Timeout:    "5s",
-				},
-				{
-					CheckID: "frontend-ttl",
-					Name:    "frontend-ttl",
-					TTL:     "10m",
-					Status:  "passing",
-				},
-				{
-					CheckID:      "frontend-h2ping",
-					Name:         "frontend-h2ping",
-					H2PPING:      "localhost:2222",
-					H2PingUseTLS: true,
-					Interval:     "30s",
-					Timeout:      "9s",
-				},
-				{
-					CheckID:      "frontend-backend-alias",
-					Name:         "frontend-backend-alias",
-					AliasNode:    "backend-node",
-					AliasService: "backend",
-				},
-			},
 			Namespace: "test-ns",
 			Partition: "test-partition",
 		},
@@ -253,8 +263,9 @@ var (
 				"env":     "test",
 				"version": "x.y.z",
 			},
-			Namespace: "ns1",
-			Partition: "ptn1",
+			Namespace:       "ns1",
+			Partition:       "ptn1",
+			HealthCheckPort: 22000,
 			Proxy: &GatewayProxyConfig{
 				Config: map[string]interface{}{
 					"data": "some-config-data",
@@ -266,11 +277,13 @@ var (
 				"data": "some-config-data",
 			},
 			PublicListenerPort: 21000,
+			HealthCheckPort:    22000,
 			Upstreams: []Upstream{
 				{
 					DestinationType:      api.UpstreamDestTypeService,
 					DestinationNamespace: "test-ns",
 					DestinationPartition: "test-partition",
+					DestinationPeer:      "test-peer",
 					DestinationName:      "backend",
 					Datacenter:           "dc2",
 					LocalBindAddress:     "localhost",
@@ -304,8 +317,33 @@ var (
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: nil,
 		LogLevel:             "",
-		ConsulHTTPAddr:       "",
-		ConsulCACertFile:     "",
+		Controller: Controller{
+			IAMRolePath:       defaultIAMRolePath,
+			PartitionsEnabled: false,
+			Partition:         "",
+		},
+		ConsulServers: ConsulServers{
+			Hosts:           "",
+			SkipServerWatch: false,
+			Defaults: DefaultSettings{
+				CaCertFile:    "",
+				TLSServerName: "",
+				EnableTLS:     true,
+			},
+			GRPC: GRPCSettings{
+				Port:          8503,
+				CaCertFile:    "",
+				TLSServerName: "",
+				EnableTLS:     nil,
+			},
+			HTTP: HTTPSettings{
+				Port:          8501,
+				EnableHTTPS:   true,
+				CaCertFile:    "",
+				TLSServerName: "",
+				EnableTLS:     nil,
+			},
+		},
 		ConsulLogin: ConsulLogin{
 			Enabled:             false,
 			Method:              "",
@@ -316,15 +354,16 @@ var (
 			ServerIDHeaderValue: "",
 		},
 		Gateway: &GatewayRegistration{
-			Kind:       "mesh-gateway",
-			LanAddress: nil,
-			WanAddress: nil,
-			Name:       "",
-			Tags:       nil,
-			Meta:       nil,
-			Namespace:  "",
-			Partition:  "",
-			Proxy:      nil,
+			Kind:            "mesh-gateway",
+			LanAddress:      nil,
+			WanAddress:      nil,
+			Name:            "",
+			Tags:            nil,
+			Meta:            nil,
+			Namespace:       "",
+			Partition:       "",
+			Proxy:           nil,
+			HealthCheckPort: 0,
 		},
 		Service: ServiceRegistration{
 			Name:              "",
@@ -333,7 +372,6 @@ var (
 			EnableTagOverride: false,
 			Meta:              nil,
 			Weights:           nil,
-			Checks:            nil,
 			Namespace:         "",
 			Partition:         "",
 		},
@@ -343,16 +381,42 @@ var (
 	expectedConfigNullNestedFields = &Config{
 		BootstrapDir:         "/consul/",
 		HealthSyncContainers: nil,
-		ConsulHTTPAddr:       "",
-		ConsulCACertFile:     "",
+		Controller: Controller{
+			IAMRolePath:       defaultIAMRolePath,
+			PartitionsEnabled: false,
+			Partition:         "",
+		},
 		ConsulLogin: ConsulLogin{
 			Enabled:             false,
+			Datacenter:          "",
 			Method:              "",
 			IncludeEntity:       true,
 			Meta:                nil,
 			Region:              "",
 			STSEndpoint:         "",
 			ServerIDHeaderValue: "",
+		},
+		ConsulServers: ConsulServers{
+			Hosts:           "",
+			SkipServerWatch: false,
+			Defaults: DefaultSettings{
+				CaCertFile:    "",
+				TLSServerName: "",
+				EnableTLS:     true,
+			},
+			GRPC: GRPCSettings{
+				Port:          8503,
+				CaCertFile:    "",
+				TLSServerName: "",
+				EnableTLS:     nil,
+			},
+			HTTP: HTTPSettings{
+				Port:          8501,
+				EnableHTTPS:   true,
+				CaCertFile:    "",
+				TLSServerName: "",
+				EnableTLS:     nil,
+			},
 		},
 		Gateway: &GatewayRegistration{
 			Kind: "mesh-gateway",
@@ -364,11 +428,12 @@ var (
 				Address: "",
 				Port:    0,
 			},
-			Name:      "",
-			Tags:      nil,
-			Meta:      nil,
-			Namespace: "",
-			Partition: "",
+			Name:            "",
+			Tags:            nil,
+			Meta:            nil,
+			Namespace:       "",
+			Partition:       "",
+			HealthCheckPort: 22000,
 			Proxy: &GatewayProxyConfig{
 				Config: nil,
 			},
@@ -380,45 +445,20 @@ var (
 			EnableTagOverride: false,
 			Meta:              nil,
 			Weights:           nil,
-			Checks: []AgentServiceCheck{
-				{
-					CheckID:                "",
-					Name:                   "check-null",
-					Args:                   nil,
-					Interval:               "",
-					Timeout:                "",
-					TTL:                    "",
-					HTTP:                   "",
-					Header:                 nil,
-					Method:                 "",
-					Body:                   "",
-					TCP:                    "",
-					Status:                 "",
-					Notes:                  "",
-					TLSServerName:          "",
-					TLSSkipVerify:          false,
-					GRPC:                   "",
-					GRPCUseTLS:             false,
-					H2PPING:                "",
-					H2PingUseTLS:           false,
-					AliasNode:              "",
-					AliasService:           "",
-					SuccessBeforePassing:   0,
-					FailuresBeforeCritical: 0,
-				},
-			},
-			Namespace: "",
-			Partition: "",
+			Namespace:         "",
+			Partition:         "",
 		},
 		Proxy: &AgentServiceConnectProxyConfig{
 			Config:             nil,
 			PublicListenerPort: 0,
+			HealthCheckPort:    0,
 			Upstreams: []Upstream{
 				{
 					DestinationType:      "",
 					DestinationNamespace: "",
 					DestinationPartition: "",
 					DestinationName:      "backend",
+					DestinationPeer:      "",
 					Datacenter:           "",
 					LocalBindAddress:     "",
 					LocalBindPort:        2345,
@@ -443,16 +483,44 @@ var (
 			STSEndpoint:         "",
 			ServerIDHeaderValue: "",
 		},
+		Controller: Controller{
+			IAMRolePath:       defaultIAMRolePath,
+			PartitionsEnabled: false,
+			Partition:         "",
+		},
+		ConsulServers: ConsulServers{
+			Hosts:           "",
+			SkipServerWatch: false,
+			Defaults: DefaultSettings{
+				CaCertFile:    "",
+				TLSServerName: "",
+				EnableTLS:     true,
+			},
+			GRPC: GRPCSettings{
+				Port:          8503,
+				CaCertFile:    "",
+				TLSServerName: "",
+				EnableTLS:     nil,
+			},
+			HTTP: HTTPSettings{
+				Port:          8501,
+				EnableHTTPS:   true,
+				CaCertFile:    "",
+				TLSServerName: "",
+				EnableTLS:     nil,
+			},
+		},
 		Gateway: &GatewayRegistration{
-			Kind:       "mesh-gateway",
-			LanAddress: &GatewayAddress{},
-			WanAddress: &GatewayAddress{},
-			Name:       "",
-			Tags:       []string{},
-			Meta:       map[string]string{},
-			Namespace:  "",
-			Partition:  "",
-			Proxy:      &GatewayProxyConfig{},
+			Kind:            "mesh-gateway",
+			LanAddress:      &GatewayAddress{},
+			WanAddress:      &GatewayAddress{},
+			Name:            "",
+			Tags:            []string{},
+			Meta:            map[string]string{},
+			Namespace:       "",
+			Partition:       "",
+			Proxy:           &GatewayProxyConfig{},
+			HealthCheckPort: 0,
 		},
 		Service: ServiceRegistration{
 			Name:              "",
@@ -461,7 +529,6 @@ var (
 			EnableTagOverride: false,
 			Meta:              map[string]string{},
 			Weights:           nil,
-			Checks:            []AgentServiceCheck{},
 			Namespace:         "",
 			Partition:         "",
 		},
@@ -471,6 +538,7 @@ var (
 			Upstreams:          nil,
 			MeshGateway:        nil,
 			Expose:             nil,
+			HealthCheckPort:    0,
 		},
 	}
 )

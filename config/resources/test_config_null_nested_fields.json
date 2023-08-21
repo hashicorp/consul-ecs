@@ -5,10 +5,38 @@
     "enabled": null,
     "method": null,
     "includeEntity": null,
+    "datacenter": null,
     "meta": null,
     "region": null,
     "stsEndpoint": null,
     "serverIdHeaderValue": null
+  },
+  "consulServers": {
+    "hosts": "",
+    "skipServerWatch": null,
+    "defaults": {
+      "caCertFile": null,
+      "tlsServerName": null,
+      "tls": null
+    },
+    "grpc": {
+      "port": null,
+      "caCertFile": null,
+      "tlsServerName": null,
+      "tls": null
+    },
+    "http": {
+      "https": null,
+      "port": null,
+      "caCertFile": null,
+      "tlsServerName": null,
+      "tls": null
+    }
+  },
+  "controller": {
+    "iamRolePath": null,
+    "partition": null,
+    "partitionsEnabled": null
   },
   "service": {
     "name": null,
@@ -17,33 +45,6 @@
     "enableTagOverride": null,
     "meta": null,
     "weights": null,
-    "checks": [
-      {
-        "name": "check-null",
-        "checkId": null,
-        "args": null,
-        "interval": null,
-        "timeout": null,
-        "ttl": null,
-        "http": null,
-        "header": null,
-        "method": null,
-        "body": null,
-        "tcp": null,
-        "status": null,
-        "notes": null,
-        "tlsServerName": null,
-        "tlsSkipVerify": null,
-        "grpc": null,
-        "grpcUseTls": null,
-        "h2ping": null,
-        "h2pingUseTls": null,
-        "aliasNode": null,
-        "aliasService": null,
-        "successBeforePassing": null,
-        "failuresBeforeCritical": null
-      }
-    ],
     "namespace": null
   },
   "gateway": {
@@ -61,6 +62,7 @@
     "meta": null,
     "namespace": null,
     "partition": null,
+    "healthCheckPort": 22000,
     "proxy": {
       "config": null
     }
@@ -68,12 +70,14 @@
   "proxy": {
     "config": null,
     "publicListenerPort": null,
+    "healthCheckPort": null,
     "upstreams": [
       {
         "destinationType": null,
         "destinationNamespace": null,
         "destinationPartition": null,
         "destinationName": "backend",
+        "destinationPeer": null,
         "datacenter": null,
         "localBindAddress": null,
         "localBindPort": 2345,

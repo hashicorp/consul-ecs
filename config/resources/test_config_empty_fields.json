@@ -1,9 +1,11 @@
 {
   "bootstrapDir": "/consul/",
   "healthSyncContainers": [],
-  "consulHTTPAddr": "",
-  "consulCACertFile": "",
   "consulLogin": {},
+  "consulServers": {
+    "hosts": ""
+  },
+  "controller": {},
   "service": {
     "name": "",
     "tags": [],
@@ -11,7 +13,6 @@
     "enableTagOverride": false,
     "meta": {},
     "weights": null,
-    "checks": [],
     "namespace": "",
     "partition": ""
   },
@@ -24,6 +25,7 @@
     "meta": {},
     "namespace": "",
     "partition": "",
+    "healthCheckPort": 0,
     "proxy": {}
   },
   "proxy": {}

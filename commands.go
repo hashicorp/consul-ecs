@@ -6,11 +6,10 @@ package main
 import (
 	"os"
 
-	cmdController "github.com/hashicorp/consul-ecs/subcommand/acl-controller"
 	cmdAppEntrypoint "github.com/hashicorp/consul-ecs/subcommand/app-entrypoint"
+	cmdControlPlane "github.com/hashicorp/consul-ecs/subcommand/control-plane"
+	cmdController "github.com/hashicorp/consul-ecs/subcommand/controller"
 	cmdEnvoyEntrypoint "github.com/hashicorp/consul-ecs/subcommand/envoy-entrypoint"
-	cmdHealthSync "github.com/hashicorp/consul-ecs/subcommand/health-sync"
-	cmdMeshInit "github.com/hashicorp/consul-ecs/subcommand/mesh-init"
 	cmdNetDial "github.com/hashicorp/consul-ecs/subcommand/net-dial"
 	cmdVersion "github.com/hashicorp/consul-ecs/subcommand/version"
 	"github.com/hashicorp/consul-ecs/version"
@@ -27,14 +26,11 @@ func init() {
 		"version": func() (cli.Command, error) {
 			return &cmdVersion.Command{UI: ui, Version: version.GetHumanVersion()}, nil
 		},
-		"mesh-init": func() (cli.Command, error) {
-			return &cmdMeshInit.Command{UI: ui}, nil
+		"control-plane": func() (cli.Command, error) {
+			return &cmdControlPlane.Command{UI: ui}, nil
 		},
-		"acl-controller": func() (cli.Command, error) {
+		"controller": func() (cli.Command, error) {
 			return &cmdController.Command{UI: ui}, nil
-		},
-		"health-sync": func() (cli.Command, error) {
-			return &cmdHealthSync.Command{UI: ui}, nil
 		},
 		"envoy-entrypoint": func() (cli.Command, error) {
 			return &cmdEnvoyEntrypoint.Command{UI: ui}, nil

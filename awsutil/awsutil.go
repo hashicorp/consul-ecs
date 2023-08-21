@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/version"
 )
 
@@ -100,6 +101,22 @@ func (e ECSTaskMeta) NodeIP() string {
 		ip = e.Containers[0].Networks[0].IPv4Addresses[0]
 	}
 	return ip
+}
+
+func (e ECSTaskMeta) HasContainerStopped(name string) bool {
+	stopped := true
+	for _, c := range e.Containers {
+		if c.Name == name && !c.HasStopped() {
+			stopped = false
+			break
+		}
+	}
+	return stopped
+}
+
+func (c ECSTaskMetaContainer) HasStopped() bool {
+	return c.DesiredStatus == ecs.DesiredStatusStopped &&
+		c.KnownStatus == ecs.DesiredStatusStopped
 }
 
 func ECSTaskMetadata() (ECSTaskMeta, error) {

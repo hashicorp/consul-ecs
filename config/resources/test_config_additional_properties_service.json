@@ -1,0 +1,129 @@
+{
+    "bootstrapDir": "/consul/",
+    "healthSyncContainers": [
+      "frontend"
+    ],
+    "logLevel": "DEBUG",
+    "consulLogin": {
+      "enabled": true,
+      "method": "my-auth-method",
+      "includeEntity": false,
+      "meta": {
+        "tag-1": "val-1",
+        "tag-2": "val-2"
+      },
+      "datacenter": "dc1",
+      "region": "bogus-east-2",
+      "stsEndpoint": "https://sts.bogus-east-2.example.com",
+      "serverIdHeaderValue": "my.consul.example.com"
+    },
+    "controller": {
+      "iamRolePath": "/consul-iam/",
+      "partition": "default",
+      "partitionsEnabled": true
+    },
+    "consulServers": {
+      "hosts": "consul.dc1",
+      "skipServerWatch": true,
+      "defaults": {
+        "caCertFile": "/consul/ca-https-cert.pem",
+        "tlsServerName": "consul.dc1",
+        "tls": true
+      },
+      "grpc": {
+        "port": 8503
+      },
+      "http": {
+        "https": true,
+        "port": 8501
+      }
+    },
+    "service": {
+      "name": "frontend",
+      "tags": [
+        "frontend"
+      ],
+      "port": 8080,
+      "enableTagOverride": true,
+      "meta": {
+        "env": "test",
+        "version": "x.y.z"
+      },
+      "weights": {
+        "passing": 6,
+        "warning": 5
+      },
+      "checks": [
+        {
+            "name": "test-check-1"
+        }
+      ],
+      "namespace": "test-ns",
+      "partition": "test-partition"
+    },
+    "gateway": {
+      "kind": "mesh-gateway",
+      "lanAddress": {
+        "address": "10.0.0.1",
+        "port": 8443
+      },
+      "wanAddress": {
+        "address": "172.16.0.0",
+        "port": 443
+      },
+      "name": "ecs-mesh-gateway",
+      "tags": ["a", "b"],
+      "meta": {
+        "env": "test",
+        "version": "x.y.z"
+      },
+      "namespace": "ns1",
+      "partition": "ptn1",
+      "healthCheckPort": 22000,
+      "proxy": {
+        "config": {
+          "data": "some-config-data"
+        }
+      }
+    },
+    "proxy": {
+      "publicListenerPort": 21000,
+      "healthCheckPort": 22000,
+      "config": {
+        "data": "some-config-data"
+      },
+      "upstreams": [
+        {
+          "destinationType": "service",
+          "destinationNamespace": "test-ns",
+          "destinationPartition": "test-partition",
+          "destinationPeer": "test-peer",
+          "destinationName": "backend",
+          "datacenter": "dc2",
+          "localBindAddress": "localhost",
+          "localBindPort": 1234,
+          "config": {
+            "data": "some-upstream-config-data"
+          },
+          "meshGateway": {
+            "mode": "local"
+          }
+        }
+      ],
+      "meshGateway": {
+        "mode": "local"
+      },
+      "expose": {
+        "checks": true,
+        "paths": [
+          {
+            "listenerPort": 20001,
+            "path": "/things",
+            "localPathPort": 8080,
+            "protocol": "http2"
+          }
+        ]
+      }
+    }
+  }
+  

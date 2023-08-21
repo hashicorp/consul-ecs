@@ -1,3 +1,36 @@
+## Unreleased
+
+BREAKING CHANGES
+* Adopt the architecture described in [Simplified Service Mesh with Consul Dataplane](https://developer.hashicorp.com/consul/docs/connect/dataplane): [[GH-161](https://github.com/hashicorp/consul-ecs/pull/161)]
+  - Consul client agents are no longer used.
+  - Consul Dataplane must be run in place of Envoy in each ECS task. Consul Dataplane manages the Envoy process and proxies xDS requests from Envoy to Consul servers.
+  - The `consul-ecs` binary now communicates with Consul servers using HTTP(S) and GRPC.
+  - Services are registered directly with the central catalog on the Consul servers. Services in the same ECS cluster are registered to the same Consul node name.
+* Remove the `mesh-init` and `health-sync` commands, and add a unified `control-plane` command to replace them. The `control-plane` command starts a long running process with the following responsibilities:
+   - Automatically (re)discover and (re)connect to Consul servers using [connection manager](https://github.com/hashicorp/consul-server-connection-manager). The `consulServer.hosts` config option supports an IP, DNS name, or an `exec=` string specifying a command that returns a list of IP addresses. [[GH-143](https://github.com/hashicorp/consul-ecs/pull/143)]
+   - Make an ACL Login request to obtain an ACL token when using the Consul AWS IAM auth method.
+   - Register the service and sidecar proxy with the central catalog on the Consul servers.[[GH-144](https://github.com/hashicorp/consul-ecs/pull/144)]
+   - Write the configuration for Consul Dataplane to a file on a shared volume. [[GH-145](https://github.com/hashicorp/consul-ecs/pull/145)]
+   - Sync ECS health check statuses for the ECS task into the central catalog on the Consul servers on a periodic basis.[[GH-146](https://github.com/hashicorp/consul-ecs/pull/146)]
+   - Gracefully shutdown when an ECS task is stopped. Upon receiving a SIGTERM, mark synced health checks critical and wait for Consul Dataplane to stop. Then remove health checks, services, and perform an ACL Logout if necessary.[[GH-147](https://github.com/hashicorp/consul-ecs/pull/147)]
+* controller: Add a new `controller` command in place of the `acl-controller` command with the following changes:
+   - Remove all CLI flags. Configuration is read from the `ECS_CONFIG_JSON` environment variable.[[GH-150](https://github.com/hashicorp/consul-ecs/pull/150)]
+   - Automatically (re)discover and (re)connect to Consul servers, similar to the `control-plane` command.
+   - Because Consul client agents are no longer used, the controller no longer configures the "client" auth method, policy, role, and binding rule which previously enabled Consul client agents to login.
+   - Register the ECS cluster as a synthetic node in the central catalog on the Consul servers. The synthetic node is used to register services running in the ECS cluster.
+   - Ensure leftover tokens and services are removed for ECS tasks that have stopped.[[GH-153](https://github.com/hashicorp/consul-ecs/pull/153)]
+* Changes to `ECS_CONFIG_JSON` schema.
+   - Remove the `consulHTTPAddr` and `consulCACertFile` fields.
+   - Add the `consulLogin.datacenter` field.
+   - Add the `controller` field to support configuring the new `controller` command.
+   - Add the `consulServers` field to specify the Consul server location and protocol-specific settings.
+   - The `consulServers.hosts` field is required. This specifies the Consul server location as an IP address, DNS name, or `exec=` string specifying a command that returns a list of IP addresses. To use [cloud auto-join](https://developer.hashicorp.com/consul/docs/install/cloud-auto-join), use an `exec=` string to run the `discover` CLI. For example, the following string invokes the discover CLI with a cloud auto-join string: `exec=discover -q addrs provider=aws region=us-west-2 tag_key=consul-server tag_value=true`. The `discover` CLI is included in the Consul ECS and Consul Dataplane images by default.
+   - Remove the `service.checks` field. Consul agent health checks are no longer supported because Consul client agents are not used. Instead, set the `healthSyncContainers` field to have `consul-ecs` sync ECS health checks into Consul.
+   - Add the `proxy.healthCheckPort` field which can be hit to determine Envoy's readiness.
+   - Add the `proxy.upstreams.destinationPeer` field to enable the proxy to hit upstreams present in peer Consul clusters.
+   - Add the `meshGateway.healthCheckPort` field which can be hit to determine Envoy's readiness.
+* Add the [go-discover](https://github.com/hashicorp/go-discover) binary to the Consul ECS image to better support [cloud auto-join](https://developer.hashicorp.com/consul/docs/install/cloud-auto-join).[[GH-160](https://github.com/hashicorp/consul-ecs/pull/160)]
+
 ## 0.6.0 (Mar 15, 2023)
 
 FEATURES

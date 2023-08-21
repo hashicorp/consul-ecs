@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/consul-ecs/awsutil"
-	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/testutil/iamauthtest"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
@@ -86,7 +85,7 @@ func TaskMetaServer(t *testing.T, handler http.Handler) {
 //
 //	fakeAws := authMethodInit(...)
 //	consulLogin.ExtraLoginFlags = []string{"-aws-sts-endpoint", fakeAws.URL + "/sts"}
-func AuthMethodInit(t *testing.T, consulClient *api.Client, expectedServiceName string) *httptest.Server {
+func AuthMethodInit(t *testing.T, consulClient *api.Client, expectedServiceName, authMethodName string) *httptest.Server {
 	arn := "arn:aws:iam::1234567890:role/my-role"
 	uniqueId := "AAAsomeuniqueid"
 
@@ -105,7 +104,7 @@ func AuthMethodInit(t *testing.T, consulClient *api.Client, expectedServiceName 
 	})
 
 	method, _, err := consulClient.ACL().AuthMethodCreate(&api.ACLAuthMethod{
-		Name:        config.DefaultAuthMethodName,
+		Name:        authMethodName,
 		Type:        "aws-iam",
 		Description: "aws auth method for unit test",
 		Config: map[string]interface{}{

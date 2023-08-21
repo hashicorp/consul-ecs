@@ -2,9 +2,15 @@
   "bootstrapDir": "/consul/",
   "healthSyncContainers": null,
   "logLevel": null,
-  "consulHTTPAddr": null,
-  "consulCACertFile": null,
   "consulLogin": null,
+  "controller": null,
+  "consulServers": {
+    "hosts": "",
+    "skipServerWatch": null,
+    "defaults": null,
+    "grpc": null,
+    "http": null
+  },
   "service": {
     "name": null,
     "tags": null,
@@ -12,7 +18,6 @@
     "enableTagOverride": null,
     "meta": null,
     "weights": null,
-    "checks": null,
     "namespace": null,
     "partition": null
   },
@@ -25,7 +30,8 @@
     "meta": null,
     "namespace": null,
     "partition": null,
-    "proxy": null
+    "proxy": null,
+    "healthCheckPort": null
   },
   "proxy": null
 }

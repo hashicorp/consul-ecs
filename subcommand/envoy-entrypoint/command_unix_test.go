@@ -115,10 +115,7 @@ func TestRun(t *testing.T) {
 				testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
 					meta := makeTaskMeta(
 						"some-app-container",
-						"consul-client",
-						"consul-ecs-health-sync",
-						"consul-ecs-mesh-init",
-						"sidecar-proxy",
+						"consul-ecs-control-plane",
 					)
 
 					if atomic.LoadInt64(&ecsMetaRequestCount) < 2 {

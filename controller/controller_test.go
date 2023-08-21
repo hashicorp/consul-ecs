@@ -92,3 +92,11 @@ func (t *testResource) Reconcile() error {
 func (t *testResource) Namespace() string {
 	return ""
 }
+
+func (t *testResource) ID() TaskID {
+	return ""
+}
+
+func (t *testResource) IsPresent() bool {
+	return true
+}

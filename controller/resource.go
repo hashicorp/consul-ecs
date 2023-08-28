@@ -550,11 +550,11 @@ func (t *TaskState) Delete(consulClient *api.Client) error {
 func (t *TaskState) DeregisterServices(consulClient *api.Client) error {
 	var result error
 	for _, svc := range t.Services {
-		opts := &api.WriteOptions{Partition: t.Partition, Namespace: svc.Namespace}
+		opts := &api.WriteOptions{Partition: svc.Partition, Namespace: svc.Namespace}
 		deregInput := &api.CatalogDeregistration{
 			Node:      t.ClusterARN,
 			ServiceID: svc.ID,
-			Partition: t.Partition,
+			Partition: svc.Partition,
 			Namespace: svc.Namespace,
 		}
 

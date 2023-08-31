@@ -1205,6 +1205,9 @@ func getExpectedDataplaneCfgJSON() string {
 	"envoy": {
 		"readyBindAddress": "127.0.0.1",
 		"readyBindPort": 22000
+	},
+	"logging": {
+		"logLevel": "DEBUG"
 	}
   }`
 }

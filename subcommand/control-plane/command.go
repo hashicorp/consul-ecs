@@ -376,6 +376,8 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clu
 	service.Meta = fullMeta
 	service.Address = taskMeta.NodeIP()
 
+	service.Locality = getLocalityParams(taskMeta)
+
 	return c.constructCatalogRegistrationPayload(service, taskMeta, clusterARN)
 }
 
@@ -607,4 +609,18 @@ func mergeMeta(m1, m2 map[string]string) map[string]string {
 	}
 
 	return result
+}
+
+func getLocalityParams(taskMeta awsutil.ECSTaskMeta) *api.Locality {
+	region := awsutil.GetAWSRegion()
+	zone := taskMeta.AvailabilityZone
+
+	if region == "" {
+		return nil
+	}
+
+	return &api.Locality{
+		Region: region,
+		Zone:   zone,
+	}
 }

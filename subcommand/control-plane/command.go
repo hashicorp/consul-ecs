@@ -397,6 +397,7 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.CatalogReg
 		Namespace:         serviceRegistration.Service.Namespace,
 		Weights:           serviceRegistration.Service.Weights,
 		EnableTagOverride: serviceRegistration.Service.EnableTagOverride,
+		Locality:          serviceRegistration.Service.Locality,
 	}
 
 	proxyService.Proxy.DestinationServiceID = serviceRegistration.Service.ID

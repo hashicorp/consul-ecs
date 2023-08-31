@@ -447,6 +447,10 @@ func TestRun(t *testing.T) {
 				},
 				Partition: expectedPartition,
 				Namespace: expectedNamespace,
+				ServiceLocality: &api.Locality{
+					Region: testRegion,
+					Zone:   testZone,
+				},
 			}
 
 			expectedServiceChecks := api.HealthChecks{

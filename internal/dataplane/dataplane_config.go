@@ -31,6 +31,9 @@ type GetDataplaneConfigJSONInput struct {
 
 	// The HTTP health check port that indicates envoy's readiness
 	ProxyHealthCheckPort int
+
+	// The logLevel that will be used to configure dataplane's logger.
+	LogLevel string
 }
 
 // GetDataplaneConfigJSON returns back a configuration JSON which
@@ -54,6 +57,9 @@ func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 		Envoy: EnvoyConfig{
 			ReadyBindAddr: localhostAddr,
 			ReadyBindPort: i.ProxyHealthCheckPort,
+		},
+		Logging: LoggingConfig{
+			LogLevel: i.LogLevel,
 		},
 	}
 

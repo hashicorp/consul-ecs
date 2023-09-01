@@ -500,6 +500,7 @@ func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.Catalog
 		ConsulServerConfig: c.config.ConsulServers,
 		ConsulToken:        consulToken,
 		CACertFile:         caCertFilePath,
+		LogLevel:           logging.FromConfig(c.config).LogLevel,
 	}
 
 	if c.config.IsGateway() {

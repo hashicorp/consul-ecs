@@ -19,6 +19,7 @@ import (
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/controller"
+	"github.com/hashicorp/consul-ecs/datadog"
 	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
@@ -47,6 +48,7 @@ type Command struct {
 	ctx    context.Context
 
 	logging.LogOpts
+	statsClient datadog.Client
 
 	watcher *discovery.Watcher
 }
@@ -71,6 +73,12 @@ func (c *Command) Run(args []string) int {
 	c.config = config
 
 	c.log = logging.FromConfig(c.config).Logger()
+
+	c.statsClient, err = datadog.NewClient()
+	if err != nil {
+		c.UI.Error(fmt.Sprintf("failed to setup statsdClient: %s", err.Error()))
+	}
+	defer c.statsClient.Close()
 
 	err = c.run()
 	if err != nil {
@@ -127,11 +135,13 @@ func (c *Command) run() error {
 		ClusterARN:          clusterArn,
 		Partition:           c.config.Controller.Partition,
 		Log:                 c.log,
+		StatsClient:         c.statsClient,
 	}
 	ctrl := controller.Controller{
 		Resources:       taskStateLister,
 		PollingInterval: controller.DefaultPollingInterval,
 		Log:             c.log,
+		StatsClient:     c.statsClient,
 	}
 
 	ctrl.Run(c.ctx)

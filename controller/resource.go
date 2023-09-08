@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
 	"github.com/hashicorp/consul-ecs/awsutil"
+	"github.com/hashicorp/consul-ecs/datadog"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
@@ -82,6 +84,8 @@ type TaskStateLister struct {
 
 	// Log is the logger for the ServiceStateLister.
 	Log hclog.Logger
+
+	StatsClient datadog.Client
 }
 
 // List returns resources to be reconciled.
@@ -95,15 +99,21 @@ func (s TaskStateLister) List() ([]Resource, error) {
 		return nil, err
 	}
 
+	startTime := time.Now()
 	buildingResources, err := s.fetchECSTasks()
 	if err != nil {
+		s.StatsClient.Timing("controller.reconcile.list.ecs_tasks", time.Since(startTime), []string{"error: true"})
 		return nil, err
 	}
+	s.StatsClient.Timing("controller.reconcile.list.ecs_tasks", time.Since(startTime), []string{"error: false"})
 
+	startTime = time.Now()
 	aclState, err := s.fetchACLState(consulClient)
 	if err != nil {
+		s.StatsClient.Timing("controller.reconcile.list.acl_state", time.Since(startTime), []string{"error: true"})
 		return resources, err
 	}
+	s.StatsClient.Timing("controller.reconcile.list.acl_state", time.Since(startTime), []string{"error: false"})
 
 	for id, state := range aclState {
 		if _, ok := buildingResources[id]; !ok {
@@ -113,10 +123,13 @@ func (s TaskStateLister) List() ([]Resource, error) {
 		}
 	}
 
+	startTime = time.Now()
 	serviceState, err := s.fetchServiceStateForTasks(consulClient)
 	if err != nil {
+		s.StatsClient.Timing("controller.reconcile.list.service_state", time.Since(startTime), []string{"error: true"})
 		return resources, err
 	}
+	s.StatsClient.Timing("controller.reconcile.list.service_state", time.Since(startTime), []string{"error: false"})
 
 	for id, state := range serviceState {
 		if _, ok := buildingResources[id]; !ok {

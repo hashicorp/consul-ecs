@@ -42,7 +42,6 @@ options ndots:5 timeout:6 attempts:3`,
 				require.Contains(t, cfg.Servers, "127.0.0.1")
 				require.Equal(t, 5, cfg.Ndots)
 				require.Equal(t, 6, cfg.Timeout)
-				require.Equal(t, 5, cfg.Ndots)
 				require.Equal(t, 3, cfg.Attempts)
 				require.Equal(t, 3, len(cfg.Search))
 			},

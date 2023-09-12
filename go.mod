@@ -15,6 +15,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-rootcerts v1.0.2
 	github.com/hashicorp/go-uuid v1.0.2
+	github.com/miekg/dns v1.1.41
 	github.com/mitchellh/cli v1.1.5
 	github.com/mitchellh/mapstructure v1.4.1
 	github.com/stretchr/testify v1.7.2

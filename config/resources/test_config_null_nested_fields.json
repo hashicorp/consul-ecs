@@ -87,5 +87,15 @@
     ],
     "meshGateway": null,
     "expose": null
+  },
+  "transparentProxy": {
+    "enabled": null,
+    "excludeInboundPorts": null,
+    "excludeOutboundPorts": null,
+    "excludeOutboundCIDRs": null,
+    "excludeUIDs": null,
+    "consulDNS": {
+      "enabled": null
+    }
   }
 }

@@ -185,6 +185,12 @@ var (
 		},
 		HealthSyncContainers: []string{"container1"},
 		BootstrapDir:         "/consul/",
+		TransparentProxy: TransparentProxyConfig{
+			Enabled: true,
+			ConsulDNS: ConsulDNS{
+				Enabled: false,
+			},
+		},
 	}
 
 	expectedExtensiveConfig = &Config{
@@ -311,6 +317,16 @@ var (
 				},
 			},
 		},
+		TransparentProxy: TransparentProxyConfig{
+			Enabled:              true,
+			ExcludeInboundPorts:  []int{1234, 5678},
+			ExcludeOutboundPorts: []int{3456, 8080},
+			ExcludeOutboundCIDRs: []string{"1.1.1.1/32"},
+			ExcludeUIDs:          []string{"6678"},
+			ConsulDNS: ConsulDNS{
+				Enabled: true,
+			},
+		},
 	}
 
 	expectedConfigNullTopLevelFields = &Config{
@@ -376,6 +392,16 @@ var (
 			Partition:         "",
 		},
 		Proxy: nil,
+		TransparentProxy: TransparentProxyConfig{
+			Enabled:              true,
+			ExcludeInboundPorts:  nil,
+			ExcludeOutboundPorts: nil,
+			ExcludeUIDs:          nil,
+			ExcludeOutboundCIDRs: nil,
+			ConsulDNS: ConsulDNS{
+				Enabled: false,
+			},
+		},
 	}
 
 	expectedConfigNullNestedFields = &Config{
@@ -469,6 +495,16 @@ var (
 			MeshGateway: nil,
 			Expose:      nil,
 		},
+		TransparentProxy: TransparentProxyConfig{
+			Enabled:              true,
+			ExcludeInboundPorts:  nil,
+			ExcludeOutboundPorts: nil,
+			ExcludeUIDs:          nil,
+			ExcludeOutboundCIDRs: nil,
+			ConsulDNS: ConsulDNS{
+				Enabled: false,
+			},
+		},
 	}
 
 	expectedConfigEmptyFields = &Config{
@@ -539,6 +575,16 @@ var (
 			MeshGateway:        nil,
 			Expose:             nil,
 			HealthCheckPort:    0,
+		},
+		TransparentProxy: TransparentProxyConfig{
+			Enabled:              true,
+			ExcludeInboundPorts:  nil,
+			ExcludeOutboundPorts: nil,
+			ExcludeOutboundCIDRs: nil,
+			ExcludeUIDs:          nil,
+			ConsulDNS: ConsulDNS{
+				Enabled: false,
+			},
 		},
 	}
 )

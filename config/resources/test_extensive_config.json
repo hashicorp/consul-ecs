@@ -125,5 +125,15 @@
         }
       ]
     }
+  },
+  "transparentProxy": {
+    "enabled": true,
+    "excludeInboundPorts": [1234, 5678],
+    "excludeOutboundPorts": [3456,8080],
+    "excludeOutboundCIDRs": ["1.1.1.1/32"],
+    "excludeUIDs": ["6678"],
+    "consulDNS": {
+      "enabled": true
+    }
   }
 }

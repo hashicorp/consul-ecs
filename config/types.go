@@ -57,6 +57,33 @@ type Config struct {
 	Service              ServiceRegistration             `json:"service"`
 	ConsulServers        ConsulServers                   `json:"consulServers"`
 	Controller           Controller                      `json:"controller"`
+	TransparentProxy     TransparentProxyConfig          `json:"transparentProxy"`
+}
+
+// UnmarshalJSON is a custom unmarshaller that assigns defaults to certain fields
+func (c *Config) UnmarshalJSON(data []byte) error {
+	type Alias Config
+	alias := struct {
+		*Alias
+
+		RawTransparentProxyConfig *TransparentProxyConfig `json:"transparentProxy"`
+	}{
+		Alias: (*Alias)(c), // Unmarshal other fields into *c
+	}
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	if alias.RawTransparentProxyConfig == nil {
+		c.TransparentProxy = TransparentProxyConfig{
+			Enabled: true,
+		}
+	} else {
+		c.TransparentProxy = *alias.RawTransparentProxyConfig
+	}
+
+	return nil
 }
 
 // ConsulLogin configures login options for the Consul IAM auth method.
@@ -549,4 +576,40 @@ func GetHealthCheckPort(p int) int {
 	}
 
 	return DefaultProxyHealthCheckPort
+}
+
+type TransparentProxyConfig struct {
+	Enabled              bool      `json:"enabled"`
+	ExcludeInboundPorts  []int     `json:"excludeInboundPorts"`
+	ExcludeOutboundPorts []int     `json:"excludeOutboundPorts"`
+	ExcludeOutboundCIDRs []string  `json:"excludeOutboundCIDRs"`
+	ExcludeUIDs          []string  `json:"excludeUIDs"`
+	ConsulDNS            ConsulDNS `json:"consulDNS"`
+}
+
+func (c *TransparentProxyConfig) UnmarshalJSON(data []byte) error {
+	type Alias TransparentProxyConfig
+	alias := struct {
+		*Alias
+
+		RawEnabled *bool `json:"enabled"`
+	}{
+		Alias: (*Alias)(c), // Unmarshal other fields into *c
+	}
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	if alias.RawEnabled == nil {
+		c.Enabled = true
+	} else {
+		c.Enabled = *alias.RawEnabled
+	}
+
+	return nil
+}
+
+type ConsulDNS struct {
+	Enabled bool `json:"enabled"`
 }

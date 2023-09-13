@@ -66,7 +66,7 @@ func WithIPTablesProvider(provider iptables.Provider) TrafficRedirectionOpts {
 }
 
 func New(cfg *config.Config, proxySvc *api.AgentService, consulServerAddress, clusterARN string, proxyHealthCheckPort int, opts ...TrafficRedirectionOpts) TrafficRedirectionProvider {
-	input := &TrafficRedirectionCfg{
+	trafficRedirectionCfg := &TrafficRedirectionCfg{
 		ProxySvc:             proxySvc,
 		ConsulServerAddress:  consulServerAddress,
 		ClusterARN:           clusterARN,
@@ -79,10 +79,10 @@ func New(cfg *config.Config, proxySvc *api.AgentService, consulServerAddress, cl
 	}
 
 	for _, opt := range opts {
-		opt(input)
+		opt(trafficRedirectionCfg)
 	}
 
-	return input
+	return trafficRedirectionCfg
 }
 
 // applyTrafficRedirectionRules creates and applies traffic redirection rules with
@@ -176,8 +176,7 @@ func (c *TrafficRedirectionCfg) Apply() error {
 	if err != nil {
 		return err
 	}
-	c.iptablesCfg.ExcludeOutboundCIDRs = append(c.iptablesCfg.ExcludeOutboundCIDRs, fmt.Sprintf("%s/32", parsedURL.Host))
-	c.iptablesCfg.ExcludeOutboundCIDRs = append(c.iptablesCfg.ExcludeOutboundCIDRs, fmt.Sprintf("%s/32", c.ConsulServerAddress))
+	c.iptablesCfg.ExcludeOutboundCIDRs = append(c.iptablesCfg.ExcludeOutboundCIDRs, fmt.Sprintf("%s/32", parsedURL.Host), fmt.Sprintf("%s/32", c.ConsulServerAddress))
 
 	// UIDs
 	c.iptablesCfg.ExcludeUIDs = append(c.iptablesCfg.ExcludeUIDs, c.ExcludeUIDs...)

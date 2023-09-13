@@ -610,6 +610,14 @@ func (c *TransparentProxyConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (cfg *Config) TransparentProxyEnabled() bool {
+	return cfg.TransparentProxy.Enabled && !cfg.IsGateway()
+}
+
 type ConsulDNS struct {
 	Enabled bool `json:"enabled"`
+}
+
+func (cfg *Config) ConsulDNSEnabled() bool {
+	return cfg.TransparentProxy.Enabled && cfg.TransparentProxy.ConsulDNS.Enabled && !cfg.IsGateway()
 }

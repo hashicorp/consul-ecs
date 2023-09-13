@@ -8,11 +8,12 @@ import (
 )
 
 type dataplaneConfig struct {
-	Consul    ConsulConfig    `json:"consul"`
-	Service   ServiceConfig   `json:"service"`
-	XDSServer XDSServerConfig `json:"xdsServer"`
-	Envoy     EnvoyConfig     `json:"envoy"`
-	Logging   LoggingConfig   `json:"logging"`
+	Consul    ConsulConfig     `json:"consul"`
+	Service   ServiceConfig    `json:"service"`
+	XDSServer XDSServerConfig  `json:"xdsServer"`
+	Envoy     EnvoyConfig      `json:"envoy"`
+	Logging   LoggingConfig    `json:"logging"`
+	DNSServer *DNSServerConfig `json:"dnsServer,omitempty"`
 }
 
 type ConsulConfig struct {
@@ -56,6 +57,11 @@ type EnvoyConfig struct {
 
 type LoggingConfig struct {
 	LogLevel string `json:"logLevel"`
+}
+
+type DNSServerConfig struct {
+	BindAddress string `json:"bindAddress"`
+	BindPort    int    `json:"bindPort"`
 }
 
 func (d *dataplaneConfig) generateJSON() ([]byte, error) {

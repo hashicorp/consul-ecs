@@ -25,6 +25,9 @@ const (
 	// Cert used for internal RPC communication to the servers
 	ConsulGRPCCACertPemEnvVar = "CONSUL_GRPC_CACERT_PEM"
 
+	ConsulDataplaneDNSBindHost = "127.0.0.1"
+	ConsulDataplaneDNSBindPort = 8600
+
 	defaultGRPCPort    = 8503
 	defaultHTTPPort    = 8501
 	defaultIAMRolePath = "/consul-ecs/"

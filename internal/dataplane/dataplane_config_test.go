@@ -233,6 +233,71 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				}
 			}`,
 		},
+		"Test JSON generation with Consul DNS enabled": {
+			input: &GetDataplaneConfigJSONInput{
+				ProxyRegistration: &api.CatalogRegistration{
+					Node: "test-node-name",
+					Service: &api.AgentService{
+						ID:      "test-side-car-123",
+						Service: "test-side-car",
+						Port:    1234,
+					},
+				},
+				ConsulServerConfig: config.ConsulServers{
+					Hosts:           "consul.dc1",
+					SkipServerWatch: true,
+					GRPC: config.GRPCSettings{
+						Port:          8503,
+						CaCertFile:    "/consul/ca-cert.pem",
+						TLSServerName: "consul.dc1",
+						EnableTLS:     testutil.BoolPtr(true),
+					},
+				},
+				ConsulToken:          "test-token-123",
+				CACertFile:           "/consul/ca-cert.pem",
+				ProxyHealthCheckPort: 23000,
+				LogLevel:             "TRACE",
+				ConsulDNSEnabled:     true,
+			},
+			expectedJSON: `{
+				"consul": {
+				  "addresses": "consul.dc1",
+				  "grpcPort": 8503,
+				  "serverWatchDisabled": true,
+				  "tls": {
+					"disabled": false,
+					"caCertsPath": "/consul/ca-cert.pem",
+					"tlsServerName": "consul.dc1"
+				  },
+				  "credentials": {
+					"type": "static",
+					"static": {
+						"token": "test-token-123"
+					}
+				  }
+				},
+				"service": {
+				  "nodeName": "test-node-name",
+				  "serviceID": "test-side-car-123",
+				  "namespace": "%s",
+				  "partition": "%s"
+				},
+				"xdsServer": {
+				  "bindAddress": "127.0.0.1"
+				},
+				"envoy": {
+					"readyBindAddress": "127.0.0.1",
+					"readyBindPort": 23000
+				},
+				"logging": {
+					"logLevel": "TRACE"
+				},
+				"dnsServer": {
+					"bindAddress": "127.0.0.1",
+					"bindPort": 8600
+				}
+			}`,
+		},
 	}
 
 	for name, c := range testCases {

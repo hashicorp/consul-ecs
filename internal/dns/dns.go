@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/hashicorp/consul-ecs/config"
 	"github.com/miekg/dns"
 )
 
@@ -18,8 +19,7 @@ const (
 	defaultDNSOptionTimeout  = 5
 	defaultDNSOptionAttempts = 2
 
-	defaultEtcResolvConfFile   = "/etc/resolv.conf"
-	consulDataplaneDNSBindHost = "127.0.0.1"
+	defaultEtcResolvConfFile = "/etc/resolv.conf"
 )
 
 type ConfigureConsulDNSInput struct {
@@ -46,7 +46,7 @@ func (i *ConfigureConsulDNSInput) ConfigureConsulDNS() error {
 
 	options := constructDNSOpts(cfg)
 
-	nameservers := []string{consulDataplaneDNSBindHost}
+	nameservers := []string{config.ConsulDataplaneDNSBindHost}
 	nameservers = append(nameservers, cfg.Servers...)
 
 	return buildResolveConf(etcResolvConfFile, cfg, nameservers, options)

@@ -530,6 +530,117 @@ func TestControllerHoldsDefaultValues(t *testing.T) {
 	}
 }
 
+func TestTransparentProxyConfigHoldDefaultValues(t *testing.T) {
+	type TestStruct struct {
+		Key1             string                 `json:"key1"`
+		TransparentProxy TransparentProxyConfig `json:"transparentProxy"`
+	}
+
+	cases := map[string]struct {
+		data                 string
+		expectedTProxyConfig TransparentProxyConfig
+	}{
+		"enabled field not present": {
+			data: `{
+				"key1": "value1",
+				"transparentProxy": {
+					"consulDNS": {
+						"enabled": true
+					}
+				}
+			}`,
+			expectedTProxyConfig: TransparentProxyConfig{
+				Enabled: true,
+				ConsulDNS: ConsulDNS{
+					Enabled: true,
+				},
+			},
+		},
+		"tproxy is disabled": {
+			data: `{
+				"key1": "value1",
+				"transparentProxy": {
+					"enabled": false
+				}
+			}`,
+			expectedTProxyConfig: TransparentProxyConfig{
+				Enabled: false,
+			},
+		},
+		"all fields are present": {
+			data: `{
+				"key1": "value1",
+				"transparentProxy": {
+					"enabled": true,
+					"excludeInboundPorts": [1234, 5678],
+					"excludeOutboundPorts": [3456, 7890],
+					"excludeOutboundCIDRs": ["1.1.1.1"],
+					"excludeUIDs": ["5566"],
+					"consulDNS": {
+						"enabled": false
+					}
+				}
+			}`,
+			expectedTProxyConfig: TransparentProxyConfig{
+				Enabled:              true,
+				ExcludeInboundPorts:  []int{1234, 5678},
+				ExcludeOutboundPorts: []int{3456, 7890},
+				ExcludeOutboundCIDRs: []string{"1.1.1.1"},
+				ExcludeUIDs:          []string{"5566"},
+				ConsulDNS: ConsulDNS{
+					Enabled: false,
+				},
+			},
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var unmarshalledCfg TestStruct
+			err := json.Unmarshal([]byte(c.data), &unmarshalledCfg)
+			require.NoError(t, err)
+			require.Equal(t, c.expectedTProxyConfig, unmarshalledCfg.TransparentProxy)
+		})
+	}
+}
+
+func TestTProxyEnabled(t *testing.T) {
+	cfg := &Config{
+		TransparentProxy: TransparentProxyConfig{
+			Enabled: false,
+		},
+	}
+	require.False(t, cfg.TransparentProxyEnabled())
+
+	cfg.TransparentProxy.Enabled = true
+	require.True(t, cfg.TransparentProxyEnabled())
+
+	cfg.Gateway = &GatewayRegistration{
+		Kind: api.ServiceKindMeshGateway,
+	}
+	require.False(t, cfg.TransparentProxyEnabled())
+}
+
+func TestConsulDNSEnabled(t *testing.T) {
+	cfg := &Config{
+		TransparentProxy: TransparentProxyConfig{
+			Enabled: false,
+		},
+	}
+	require.False(t, cfg.ConsulDNSEnabled())
+
+	cfg.TransparentProxy.Enabled = true
+	require.False(t, cfg.ConsulDNSEnabled())
+
+	cfg.TransparentProxy.ConsulDNS.Enabled = true
+	require.True(t, cfg.ConsulDNSEnabled())
+
+	cfg.Gateway = &GatewayRegistration{
+		Kind: api.ServiceKindMeshGateway,
+	}
+	require.False(t, cfg.ConsulDNSEnabled())
+}
+
 var (
 	testServiceRegistration = ServiceRegistration{
 		Name:              "service-1",

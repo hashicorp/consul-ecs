@@ -59,13 +59,13 @@ options ndots:5 timeout:6 attempts:3`,
 			require.NoError(t, err)
 
 			inp := &ConfigureConsulDNSInput{
-				etcResolvConfFile: etcResolvFile.Name(),
+				ETCResolvConfFile: etcResolvFile.Name(),
 			}
 
 			require.NoError(t, inp.ConfigureConsulDNS())
 
 			// Assert the DNS config
-			cfg, err := dns.ClientConfigFromFile(inp.etcResolvConfFile)
+			cfg, err := dns.ClientConfigFromFile(inp.ETCResolvConfFile)
 			require.NoError(t, err)
 			c.assertDNSConfig(t, cfg)
 		})

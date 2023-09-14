@@ -218,7 +218,7 @@ func TestApply(t *testing.T) {
 				require.Truef(t, iptablesProvider.applyCalled, "redirect traffic rules were not applied")
 
 				if c.assertIptablesConfig != nil {
-					c.assertIptablesConfig(t, provider.config())
+					c.assertIptablesConfig(t, provider.Config())
 				}
 			}
 		})

@@ -24,15 +24,15 @@ const (
 
 type ConfigureConsulDNSInput struct {
 	// Used only for unit tests
-	etcResolvConfFile string
+	ETCResolvConfFile string
 }
 
 // ConfigureConsulDNS reconstructs the /etc/resolv.conf file by setting the
 // consul-dataplane's DNS server (i.e. localhost) as the first nameserver in the list.
 func (i *ConfigureConsulDNSInput) ConfigureConsulDNS() error {
 	etcResolvConfFile := defaultEtcResolvConfFile
-	if i.etcResolvConfFile != "" {
-		etcResolvConfFile = i.etcResolvConfFile
+	if i.ETCResolvConfFile != "" {
+		etcResolvConfFile = i.ETCResolvConfFile
 	}
 
 	cfg, err := dns.ClientConfigFromFile(etcResolvConfFile)

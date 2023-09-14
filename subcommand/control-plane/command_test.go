@@ -26,6 +26,7 @@ import (
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/freeport"
+	"github.com/hashicorp/consul/sdk/iptables"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
@@ -98,6 +99,8 @@ func TestRun(t *testing.T) {
 		shouldMissingContainersReappear bool
 		expectedDataplaneConfigJSON     string
 		skipServerWatch                 bool
+		enableConsulDNS                 bool
+		enableTProxy                    bool
 
 		consulLogin config.ConsulLogin
 	}{
@@ -222,6 +225,15 @@ func TestRun(t *testing.T) {
 					"unittest-tag": "12345",
 				},
 			},
+		},
+		"service with TProxy enabled": {
+			skipServerWatch: true,
+			enableTProxy:    true,
+		},
+		"service with TProxy and Consul DNS enabled": {
+			skipServerWatch: true,
+			enableTProxy:    true,
+			enableConsulDNS: true,
 		},
 	}
 
@@ -373,6 +385,28 @@ func TestRun(t *testing.T) {
 					Tags: c.tags,
 					Meta: c.additionalMeta,
 				},
+				TransparentProxy: config.TransparentProxyConfig{
+					Enabled: c.enableTProxy,
+					ConsulDNS: config.ConsulDNS{
+						Enabled: c.enableConsulDNS,
+					},
+				},
+			}
+
+			var mockProvider *mockTrafficRedirectionProvider
+			if c.enableTProxy {
+				mockProvider = &mockTrafficRedirectionProvider{applyCalled: false}
+				cmd.trafficRedirectionProvider = mockProvider
+
+				if c.enableConsulDNS {
+					etcResolvFile, err := os.CreateTemp("", "")
+					require.NoError(t, err)
+					t.Cleanup(func() {
+						_ = os.Remove(etcResolvFile.Name())
+					})
+
+					cmd.etcResolvConfFile = etcResolvFile.Name()
+				}
 			}
 
 			if testutil.EnterpriseFlag() {
@@ -441,6 +475,10 @@ func TestRun(t *testing.T) {
 				Namespace: expectedNamespace,
 			}
 
+			if c.enableTProxy {
+				expectedProxy.ServiceProxy.Mode = api.ProxyModeTransparent
+			}
+
 			expectedServiceChecks := api.HealthChecks{
 				{
 					CheckID:     constructCheckID(expServiceID, config.ConsulDataplaneContainerName),
@@ -475,10 +513,10 @@ func TestRun(t *testing.T) {
 				Status:      api.HealthCritical,
 			}
 
-			assertServiceAndProxyRegistrations(t, consulClient, expectedService, expectedProxy, expectedServiceName, expectedProxy.ServiceName)
+			assertServiceAndProxyRegistrations(t, consulClient, expectedService, expectedProxy, expectedServiceName, expectedProxy.ServiceName, c.enableTProxy)
 			assertCheckRegistration(t, consulClient, expectedServiceChecks, expectedProxyCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, c.skipServerWatch, serverGRPCPort, c.consulLogin.Enabled, envoyBootstrapDir, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition, consulEcsConfig.LogLevel)
+			assertDataplaneConfigJSON(t, c.skipServerWatch, serverGRPCPort, c.consulLogin.Enabled, envoyBootstrapDir, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition, consulEcsConfig.LogLevel, c.enableConsulDNS)
 
 			// Construct task meta response for the first few iterations
 			// of syncChecks
@@ -515,6 +553,10 @@ func TestRun(t *testing.T) {
 			expectedProxyCheck.Status = api.HealthPassing
 			if c.missingDataplaneContainer {
 				expectedProxyCheck.Status = api.HealthCritical
+			}
+
+			if c.enableTProxy {
+				require.True(t, mockProvider.applyCalled)
 			}
 
 			// Signals control plane to enter into a state where it
@@ -848,10 +890,10 @@ func TestGateway(t *testing.T) {
 				Status:      api.HealthCritical,
 			}
 
-			assertServiceAndProxyRegistrations(t, consulClient, nil, expectedService, "", c.expServiceName)
+			assertServiceAndProxyRegistrations(t, consulClient, nil, expectedService, "", c.expServiceName, false)
 			assertCheckRegistration(t, consulClient, nil, expectedCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, true, serverGRPCPort, c.config.ConsulLogin.Enabled, c.config.BootstrapDir, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition, "INFO")
+			assertDataplaneConfigJSON(t, true, serverGRPCPort, c.config.ConsulLogin.Enabled, c.config.BootstrapDir, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition, "INFO", false)
 
 			// Signals control plane to enter into a state where it
 			// periodically sync checks back to Consul
@@ -994,7 +1036,7 @@ func TestWriteCACertToVolume(t *testing.T) {
 	}
 }
 
-func assertServiceAndProxyRegistrations(t *testing.T, consulClient *api.Client, expectedService, expectedProxy *api.CatalogService, serviceName, proxyName string) {
+func assertServiceAndProxyRegistrations(t *testing.T, consulClient *api.Client, expectedService, expectedProxy *api.CatalogService, serviceName, proxyName string, tproxyEnabled bool) {
 	// Note: TaggedAddressees may be set, but it seems like a race.
 	// We don't support tproxy in ECS, so I don't think we care about this?
 	agentServiceIgnoreFields := cmpopts.IgnoreFields(api.CatalogService{},
@@ -1005,6 +1047,11 @@ func assertServiceAndProxyRegistrations(t *testing.T, consulClient *api.Client, 
 		require.NoError(t, err)
 		require.Equal(t, 1, len(serviceInstances))
 		require.Empty(t, cmp.Diff(expectedService, serviceInstances[0], agentServiceIgnoreFields))
+
+		if tproxyEnabled {
+			require.Equal(t, serviceInstances[0].ServiceAddress, serviceInstances[0].ServiceTaggedAddresses["virtual"].Address)
+			require.Equal(t, serviceInstances[0].ServicePort, serviceInstances[0].ServiceTaggedAddresses["virtual"].Port)
+		}
 	}
 
 	proxyServiceInstances, _, err := consulClient.Catalog().Service(proxyName, "", nil)
@@ -1041,8 +1088,9 @@ func assertWrittenFiles(t *testing.T, expectedFiles []*fileMeta) {
 	}
 }
 
-func assertDataplaneConfigJSON(t *testing.T, skipServerWatch bool, grpcPort int, loginEnabled bool, bootstrapDir, dataplaneConfigJSONFile, proxySvcID, namespace, partition, logLevel string) {
+func assertDataplaneConfigJSON(t *testing.T, skipServerWatch bool, grpcPort int, loginEnabled bool, bootstrapDir, dataplaneConfigJSONFile, proxySvcID, namespace, partition, logLevel string, consulDNSEnabled bool) {
 	var credentialsConfigJSON string
+	var dnsConfigJSON string
 	if loginEnabled {
 		token := getACLToken(t, bootstrapDir)
 		credentialsConfigJSON = fmt.Sprintf(`,
@@ -1054,7 +1102,16 @@ func assertDataplaneConfigJSON(t *testing.T, skipServerWatch bool, grpcPort int,
 		}`, token)
 	}
 
-	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, skipServerWatch, credentialsConfigJSON, proxySvcID, namespace, partition, logLevel)
+	if consulDNSEnabled {
+		dnsConfigJSON = `,
+		"dnsServer": {
+			"bindAddress": "127.0.0.1",
+			"bindPort": 8600
+		}
+		`
+	}
+
+	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, skipServerWatch, credentialsConfigJSON, proxySvcID, namespace, partition, logLevel, dnsConfigJSON)
 	actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
 	require.NoError(t, err)
 	require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
@@ -1208,7 +1265,7 @@ func getExpectedDataplaneCfgJSON() string {
 	},
 	"logging": {
 		"logLevel": "%s"
-	}
+	}%s
   }`
 }
 
@@ -1217,4 +1274,17 @@ func signalSIGTERM(t *testing.T) {
 	require.NoError(t, err)
 	// Give it time to react
 	time.Sleep(100 * time.Millisecond)
+}
+
+type mockTrafficRedirectionProvider struct {
+	applyCalled bool
+}
+
+func (m *mockTrafficRedirectionProvider) Apply() error {
+	m.applyCalled = true
+	return nil
+}
+
+func (m *mockTrafficRedirectionProvider) Config() iptables.Config {
+	return iptables.Config{}
 }

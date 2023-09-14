@@ -51,10 +51,12 @@ type TrafficRedirectionCfg struct {
 }
 
 type TrafficRedirectionProvider interface {
+	// Apply applies the traffic redirection with iptables
 	Apply() error
 
-	// Used to fetch the resultant config in unit tests
-	config() iptables.Config
+	// Config returns the resultant iptables config that gets
+	// applied by the provider
+	Config() iptables.Config
 }
 
 type TrafficRedirectionOpts func(*TrafficRedirectionCfg)
@@ -199,6 +201,6 @@ func (c *TrafficRedirectionCfg) Apply() error {
 	return nil
 }
 
-func (c *TrafficRedirectionCfg) config() iptables.Config {
+func (c *TrafficRedirectionCfg) Config() iptables.Config {
 	return c.iptablesCfg
 }

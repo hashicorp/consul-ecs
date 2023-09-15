@@ -23,6 +23,8 @@ import (
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/internal/dataplane"
+	"github.com/hashicorp/consul-ecs/internal/dns"
+	"github.com/hashicorp/consul-ecs/internal/redirecttraffic"
 	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
@@ -63,6 +65,12 @@ type Command struct {
 
 	// Health check address assigned via unit tests
 	healthCheckListenerAddr string
+
+	// Provider to be used for applying redirection rules in unit tests
+	trafficRedirectionProvider redirecttraffic.TrafficRedirectionProvider
+
+	// etcResolvConfFile used to configure DNS via unit tests
+	etcResolvConfFile string
 }
 
 const (
@@ -197,7 +205,8 @@ func (c *Command) realRun() error {
 		return err
 	}
 
-	err = c.generateAndWriteDataplaneConfig(proxyRegistration, state.Token, rpcCACertFile)
+	consulDNSEnabled := c.config.ConsulDNSEnabled()
+	err = c.generateAndWriteDataplaneConfig(proxyRegistration, state.Token, rpcCACertFile, consulDNSEnabled)
 	if err != nil {
 		return err
 	}
@@ -212,6 +221,25 @@ func (c *Command) realRun() error {
 	var healthSyncContainers []string
 	healthSyncContainers = append(healthSyncContainers, c.config.HealthSyncContainers...)
 	healthSyncContainers = append(healthSyncContainers, config.ConsulDataplaneContainerName)
+
+	if consulDNSEnabled {
+		dnsInput := &dns.ConfigureConsulDNSInput{}
+		if c.etcResolvConfFile != "" {
+			dnsInput.ETCResolvConfFile = c.etcResolvConfFile
+		}
+
+		err := dnsInput.ConfigureConsulDNS()
+		if err != nil {
+			return fmt.Errorf("failed to configure Consul DNS: %w", err)
+		}
+	}
+
+	if c.config.TransparentProxyEnabled() {
+		err := c.applyTrafficRedirectionRules(consulClient, proxyRegistration, state.Address.IP.String(), clusterARN)
+		if err != nil {
+			return err
+		}
+	}
 
 	if c.isTestEnv {
 		close(c.doneChan)
@@ -229,6 +257,13 @@ func (c *Command) realRun() error {
 				c.log.Error("error re-configuring consul client %s", err.Error())
 			} else {
 				consulClient = client
+
+				if c.config.TransparentProxyEnabled() {
+					err = c.applyTrafficRedirectionRules(consulClient, proxyRegistration, watcherState.Address.IP.String(), clusterARN)
+					if err != nil {
+						return err
+					}
+				}
 			}
 		case <-c.sigs:
 			c.log.Info("Received SIGTERM. Beginning graceful shutdown by first marking all checks as critical.")
@@ -376,6 +411,16 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clu
 	service.Meta = fullMeta
 	service.Address = taskMeta.NodeIP()
 
+	if c.config.TransparentProxy.Enabled {
+		taggedAddresses := make(map[string]api.ServiceAddress)
+		taggedAddresses["virtual"] = api.ServiceAddress{
+			Address: service.Address,
+			Port:    service.Port,
+		}
+
+		service.TaggedAddresses = taggedAddresses
+	}
+
 	return c.constructCatalogRegistrationPayload(service, taskMeta, clusterARN)
 }
 
@@ -400,6 +445,11 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.CatalogReg
 	proxyService.Proxy.DestinationServiceID = serviceRegistration.Service.ID
 	proxyService.Proxy.DestinationServiceName = serviceRegistration.Service.Service
 	proxyService.Proxy.LocalServicePort = serviceRegistration.Service.Port
+
+	if c.config.TransparentProxy.Enabled {
+		proxyService.Proxy.Mode = api.ProxyModeTransparent
+		proxyService.TaggedAddresses = serviceRegistration.Service.TaggedAddresses
+	}
 
 	return c.constructCatalogRegistrationPayload(proxyService, taskMeta, clusterARN)
 }
@@ -494,13 +544,14 @@ func (c *Command) copyECSBinaryToSharedVolume() error {
 // generateAndWriteDataplaneConfig generates the configuration json
 // needed for dataplane to configure itself and writes it to a shared
 // volume.
-func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.CatalogRegistration, consulToken, caCertFilePath string) error {
+func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.CatalogRegistration, consulToken, caCertFilePath string, consulDNSEnabled bool) error {
 	input := &dataplane.GetDataplaneConfigJSONInput{
 		ProxyRegistration:  proxyRegistration,
 		ConsulServerConfig: c.config.ConsulServers,
 		ConsulToken:        consulToken,
 		CACertFile:         caCertFilePath,
 		LogLevel:           logging.FromConfig(c.config).LogLevel,
+		ConsulDNSEnabled:   consulDNSEnabled,
 	}
 
 	if c.config.IsGateway() {
@@ -567,6 +618,53 @@ func (c *Command) deregisterServiceAndProxy(consulClient *api.Client, clusterARN
 	}
 
 	return result
+}
+
+func (c *Command) applyTrafficRedirectionRules(consulClient *api.Client, proxyRegistration *api.CatalogRegistration, consulServerIP, clusterARN string) error {
+	proxySvc, err := getProxyServiceRegistration(consulClient, clusterARN, proxyRegistration.Service.ID)
+	if err != nil {
+		return err
+	}
+
+	if c.trafficRedirectionProvider == nil {
+		c.trafficRedirectionProvider = redirecttraffic.New(c.config,
+			proxySvc,
+			consulServerIP,
+			clusterARN,
+			config.GetHealthCheckPort(c.config.Proxy.HealthCheckPort),
+		)
+	}
+
+	err = c.trafficRedirectionProvider.Apply()
+	if err != nil {
+		return fmt.Errorf("failed to setup traffic redirection rules: %w", err)
+	}
+
+	return nil
+}
+
+func getProxyServiceRegistration(consulClient *api.Client, clusterARN, svcID string) (*api.AgentService, error) {
+	svcList, _, err := consulClient.Catalog().NodeServiceList(clusterARN, &api.QueryOptions{
+		Filter:             fmt.Sprintf("ID == %q", svcID),
+		MergeCentralConfig: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch proxy service from Consul: %w", err)
+	}
+
+	if len(svcList.Services) < 1 {
+		return nil, fmt.Errorf("proxy service with ID %s not found", svcID)
+	}
+
+	if len(svcList.Services) > 1 {
+		return nil, fmt.Errorf("expected to find only one proxy service with ID %s, but more were found", svcID)
+	}
+
+	proxySvc := svcList.Services[0]
+	if proxySvc.Proxy == nil {
+		return nil, fmt.Errorf("service %s is not a proxy", svcID)
+	}
+	return proxySvc, nil
 }
 
 func deregisterConsulService(client *api.Client, reg *api.CatalogRegistration, node string) error {

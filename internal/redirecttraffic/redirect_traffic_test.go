@@ -206,7 +206,7 @@ func TestApply(t *testing.T) {
 				c.proxySvc,
 				"172.67.89.20",
 				"arn:aws:ecs:us-east-1:123456789:cluster/test",
-				22000,
+				[]int{22000},
 				WithIPTablesProvider(iptablesProvider),
 			)
 

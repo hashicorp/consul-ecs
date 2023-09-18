@@ -376,18 +376,22 @@ func (w *AgentWeights) ToConsulType() api.AgentWeights {
 //   - Checks are excluded. control-plane automatically configures useful checks for the proxy.
 //   - TProxy is not supported on ECS, so the Mode and TransparentProxy fields are excluded.
 type AgentServiceConnectProxyConfig struct {
-	Config             map[string]interface{} `json:"config,omitempty"`
-	PublicListenerPort int                    `json:"publicListenerPort,omitempty"`
-	HealthCheckPort    int                    `json:"healthCheckPort,omitempty"`
-	Upstreams          []Upstream             `json:"upstreams,omitempty"`
-	MeshGateway        *MeshGatewayConfig     `json:"meshGateway,omitempty"`
-	Expose             *ExposeConfig          `json:"expose,omitempty"`
+	Config              map[string]interface{} `json:"config,omitempty"`
+	LocalServiceAddress string                 `json:"localServiceAddress,omitempty"`
+	PublicListenerPort  int                    `json:"publicListenerPort,omitempty"`
+	HealthCheckPort     int                    `json:"healthCheckPort,omitempty"`
+	Upstreams           []Upstream             `json:"upstreams,omitempty"`
+	MeshGateway         *MeshGatewayConfig     `json:"meshGateway,omitempty"`
+	Expose              *ExposeConfig          `json:"expose,omitempty"`
 }
 
 func (a *AgentServiceConnectProxyConfig) ToConsulType() *api.AgentServiceConnectProxyConfig {
 	result := &api.AgentServiceConnectProxyConfig{
 		Config:    a.Config,
 		Upstreams: nil,
+	}
+	if a.LocalServiceAddress != "" {
+		result.LocalServiceAddress = a.LocalServiceAddress
 	}
 	if a.MeshGateway != nil {
 		result.MeshGateway = a.MeshGateway.ToConsulType()

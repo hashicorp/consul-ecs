@@ -78,6 +78,10 @@ func New(cfg *config.Config, proxySvc *api.AgentService, consulServerAddress, cl
 		ExcludeUIDs:          cfg.TransparentProxy.ExcludeUIDs,
 	}
 
+	if len(additionalInboundPortsToExclude) > 0 {
+		trafficRedirectionCfg.ExcludeInboundPorts = append(trafficRedirectionCfg.ExcludeInboundPorts, additionalInboundPortsToExclude...)
+	}
+
 	for _, opt := range opts {
 		opt(trafficRedirectionCfg)
 	}

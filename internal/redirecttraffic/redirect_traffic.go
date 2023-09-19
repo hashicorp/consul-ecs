@@ -34,9 +34,8 @@ type trafficRedirectProxyConfig struct {
 type TrafficRedirectionCfg struct {
 	ProxySvc *api.AgentService
 
-	ConsulServerAddress  string
-	ClusterARN           string
-	ProxyHealthCheckPort int
+	ConsulServerAddress string
+	ClusterARN          string
 
 	EnableConsulDNS      bool
 	ExcludeInboundPorts  []int
@@ -67,18 +66,19 @@ func WithIPTablesProvider(provider iptables.Provider) TrafficRedirectionOpts {
 	}
 }
 
-func New(cfg *config.Config, proxySvc *api.AgentService, consulServerAddress, clusterARN string, proxyHealthCheckPort int, opts ...TrafficRedirectionOpts) TrafficRedirectionProvider {
+func New(cfg *config.Config, proxySvc *api.AgentService, consulServerAddress, clusterARN string, additionalInboundPortsToExclude []int, opts ...TrafficRedirectionOpts) TrafficRedirectionProvider {
 	trafficRedirectionCfg := &TrafficRedirectionCfg{
 		ProxySvc:             proxySvc,
 		ConsulServerAddress:  consulServerAddress,
 		ClusterARN:           clusterARN,
-		ProxyHealthCheckPort: proxyHealthCheckPort,
 		EnableConsulDNS:      cfg.ConsulDNSEnabled(),
 		ExcludeInboundPorts:  cfg.TransparentProxy.ExcludeInboundPorts,
 		ExcludeOutboundPorts: cfg.TransparentProxy.ExcludeOutboundPorts,
 		ExcludeOutboundCIDRs: cfg.TransparentProxy.ExcludeOutboundCIDRs,
 		ExcludeUIDs:          cfg.TransparentProxy.ExcludeUIDs,
 	}
+
+	trafficRedirectionCfg.ExcludeInboundPorts = append(trafficRedirectionCfg.ExcludeInboundPorts, additionalInboundPortsToExclude...)
 
 	for _, opt := range opts {
 		opt(trafficRedirectionCfg)
@@ -133,9 +133,6 @@ func (c *TrafficRedirectionCfg) Apply() error {
 		for _, port := range c.ExcludeInboundPorts {
 			c.iptablesCfg.ExcludeInboundPorts = append(c.iptablesCfg.ExcludeInboundPorts, strconv.Itoa(port))
 		}
-
-		// Exclude Envoy's ready bind port that indicate envoy's readiness
-		c.iptablesCfg.ExcludeInboundPorts = append(c.iptablesCfg.ExcludeInboundPorts, strconv.Itoa(c.ProxyHealthCheckPort))
 
 		// Exclude envoy_prometheus_bind_addr port from inbound redirection rules.
 		if trCfg.PrometheusBindAddr != "" {

@@ -78,7 +78,7 @@ const (
 	caCertFileName          = "consul-grpc-ca-cert.pem"
 
 	defaultHealthCheckBindAddr = "127.0.0.1"
-	defaultHealthCheckBindPort = "10000"
+	defaultHealthCheckBindPort = 10000
 )
 
 func (c *Command) init() {
@@ -325,7 +325,7 @@ func (c *Command) startHealthCheckServer() {
 	mux.HandleFunc("/consul-ecs/health", c.handleHealthCheck)
 	var handler http.Handler = mux
 
-	listenerBindAddr := net.JoinHostPort(defaultHealthCheckBindAddr, defaultHealthCheckBindPort)
+	listenerBindAddr := net.JoinHostPort(defaultHealthCheckBindAddr, strconv.Itoa(defaultHealthCheckBindPort))
 	if c.healthCheckListenerAddr != "" {
 		listenerBindAddr = c.healthCheckListenerAddr
 	}
@@ -631,7 +631,10 @@ func (c *Command) applyTrafficRedirectionRules(consulClient *api.Client, proxyRe
 			proxySvc,
 			consulServerIP,
 			clusterARN,
-			config.GetHealthCheckPort(c.config.Proxy.HealthCheckPort),
+			[]int{
+				config.GetHealthCheckPort(c.config.Proxy.HealthCheckPort),
+				defaultHealthCheckBindPort,
+			},
 		)
 	}
 

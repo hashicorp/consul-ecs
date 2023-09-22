@@ -362,7 +362,8 @@ func (w *AgentWeights) ToConsulType() api.AgentWeights {
 //   - The Kind and Port are set by control-plane, so these fields are not configurable.
 //   - The ID, Name, Tags, Meta, EnableTagOverride, and Weights fields are inferred or copied
 //     from the service registration by control-plane.
-//   - The bind address is always localhost in ECS, so the Address and SocketPath are excluded.
+//   - The bind address defaults to localhost in ECS but can be overridden with LocalServiceAddress and
+//     SocketPath is excluded.
 //   - The Connect field is excluded. Since the sidecar proxy is being used, it's not a Connect-native
 //     service, and we don't need the nested proxy config included in the Connect field.
 //   - The Partition field is excluded. control-plane will use the partition from the service registration.

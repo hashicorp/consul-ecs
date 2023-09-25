@@ -29,6 +29,7 @@ BREAKING CHANGES
    - Add the `proxy.healthCheckPort` field which can be hit to determine Envoy's readiness.
    - Add the `proxy.upstreams.destinationPeer` field to enable the proxy to hit upstreams present in peer Consul clusters.
    - Add the `meshGateway.healthCheckPort` field which can be hit to determine Envoy's readiness.
+   - Add the `proxy.localServiceAddress` field to configure Envoy to use a different address for the local service.
 * Add the [go-discover](https://github.com/hashicorp/go-discover) binary to the Consul ECS image to better support [cloud auto-join](https://developer.hashicorp.com/consul/docs/install/cloud-auto-join).[[GH-160](https://github.com/hashicorp/consul-ecs/pull/160)]
 
 ## 0.6.0 (Mar 15, 2023)

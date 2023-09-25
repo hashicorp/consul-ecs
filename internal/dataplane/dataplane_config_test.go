@@ -47,9 +47,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					"disabled": true
 				  }
 				},
-				"service": {
+				"proxy": {
 				  "nodeName": "test-node-name",
-				  "serviceID": "test-side-car-123",
+				  "id": "test-side-car-123",
 				  "namespace": "%s",
 				  "partition": "%s"
 				},
@@ -100,9 +100,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					"tlsServerName": "consul.dc1"
 				  }
 				},
-				"service": {
+				"proxy": {
 				  "nodeName": "test-node-name",
-				  "serviceID": "test-side-car-123",
+				  "id": "test-side-car-123",
 				  "namespace": "%s",
 				  "partition": "%s"
 				},
@@ -155,9 +155,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					}
 				  }
 				},
-				"service": {
+				"proxy": {
 				  "nodeName": "test-node-name",
-				  "serviceID": "test-side-car-123",
+				  "id": "test-side-car-123",
 				  "namespace": "%s",
 				  "partition": "%s"
 				},
@@ -215,9 +215,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					}
 				  }
 				},
-				"service": {
+				"proxy": {
 				  "nodeName": "test-node-name",
-				  "serviceID": "test-side-car-123",
+				  "id": "test-side-car-123",
 				  "namespace": "%s",
 				  "partition": "%s"
 				},

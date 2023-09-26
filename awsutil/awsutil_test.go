@@ -193,3 +193,11 @@ func TestECSTaskMeta_NodeIP(t *testing.T) {
 		require.Equal(t, c.expNodeIP, nodeIP)
 	}
 }
+
+func TestGetAWSRegion(t *testing.T) {
+	t.Setenv(AWSRegionEnvVar, "")
+	require.Empty(t, GetAWSRegion())
+
+	t.Setenv(AWSRegionEnvVar, "us-west-2")
+	require.Equal(t, "us-west-2", GetAWSRegion())
+}

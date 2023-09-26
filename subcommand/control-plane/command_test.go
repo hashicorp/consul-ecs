@@ -81,6 +81,8 @@ func TestConfigValidation(t *testing.T) {
 func TestRun(t *testing.T) {
 	family := "family-SERVICE-name"
 	serviceName := "service-name"
+	testRegion := "us-west-2"
+	testZone := "us-west-2b"
 
 	cases := map[string]struct {
 		servicePort                     int
@@ -98,11 +100,13 @@ func TestRun(t *testing.T) {
 		shouldMissingContainersReappear bool
 		expectedDataplaneConfigJSON     string
 		skipServerWatch                 bool
+		missingAWSRegion                bool
 
 		consulLogin config.ConsulLogin
 	}{
 		"basic service": {
-			skipServerWatch: true,
+			skipServerWatch:  true,
+			missingAWSRegion: true,
 		},
 		"service with port": {
 			servicePort:     8080,
@@ -285,9 +289,10 @@ func TestRun(t *testing.T) {
 
 			// Set up ECS container metadata server. This sets ECS_CONTAINER_METADATA_URI_V4.
 			taskMetadataResponse := &awsutil.ECSTaskMeta{
-				Cluster: "test",
-				TaskARN: taskARN,
-				Family:  family,
+				Cluster:          "test",
+				TaskARN:          taskARN,
+				Family:           family,
+				AvailabilityZone: testZone,
 			}
 			taskMetaRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
 			require.NoError(t, err)
@@ -381,6 +386,10 @@ func TestRun(t *testing.T) {
 			}
 			testutil.SetECSConfigEnvVar(t, &consulEcsConfig)
 
+			if !c.missingAWSRegion {
+				t.Setenv(awsutil.AWSRegionEnvVar, testRegion)
+			}
+
 			go func() {
 				code := cmd.Run(nil)
 				require.Equal(t, code, 0, ui.ErrorWriter.String())
@@ -395,6 +404,14 @@ func TestRun(t *testing.T) {
 
 			expectedNodeName := "arn:aws:ecs:us-east-1:123456789:cluster/test"
 			expectedAddress := "127.0.0.1"
+
+			var localityParams *api.Locality
+			if !c.missingAWSRegion {
+				localityParams = &api.Locality{
+					Region: testRegion,
+					Zone:   testZone,
+				}
+			}
 
 			expectedService := &api.CatalogService{
 				Node:           expectedNodeName,
@@ -411,9 +428,10 @@ func TestRun(t *testing.T) {
 					Passing: 1,
 					Warning: 1,
 				},
-				ServiceProxy: &api.AgentServiceConnectProxyConfig{},
-				Partition:    expectedPartition,
-				Namespace:    expectedNamespace,
+				ServiceProxy:    &api.AgentServiceConnectProxyConfig{},
+				Partition:       expectedPartition,
+				Namespace:       expectedNamespace,
+				ServiceLocality: localityParams,
 			}
 
 			expectedProxy := &api.CatalogService{
@@ -437,8 +455,9 @@ func TestRun(t *testing.T) {
 					Passing: 1,
 					Warning: 1,
 				},
-				Partition: expectedPartition,
-				Namespace: expectedNamespace,
+				Partition:       expectedPartition,
+				Namespace:       expectedNamespace,
+				ServiceLocality: localityParams,
 			}
 
 			expectedServiceChecks := api.HealthChecks{
@@ -921,6 +940,19 @@ func TestConstructServiceName(t *testing.T) {
 func TestMakeServiceID(t *testing.T) {
 	expectedID := "test-service-12345"
 	require.Equal(t, expectedID, makeServiceID("test-service", "12345"))
+}
+
+func TestGetLocalityParams(t *testing.T) {
+	taskMeta := awsutil.ECSTaskMeta{AvailabilityZone: "us-west-2b"}
+	params := getLocalityParams(taskMeta)
+	require.Nil(t, params)
+
+	t.Setenv(awsutil.AWSRegionEnvVar, "us-west-2")
+	params = getLocalityParams(taskMeta)
+
+	require.NotNil(t, params)
+	require.Equal(t, "us-west-2", params.Region)
+	require.Equal(t, "us-west-2b", params.Zone)
 }
 
 func TestMakeProxyServiceIDAndName(t *testing.T) {

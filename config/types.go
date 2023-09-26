@@ -362,7 +362,8 @@ func (w *AgentWeights) ToConsulType() api.AgentWeights {
 //   - The Kind and Port are set by control-plane, so these fields are not configurable.
 //   - The ID, Name, Tags, Meta, EnableTagOverride, and Weights fields are inferred or copied
 //     from the service registration by control-plane.
-//   - The bind address is always localhost in ECS, so the Address and SocketPath are excluded.
+//   - The bind address defaults to localhost in ECS but can be overridden with LocalServiceAddress and
+//     SocketPath is excluded.
 //   - The Connect field is excluded. Since the sidecar proxy is being used, it's not a Connect-native
 //     service, and we don't need the nested proxy config included in the Connect field.
 //   - The Partition field is excluded. control-plane will use the partition from the service registration.
@@ -376,18 +377,22 @@ func (w *AgentWeights) ToConsulType() api.AgentWeights {
 //   - Checks are excluded. control-plane automatically configures useful checks for the proxy.
 //   - TProxy is not supported on ECS, so the Mode and TransparentProxy fields are excluded.
 type AgentServiceConnectProxyConfig struct {
-	Config             map[string]interface{} `json:"config,omitempty"`
-	PublicListenerPort int                    `json:"publicListenerPort,omitempty"`
-	HealthCheckPort    int                    `json:"healthCheckPort,omitempty"`
-	Upstreams          []Upstream             `json:"upstreams,omitempty"`
-	MeshGateway        *MeshGatewayConfig     `json:"meshGateway,omitempty"`
-	Expose             *ExposeConfig          `json:"expose,omitempty"`
+	Config              map[string]interface{} `json:"config,omitempty"`
+	LocalServiceAddress string                 `json:"localServiceAddress,omitempty"`
+	PublicListenerPort  int                    `json:"publicListenerPort,omitempty"`
+	HealthCheckPort     int                    `json:"healthCheckPort,omitempty"`
+	Upstreams           []Upstream             `json:"upstreams,omitempty"`
+	MeshGateway         *MeshGatewayConfig     `json:"meshGateway,omitempty"`
+	Expose              *ExposeConfig          `json:"expose,omitempty"`
 }
 
 func (a *AgentServiceConnectProxyConfig) ToConsulType() *api.AgentServiceConnectProxyConfig {
 	result := &api.AgentServiceConnectProxyConfig{
 		Config:    a.Config,
 		Upstreams: nil,
+	}
+	if a.LocalServiceAddress != "" {
+		result.LocalServiceAddress = a.LocalServiceAddress
 	}
 	if a.MeshGateway != nil {
 		result.MeshGateway = a.MeshGateway.ToConsulType()

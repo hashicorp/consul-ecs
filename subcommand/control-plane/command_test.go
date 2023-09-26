@@ -1193,9 +1193,9 @@ func getExpectedDataplaneCfgJSON() string {
 		"disabled": true
 	   }%s
 	},
-	"service": {
+	"proxy": {
 	  "nodeName": "arn:aws:ecs:us-east-1:123456789:cluster/test",
-	  "serviceID": "%s",
+	  "id": "%s",
 	  "namespace": "%s",
 	  "partition": "%s"
 	},

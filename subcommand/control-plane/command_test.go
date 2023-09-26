@@ -100,11 +100,13 @@ func TestRun(t *testing.T) {
 		shouldMissingContainersReappear bool
 		expectedDataplaneConfigJSON     string
 		skipServerWatch                 bool
+		missingAWSRegion                bool
 
 		consulLogin config.ConsulLogin
 	}{
 		"basic service": {
-			skipServerWatch: true,
+			skipServerWatch:  true,
+			missingAWSRegion: true,
 		},
 		"service with port": {
 			servicePort:     8080,
@@ -383,7 +385,10 @@ func TestRun(t *testing.T) {
 				consulEcsConfig.Service.Partition = expectedPartition
 			}
 			testutil.SetECSConfigEnvVar(t, &consulEcsConfig)
-			t.Setenv(awsutil.AWSRegionEnvVar, testRegion)
+
+			if !c.missingAWSRegion {
+				t.Setenv(awsutil.AWSRegionEnvVar, testRegion)
+			}
 
 			go func() {
 				code := cmd.Run(nil)
@@ -400,6 +405,14 @@ func TestRun(t *testing.T) {
 			expectedNodeName := "arn:aws:ecs:us-east-1:123456789:cluster/test"
 			expectedAddress := "127.0.0.1"
 
+			var localityParams *api.Locality
+			if !c.missingAWSRegion {
+				localityParams = &api.Locality{
+					Region: testRegion,
+					Zone:   testZone,
+				}
+			}
+
 			expectedService := &api.CatalogService{
 				Node:           expectedNodeName,
 				NodeMeta:       getNodeMeta(),
@@ -415,13 +428,10 @@ func TestRun(t *testing.T) {
 					Passing: 1,
 					Warning: 1,
 				},
-				ServiceProxy: &api.AgentServiceConnectProxyConfig{},
-				Partition:    expectedPartition,
-				Namespace:    expectedNamespace,
-				ServiceLocality: &api.Locality{
-					Region: testRegion,
-					Zone:   testZone,
-				},
+				ServiceProxy:    &api.AgentServiceConnectProxyConfig{},
+				Partition:       expectedPartition,
+				Namespace:       expectedNamespace,
+				ServiceLocality: localityParams,
 			}
 
 			expectedProxy := &api.CatalogService{
@@ -445,12 +455,9 @@ func TestRun(t *testing.T) {
 					Passing: 1,
 					Warning: 1,
 				},
-				Partition: expectedPartition,
-				Namespace: expectedNamespace,
-				ServiceLocality: &api.Locality{
-					Region: testRegion,
-					Zone:   testZone,
-				},
+				Partition:       expectedPartition,
+				Namespace:       expectedNamespace,
+				ServiceLocality: localityParams,
 			}
 
 			expectedServiceChecks := api.HealthChecks{

@@ -31,6 +31,9 @@ type GetDataplaneConfigJSONInput struct {
 
 	// The HTTP health check port that indicates envoy's readiness
 	ProxyHealthCheckPort int
+
+	// The logLevel that will be used to configure dataplane's logger.
+	LogLevel string
 }
 
 // GetDataplaneConfigJSON returns back a configuration JSON which
@@ -42,11 +45,11 @@ func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 			GRPCPort:        i.ConsulServerConfig.GRPC.Port,
 			SkipServerWatch: i.ConsulServerConfig.SkipServerWatch,
 		},
-		Service: ServiceConfig{
-			NodeName:       i.ProxyRegistration.Node,
-			ProxyServiceID: i.ProxyRegistration.Service.ID,
-			Namespace:      i.ProxyRegistration.Service.Namespace,
-			Partition:      i.ProxyRegistration.Service.Partition,
+		Proxy: ProxyConfig{
+			NodeName:  i.ProxyRegistration.Node,
+			ID:        i.ProxyRegistration.Service.ID,
+			Namespace: i.ProxyRegistration.Service.Namespace,
+			Partition: i.ProxyRegistration.Service.Partition,
 		},
 		XDSServer: XDSServerConfig{
 			Address: localhostAddr,
@@ -54,6 +57,9 @@ func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 		Envoy: EnvoyConfig{
 			ReadyBindAddr: localhostAddr,
 			ReadyBindPort: i.ProxyHealthCheckPort,
+		},
+		Logging: LoggingConfig{
+			LogLevel: i.LogLevel,
 		},
 	}
 

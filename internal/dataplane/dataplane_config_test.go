@@ -36,6 +36,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					SkipServerWatch: true,
 				},
 				ProxyHealthCheckPort: 22000,
+				LogLevel:             "INFO",
 			},
 			expectedJSON: `{
 				"consul": {
@@ -46,9 +47,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					"disabled": true
 				  }
 				},
-				"service": {
+				"proxy": {
 				  "nodeName": "test-node-name",
-				  "serviceID": "test-side-car-123",
+				  "id": "test-side-car-123",
 				  "namespace": "%s",
 				  "partition": "%s"
 				},
@@ -58,6 +59,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				"envoy": {
 					"readyBindAddress": "127.0.0.1",
 					"readyBindPort": 22000
+				},
+				"logging": {
+					"logLevel": "INFO"
 				}
 			}`,
 		},
@@ -83,6 +87,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				},
 				CACertFile:           "/consul/ca-cert.pem",
 				ProxyHealthCheckPort: 22000,
+				LogLevel:             "DEBUG",
 			},
 			expectedJSON: `{
 				"consul": {
@@ -95,9 +100,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					"tlsServerName": "consul.dc1"
 				  }
 				},
-				"service": {
+				"proxy": {
 				  "nodeName": "test-node-name",
-				  "serviceID": "test-side-car-123",
+				  "id": "test-side-car-123",
 				  "namespace": "%s",
 				  "partition": "%s"
 				},
@@ -107,6 +112,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				"envoy": {
 					"readyBindAddress": "127.0.0.1",
 					"readyBindPort": 22000
+				},
+				"logging": {
+					"logLevel": "DEBUG"
 				}
 			}`,
 		},
@@ -130,6 +138,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				},
 				ConsulToken:          "test-token-123",
 				ProxyHealthCheckPort: 22000,
+				LogLevel:             "WARN",
 			},
 			expectedJSON: `{
 				"consul": {
@@ -146,9 +155,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					}
 				  }
 				},
-				"service": {
+				"proxy": {
 				  "nodeName": "test-node-name",
-				  "serviceID": "test-side-car-123",
+				  "id": "test-side-car-123",
 				  "namespace": "%s",
 				  "partition": "%s"
 				},
@@ -158,6 +167,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				"envoy": {
 					"readyBindAddress": "127.0.0.1",
 					"readyBindPort": 22000
+				},
+				"logging": {
+					"logLevel": "WARN"
 				}
 			}`,
 		},
@@ -184,6 +196,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				ConsulToken:          "test-token-123",
 				CACertFile:           "/consul/ca-cert.pem",
 				ProxyHealthCheckPort: 23000,
+				LogLevel:             "TRACE",
 			},
 			expectedJSON: `{
 				"consul": {
@@ -202,9 +215,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					}
 				  }
 				},
-				"service": {
+				"proxy": {
 				  "nodeName": "test-node-name",
-				  "serviceID": "test-side-car-123",
+				  "id": "test-side-car-123",
 				  "namespace": "%s",
 				  "partition": "%s"
 				},
@@ -214,6 +227,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				"envoy": {
 					"readyBindAddress": "127.0.0.1",
 					"readyBindPort": 23000
+				},
+				"logging": {
+					"logLevel": "TRACE"
 				}
 			}`,
 		},

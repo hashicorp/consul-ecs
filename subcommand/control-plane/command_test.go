@@ -490,7 +490,7 @@ func TestRun(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, expectedService, expectedProxy, expectedServiceName, expectedProxy.ServiceName)
 			assertCheckRegistration(t, consulClient, expectedServiceChecks, expectedProxyCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, c.skipServerWatch, serverGRPCPort, c.consulLogin.Enabled, envoyBootstrapDir, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition)
+			assertDataplaneConfigJSON(t, c.skipServerWatch, serverGRPCPort, c.consulLogin.Enabled, envoyBootstrapDir, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition, consulEcsConfig.LogLevel)
 
 			// Construct task meta response for the first few iterations
 			// of syncChecks
@@ -863,7 +863,7 @@ func TestGateway(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, nil, expectedService, "", c.expServiceName)
 			assertCheckRegistration(t, consulClient, nil, expectedCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, true, serverGRPCPort, c.config.ConsulLogin.Enabled, c.config.BootstrapDir, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition)
+			assertDataplaneConfigJSON(t, true, serverGRPCPort, c.config.ConsulLogin.Enabled, c.config.BootstrapDir, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition, "INFO")
 
 			// Signals control plane to enter into a state where it
 			// periodically sync checks back to Consul
@@ -1066,7 +1066,7 @@ func assertWrittenFiles(t *testing.T, expectedFiles []*fileMeta) {
 	}
 }
 
-func assertDataplaneConfigJSON(t *testing.T, skipServerWatch bool, grpcPort int, loginEnabled bool, bootstrapDir, dataplaneConfigJSONFile, proxySvcID, namespace, partition string) {
+func assertDataplaneConfigJSON(t *testing.T, skipServerWatch bool, grpcPort int, loginEnabled bool, bootstrapDir, dataplaneConfigJSONFile, proxySvcID, namespace, partition, logLevel string) {
 	var credentialsConfigJSON string
 	if loginEnabled {
 		token := getACLToken(t, bootstrapDir)
@@ -1079,7 +1079,7 @@ func assertDataplaneConfigJSON(t *testing.T, skipServerWatch bool, grpcPort int,
 		}`, token)
 	}
 
-	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, skipServerWatch, credentialsConfigJSON, proxySvcID, namespace, partition)
+	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, skipServerWatch, credentialsConfigJSON, proxySvcID, namespace, partition, logLevel)
 	actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
 	require.NoError(t, err)
 	require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
@@ -1218,9 +1218,9 @@ func getExpectedDataplaneCfgJSON() string {
 		"disabled": true
 	   }%s
 	},
-	"service": {
+	"proxy": {
 	  "nodeName": "arn:aws:ecs:us-east-1:123456789:cluster/test",
-	  "serviceID": "%s",
+	  "id": "%s",
 	  "namespace": "%s",
 	  "partition": "%s"
 	},
@@ -1230,6 +1230,9 @@ func getExpectedDataplaneCfgJSON() string {
 	"envoy": {
 		"readyBindAddress": "127.0.0.1",
 		"readyBindPort": 22000
+	},
+	"logging": {
+		"logLevel": "%s"
 	}
   }`
 }

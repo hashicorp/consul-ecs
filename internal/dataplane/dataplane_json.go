@@ -9,9 +9,10 @@ import (
 
 type dataplaneConfig struct {
 	Consul    ConsulConfig    `json:"consul"`
-	Service   ServiceConfig   `json:"service"`
+	Proxy     ProxyConfig     `json:"proxy"`
 	XDSServer XDSServerConfig `json:"xdsServer"`
 	Envoy     EnvoyConfig     `json:"envoy"`
+	Logging   LoggingConfig   `json:"logging"`
 }
 
 type ConsulConfig struct {
@@ -37,11 +38,11 @@ type StaticCredentialConfig struct {
 	Token string `json:"token"`
 }
 
-type ServiceConfig struct {
-	NodeName       string `json:"nodeName"`
-	ProxyServiceID string `json:"serviceID"`
-	Namespace      string `json:"namespace"`
-	Partition      string `json:"partition"`
+type ProxyConfig struct {
+	NodeName  string `json:"nodeName"`
+	ID        string `json:"id"`
+	Namespace string `json:"namespace"`
+	Partition string `json:"partition"`
 }
 
 type XDSServerConfig struct {
@@ -51,6 +52,10 @@ type XDSServerConfig struct {
 type EnvoyConfig struct {
 	ReadyBindAddr string `json:"readyBindAddress"`
 	ReadyBindPort int    `json:"readyBindPort"`
+}
+
+type LoggingConfig struct {
+	LogLevel string `json:"logLevel"`
 }
 
 func (d *dataplaneConfig) generateJSON() ([]byte, error) {

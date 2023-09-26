@@ -276,8 +276,9 @@ var (
 			Config: map[string]interface{}{
 				"data": "some-config-data",
 			},
-			PublicListenerPort: 21000,
-			HealthCheckPort:    22000,
+			PublicListenerPort:  21000,
+			HealthCheckPort:     22000,
+			LocalServiceAddress: "10.10.10.10",
 			Upstreams: []Upstream{
 				{
 					DestinationType:      api.UpstreamDestTypeService,

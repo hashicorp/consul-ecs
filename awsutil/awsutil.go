@@ -20,13 +20,18 @@ import (
 	"github.com/hashicorp/consul-ecs/version"
 )
 
-const ECSMetadataURIEnvVar = "ECS_CONTAINER_METADATA_URI_V4"
+const (
+	ECSMetadataURIEnvVar = "ECS_CONTAINER_METADATA_URI_V4"
+
+	AWSRegionEnvVar = "AWS_REGION"
+)
 
 type ECSTaskMeta struct {
-	Cluster    string                 `json:"Cluster"`
-	TaskARN    string                 `json:"TaskARN"`
-	Family     string                 `json:"Family"`
-	Containers []ECSTaskMetaContainer `json:"Containers"`
+	Cluster          string                 `json:"Cluster"`
+	TaskARN          string                 `json:"TaskARN"`
+	Family           string                 `json:"Family"`
+	Containers       []ECSTaskMetaContainer `json:"Containers"`
+	AvailabilityZone string                 `json:"AvailabilityZone"`
 }
 
 type ECSTaskMetaContainer struct {
@@ -172,4 +177,8 @@ func NewSession(meta ECSTaskMeta, userAgentCaller string) (*session.Session, err
 		cfg.Region = aws.String(region)
 	}
 	return clientSession, nil
+}
+
+func GetAWSRegion() string {
+	return os.Getenv(AWSRegionEnvVar)
 }

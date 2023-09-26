@@ -31,6 +31,9 @@ BREAKING CHANGES
    - Add the `meshGateway.healthCheckPort` field which can be hit to determine Envoy's readiness.
 * Add the [go-discover](https://github.com/hashicorp/go-discover) binary to the Consul ECS image to better support [cloud auto-join](https://developer.hashicorp.com/consul/docs/install/cloud-auto-join).[[GH-160](https://github.com/hashicorp/consul-ecs/pull/160)]
 
+FEATURES
+* Use the `AWS_REGION` container environment variable and `AvailabilityZone` attribute of an ECS task meta JSON to set the locality parameters in Consul service and proxy registrations. These parameters are used to perform locality aware routing for Consul Enterprise installations. [[GH-167](https://github.com/hashicorp/consul-ecs/pull/167)]
+
 ## 0.6.0 (Mar 15, 2023)
 
 FEATURES

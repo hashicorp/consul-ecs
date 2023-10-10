@@ -1,4 +1,4 @@
-## Unreleased
+## 0.7.0-rc1 (Oct 11, 2023)
 
 BREAKING CHANGES
 * Adopt the architecture described in [Simplified Service Mesh with Consul Dataplane](https://developer.hashicorp.com/consul/docs/connect/dataplane): [[GH-161](https://github.com/hashicorp/consul-ecs/pull/161)]

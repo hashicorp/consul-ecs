@@ -35,7 +35,7 @@ jobs:
     - name: golangci-lint
       uses: golangci/golangci-lint-action@08e2f20817b15149a52b5b3ebe7de50aff2ba8c5 # v3.4.0
       with:
-        version: v1.50.1
+        version: v1.54.2
         args: |
           --verbose
         only-new-issues: false
@@ -53,8 +53,8 @@ jobs:
     strategy:
       matrix:
         consul-version:
-        - 1.16.0
-        - 1.16.0+ent
+        - 1.17.0-rc1
+        - 1.17.0-rc1+ent
     env:
       TEST_RESULTS_DIR: /tmp/test-results
       GOTESTSUM_VERSION: 1.8.2

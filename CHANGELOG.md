@@ -1,3 +1,8 @@
+## Unreleased
+
+IMPROVEMENTS
+* Bump Go to `1.20`
+
 ## 0.6.0 (Mar 15, 2023)
 
 FEATURES

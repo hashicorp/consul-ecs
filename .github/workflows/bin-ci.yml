@@ -38,7 +38,7 @@ jobs:
         version: v1.54.2
         args: |
           --verbose
-          --timeout=10m
+          --timeout 10m
         only-new-issues: false
         skip-pkg-cache: true
         skip-build-cache: true

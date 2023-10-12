@@ -35,6 +35,9 @@ BREAKING CHANGES
 FEATURES
 * Use the `AWS_REGION` container environment variable and `AvailabilityZone` attribute of an ECS task meta JSON to set the locality parameters in Consul service and proxy registrations. These parameters are used to perform locality aware routing for Consul Enterprise installations. [[GH-167](https://github.com/hashicorp/consul-ecs/pull/167)]
 
+IMPROVEMENTS
+* Bump Golang to 1.20
+
 ## 0.6.0 (Mar 15, 2023)
 
 FEATURES

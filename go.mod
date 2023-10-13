@@ -9,8 +9,8 @@ require (
 	github.com/google/go-cmp v0.5.9
 	github.com/hashicorp/consul-awsauth v0.0.0-20220713200329-83146e702996
 	github.com/hashicorp/consul-server-connection-manager v0.1.2
-	github.com/hashicorp/consul/api v1.10.1-0.20230830173140-255aa158db8c
-	github.com/hashicorp/consul/sdk v0.14.1
+	github.com/hashicorp/consul/api v1.26.1-rc1
+	github.com/hashicorp/consul/sdk v0.14.3-rc1
 	github.com/hashicorp/go-hclog v1.5.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-rootcerts v1.0.2
@@ -64,7 +64,7 @@ require (
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	golang.org/x/crypto v0.14.0 // indirect
-	golang.org/x/exp v0.0.0-20230321023759-10a507213a29 // indirect
+	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63 // indirect
 	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 	golang.org/x/text v0.13.0 // indirect

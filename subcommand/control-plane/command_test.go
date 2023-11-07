@@ -608,7 +608,6 @@ func TestRun(t *testing.T) {
 
 func TestGateway(t *testing.T) {
 	var (
-		serviceName      = "service-name-mesh-gateway"
 		taskARN          = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
 		taskIP           = "10.1.2.3"
 		publicIP         = "255.1.2.3"
@@ -665,12 +664,12 @@ func TestGateway(t *testing.T) {
 					LanAddress: &config.GatewayAddress{
 						Port: 12345,
 					},
-					Name: serviceName,
+					Name: "service-name-mesh-gateway",
 				},
 			},
 			taskFamily:     "family-name-mesh-gateway",
-			expServiceID:   "family-name-mesh-gateway-abcdef",
-			expServiceName: "family-name-mesh-gateway",
+			expServiceID:   "service-name-mesh-gateway-abcdef",
+			expServiceName: "service-name-mesh-gateway",
 			expLanPort:     12345,
 		},
 		"mesh gateway with lan address": {
@@ -681,12 +680,12 @@ func TestGateway(t *testing.T) {
 						Address: taskIP,
 						Port:    12345,
 					},
-					Name: serviceName,
+					Name: "service-name-mesh-gateway",
 				},
 			},
 			taskFamily:     "family-name-mesh-gateway",
-			expServiceID:   "family-name-mesh-gateway-abcdef",
-			expServiceName: "family-name-mesh-gateway",
+			expServiceID:   "service-name-mesh-gateway-abcdef",
+			expServiceName: "service-name-mesh-gateway",
 			expLanAddress:  taskIP,
 			expLanPort:     12345,
 			expTaggedAddresses: map[string]api.ServiceAddress{

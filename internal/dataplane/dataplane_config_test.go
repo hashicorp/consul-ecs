@@ -276,9 +276,9 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					}
 				  }
 				},
-				"service": {
+				"proxy": {
 				  "nodeName": "test-node-name",
-				  "serviceID": "test-side-car-123",
+				  "id": "test-side-car-123",
 				  "namespace": "%s",
 				  "partition": "%s"
 				},

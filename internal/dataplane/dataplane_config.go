@@ -50,11 +50,11 @@ func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 			GRPCPort:        i.ConsulServerConfig.GRPC.Port,
 			SkipServerWatch: i.ConsulServerConfig.SkipServerWatch,
 		},
-		Service: ServiceConfig{
-			NodeName:       i.ProxyRegistration.Node,
-			ProxyServiceID: i.ProxyRegistration.Service.ID,
-			Namespace:      i.ProxyRegistration.Service.Namespace,
-			Partition:      i.ProxyRegistration.Service.Partition,
+		Proxy: ProxyConfig{
+			NodeName:  i.ProxyRegistration.Node,
+			ID:        i.ProxyRegistration.Service.ID,
+			Namespace: i.ProxyRegistration.Service.Namespace,
+			Partition: i.ProxyRegistration.Service.Partition,
 		},
 		XDSServer: XDSServerConfig{
 			Address: localhostAddr,

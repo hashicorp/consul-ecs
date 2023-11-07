@@ -420,6 +420,7 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clu
 
 		service.TaggedAddresses = taggedAddresses
 	}
+	service.Locality = getLocalityParams(taskMeta)
 
 	return c.constructCatalogRegistrationPayload(service, taskMeta, clusterARN)
 }
@@ -440,6 +441,7 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.CatalogReg
 		Namespace:         serviceRegistration.Service.Namespace,
 		Weights:           serviceRegistration.Service.Weights,
 		EnableTagOverride: serviceRegistration.Service.EnableTagOverride,
+		Locality:          serviceRegistration.Service.Locality,
 	}
 
 	proxyService.Proxy.DestinationServiceID = serviceRegistration.Service.ID
@@ -709,4 +711,18 @@ func mergeMeta(m1, m2 map[string]string) map[string]string {
 	}
 
 	return result
+}
+
+func getLocalityParams(taskMeta awsutil.ECSTaskMeta) *api.Locality {
+	region := awsutil.GetAWSRegion()
+	zone := taskMeta.AvailabilityZone
+
+	if region == "" {
+		return nil
+	}
+
+	return &api.Locality{
+		Region: region,
+		Zone:   zone,
+	}
 }

@@ -90,6 +90,7 @@
   "proxy": {
     "publicListenerPort": 21000,
     "healthCheckPort": 22000,
+    "localServiceAddress": "10.10.10.10",
     "config": {
       "data": "some-config-data"
     },

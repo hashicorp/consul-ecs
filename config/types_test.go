@@ -22,6 +22,11 @@ func TestProxyRegistrationToConsulType(t *testing.T) {
 	require.Equal(t, consulType, expectedConsulProxyRegistration)
 }
 
+func TestProxyRegistrationLocalServiceAddressToConsulType(t *testing.T) {
+	consulType := testProxyRegistrationLocalServiceAddress.ToConsulType()
+	require.Equal(t, consulType, expectedConsulProxyRegistrationLocalServiceAddress)
+}
+
 // Test that IncludEntity defaults to true.
 func TestConsulLoginIncludeEntity(t *testing.T) {
 	cases := map[string]struct {
@@ -714,10 +719,92 @@ var (
 		},
 	}
 
+	testProxyRegistrationLocalServiceAddress = &AgentServiceConnectProxyConfig{
+		Config: map[string]interface{}{
+			"data": "some-test-data",
+		},
+		LocalServiceAddress: "10.10.10.10",
+		Upstreams: []Upstream{
+			{
+				DestinationType:      api.UpstreamDestTypeService,
+				DestinationNamespace: "test-ns-2",
+				DestinationPartition: "test-partition-2",
+				DestinationName:      "upstream-svc",
+				Datacenter:           "dc2",
+				LocalBindAddress:     "localhost",
+				LocalBindPort:        1235,
+				Config: map[string]interface{}{
+					"data": "some-upstream-test-data",
+				},
+				MeshGateway: &MeshGatewayConfig{
+					Mode: api.MeshGatewayModeLocal,
+				},
+			},
+		},
+		MeshGateway: &MeshGatewayConfig{
+			Mode: api.MeshGatewayModeLocal,
+		},
+		Expose: &ExposeConfig{
+			Checks: true,
+			Paths: []ExposePath{
+				{
+					ListenerPort:  2345,
+					Path:          "/test",
+					LocalPathPort: 2346,
+					Protocol:      "http",
+				},
+			},
+		},
+	}
+
 	expectedConsulProxyRegistration = &api.AgentServiceConnectProxyConfig{
 		DestinationServiceName: "",
 		DestinationServiceID:   "",
 		LocalServiceAddress:    "",
+		LocalServicePort:       0,
+		LocalServiceSocketPath: "",
+		Config: map[string]interface{}{
+			"data": "some-test-data",
+		},
+		Upstreams: []api.Upstream{
+			{
+				DestinationType:      api.UpstreamDestTypeService,
+				DestinationNamespace: "test-ns-2",
+				DestinationPartition: "test-partition-2",
+				DestinationName:      "upstream-svc",
+				Datacenter:           "dc2",
+				LocalBindAddress:     "localhost",
+				LocalBindPort:        1235,
+				LocalBindSocketPath:  "",
+				LocalBindSocketMode:  "",
+				Config: map[string]interface{}{
+					"data": "some-upstream-test-data",
+				},
+				MeshGateway: api.MeshGatewayConfig{
+					Mode: api.MeshGatewayModeLocal,
+				},
+			},
+		},
+		MeshGateway: api.MeshGatewayConfig{
+			Mode: api.MeshGatewayModeLocal,
+		},
+		Expose: api.ExposeConfig{
+			Checks: true,
+			Paths: []api.ExposePath{
+				{
+					ListenerPort:  2345,
+					Path:          "/test",
+					LocalPathPort: 2346,
+					Protocol:      "http",
+				},
+			},
+		},
+	}
+
+	expectedConsulProxyRegistrationLocalServiceAddress = &api.AgentServiceConnectProxyConfig{
+		DestinationServiceName: "",
+		DestinationServiceID:   "",
+		LocalServiceAddress:    "10.10.10.10",
 		LocalServicePort:       0,
 		LocalServiceSocketPath: "",
 		Config: map[string]interface{}{

@@ -154,7 +154,7 @@ func testUpsertConsulResources(t *testing.T, cases map[string]iamAuthTestCase) {
 				policies, _, err := consulClient.ACL().PolicyList(nil)
 				require.NoError(t, err)
 				for _, policy := range policies {
-					if policy.Name != "global-management" {
+					if policy.Name != "global-management" && policy.Name != "builtin/global-read-only" {
 						_, err := consulClient.ACL().PolicyDelete(policy.ID, nil)
 						require.NoError(t, err)
 					}

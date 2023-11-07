@@ -708,10 +708,17 @@ func makeToken(t *testing.T, taskId string, isLogin bool) *api.ACLTokenListEntry
 		)
 	}
 	tok := &api.ACLTokenListEntry{
-		AccessorID:        accessor,
-		SecretID:          secret,
-		Description:       description,
-		ServiceIdentities: []*api.ACLServiceIdentity{{ServiceName: "test-service"}},
+		AccessorID:  accessor,
+		SecretID:    secret,
+		Description: description,
+		TemplatedPolicies: []*api.ACLTemplatedPolicy{
+			{
+				TemplateName: "builtin/service",
+				TemplateVariables: &api.ACLTemplatedPolicyVariables{
+					Name: "test-service",
+				},
+			},
+		},
 	}
 	if enterpriseFlag() {
 		tok.Partition = DefaultPartition
@@ -748,7 +755,7 @@ func createTokens(t *testing.T, client *api.Client, tokens ...*api.ACLTokenListE
 				AccessorID:        tok.AccessorID,
 				SecretID:          tok.SecretID,
 				Description:       tok.Description,
-				ServiceIdentities: tok.ServiceIdentities,
+				TemplatedPolicies: tok.TemplatedPolicies,
 			},
 			&api.WriteOptions{
 				Partition: tok.Partition,

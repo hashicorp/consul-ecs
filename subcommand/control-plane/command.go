@@ -7,16 +7,12 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
-	"os/signal"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -29,7 +25,6 @@ import (
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/go-multierror"
 	"github.com/mitchellh/cli"
 )
 
@@ -40,31 +35,9 @@ type Command struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
-	sigs   chan os.Signal
 	once   sync.Once
 
-	isHealthy atomic.Bool
-	checks    map[string]*api.HealthCheck
-
-	dataplaneMonitor *dataplaneMonitor
-
-	watcherCh <-chan discovery.State
-
 	// Following fields are only needed for unit tests
-
-	// control plane signals to this channel whenever it has completed
-	// registration of service and proxy to the server. Used only for unit tests
-	doneChan chan struct{}
-
-	// control plane waits for someone to signal to this channel before
-	// entering the checks reconcilation loop. Used only for unit tests
-	proceedChan chan struct{}
-
-	// Indicates that the command is run from a unit test
-	isTestEnv bool
-
-	// Health check address assigned via unit tests
-	healthCheckListenerAddr string
 
 	// Provider to be used for applying redirection rules in unit tests
 	trafficRedirectionProvider redirecttraffic.TrafficRedirectionProvider
@@ -76,15 +49,10 @@ type Command struct {
 const (
 	dataplaneConfigFileName = "consul-dataplane.json"
 	caCertFileName          = "consul-grpc-ca-cert.pem"
-
-	defaultHealthCheckBindAddr = "127.0.0.1"
-	defaultHealthCheckBindPort = 10000
 )
 
 func (c *Command) init() {
 	c.ctx, c.cancel = context.WithCancel(context.Background())
-	c.sigs = make(chan os.Signal, 1)
-	c.isHealthy.Store(false)
 }
 
 func (c *Command) Run(args []string) int {
@@ -103,7 +71,6 @@ func (c *Command) Run(args []string) int {
 	c.config = config
 
 	c.log = logging.FromConfig(c.config).Logger()
-	c.dataplaneMonitor = newDataplaneMonitor(c.ctx, c.log)
 
 	err = c.realRun()
 	if err != nil {
@@ -114,13 +81,7 @@ func (c *Command) Run(args []string) int {
 }
 
 func (c *Command) realRun() error {
-	signal.Notify(c.sigs, syscall.SIGTERM)
 	defer c.cleanup()
-
-	// Register and start health check handler.
-	go c.startHealthCheckServer()
-
-	go c.dataplaneMonitor.run()
 
 	taskMeta, err := awsutil.ECSTaskMetadata()
 	if err != nil {
@@ -154,12 +115,6 @@ func (c *Command) realRun() error {
 	if err != nil {
 		return fmt.Errorf("constructing consul client from config: %s", err)
 	}
-
-	if !c.isTestEnv {
-		c.watcherCh = watcher.Subscribe()
-	}
-
-	c.checks = make(map[string]*api.HealthCheck)
 
 	var serviceRegistration, proxyRegistration *api.CatalogRegistration
 	if c.config.Gateway != nil && c.config.Gateway.Kind != "" {
@@ -211,17 +166,6 @@ func (c *Command) realRun() error {
 		return err
 	}
 
-	// Marking the control plane healthy so that ECS can start
-	// other containers within the task depending on this.
-	c.isHealthy.Store(true)
-
-	serviceName := c.constructServiceName(taskMeta.Family)
-	currentHealthStatuses := make(map[string]string)
-
-	var healthSyncContainers []string
-	healthSyncContainers = append(healthSyncContainers, c.config.HealthSyncContainers...)
-	healthSyncContainers = append(healthSyncContainers, config.ConsulDataplaneContainerName)
-
 	if consulDNSEnabled {
 		dnsInput := &dns.ConfigureConsulDNSInput{}
 		if c.etcResolvConfFile != "" {
@@ -241,58 +185,7 @@ func (c *Command) realRun() error {
 		}
 	}
 
-	if c.isTestEnv {
-		close(c.doneChan)
-		<-c.proceedChan
-	}
-
-	for {
-		select {
-		case <-time.After(syncChecksInterval):
-			currentHealthStatuses = c.syncChecks(consulClient, currentHealthStatuses, serviceName, clusterARN, healthSyncContainers)
-		case watcherState := <-c.watcherCh:
-			c.log.Info("Switching to Consul server", "address", watcherState.Address.String())
-			client, err := c.setupConsulAPIClient(watcherState)
-			if err != nil {
-				c.log.Error("error re-configuring consul client %s", err.Error())
-			} else {
-				consulClient = client
-
-				if c.config.TransparentProxyEnabled() {
-					err = c.applyTrafficRedirectionRules(consulClient, proxyRegistration, watcherState.Address.IP.String(), clusterARN)
-					if err != nil {
-						return err
-					}
-				}
-			}
-		case <-c.sigs:
-			c.log.Info("Received SIGTERM. Beginning graceful shutdown by first marking all checks as critical.")
-
-			err := c.setChecksCritical(consulClient, taskMeta.TaskID(), serviceName, clusterARN, healthSyncContainers)
-			if err != nil {
-				c.log.Error("Error marking the status of checks as critical: %s", err.Error())
-			}
-		case <-c.dataplaneMonitor.done():
-			var result error
-			c.log.Info("Dataplane has successfully shutdown. Deregistering services and terminating control plane")
-
-			err = c.deregisterServiceAndProxy(consulClient, clusterARN, serviceRegistration, proxyRegistration)
-			if err != nil {
-				c.log.Error("error deregistering service and proxy %s", err.Error())
-				result = multierror.Append(result, err)
-			}
-
-			if c.config.ConsulLogin.Enabled {
-				_, err = consulClient.ACL().Logout(nil)
-				if err != nil {
-					c.log.Error("error logging out of consul %s", err.Error())
-					result = multierror.Append(result, err)
-				}
-			}
-
-			return result
-		}
-	}
+	return nil
 }
 
 func (c *Command) Synopsis() string {
@@ -304,8 +197,6 @@ func (c *Command) Help() string {
 }
 
 func (c *Command) cleanup() {
-	signal.Stop(c.sigs)
-	// Cancel background goroutines
 	c.cancel()
 }
 
@@ -313,35 +204,6 @@ func retryLogger(log hclog.Logger) backoff.Notify {
 	return func(err error, duration time.Duration) {
 		log.Error(err.Error(), "retry", duration.String())
 	}
-}
-
-// startHealthCheckServer registers a custom health check handler
-// that indicates the control plane's readiness. The endpoint becomes
-// healthy when the control plane successfully registers the service
-// and proxy configurations and writes the dataplane's configuration
-// to a shared volume.
-func (c *Command) startHealthCheckServer() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/consul-ecs/health", c.handleHealthCheck)
-	var handler http.Handler = mux
-
-	listenerBindAddr := net.JoinHostPort(defaultHealthCheckBindAddr, strconv.Itoa(defaultHealthCheckBindPort))
-	if c.healthCheckListenerAddr != "" {
-		listenerBindAddr = c.healthCheckListenerAddr
-	}
-	c.UI.Info(fmt.Sprintf("Listening on %q...", listenerBindAddr))
-	if err := http.ListenAndServe(listenerBindAddr, handler); err != nil {
-		c.UI.Error(fmt.Sprintf("Error listening: %s", err))
-	}
-}
-
-func (c *Command) handleHealthCheck(rw http.ResponseWriter, _ *http.Request) {
-	if !c.isHealthy.Load() {
-		c.UI.Error("[GET /consul-ecs/health] consul-ecs control plane is not yet healthy")
-		rw.WriteHeader(500)
-		return
-	}
-	rw.WriteHeader(200)
 }
 
 func (c *Command) setupConsulAPIClient(state discovery.State) (*api.Client, error) {
@@ -410,6 +272,7 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clu
 	service.Service = serviceName
 	service.Meta = fullMeta
 	service.Address = taskMeta.NodeIP()
+	//service.Locality = getLocalityParams(taskMeta)
 
 	if c.config.TransparentProxy.Enabled {
 		taggedAddresses := make(map[string]api.ServiceAddress)
@@ -440,6 +303,7 @@ func (c *Command) constructProxyRegistration(serviceRegistration *api.CatalogReg
 		Namespace:         serviceRegistration.Service.Namespace,
 		Weights:           serviceRegistration.Service.Weights,
 		EnableTagOverride: serviceRegistration.Service.EnableTagOverride,
+		//Locality:          serviceRegistration.Service.Locality,
 	}
 
 	proxyService.Proxy.DestinationServiceID = serviceRegistration.Service.ID
@@ -602,24 +466,6 @@ func (c *Command) writeRPCCACertToSharedVolume() (string, error) {
 	return caCertPath, nil
 }
 
-func (c *Command) deregisterServiceAndProxy(consulClient *api.Client, clusterARN string, serviceRegistration, proxyRegistration *api.CatalogRegistration) error {
-	var result error
-	if serviceRegistration != nil {
-		err := deregisterConsulService(consulClient, serviceRegistration, clusterARN)
-		if err != nil {
-			result = multierror.Append(result, err)
-		}
-	}
-
-	// Proxy deregistration
-	err := deregisterConsulService(consulClient, proxyRegistration, clusterARN)
-	if err != nil {
-		result = multierror.Append(result, err)
-	}
-
-	return result
-}
-
 func (c *Command) applyTrafficRedirectionRules(consulClient *api.Client, proxyRegistration *api.CatalogRegistration, consulServerIP, clusterARN string) error {
 	proxySvc, err := getProxyServiceRegistration(consulClient, clusterARN, proxyRegistration.Service.ID)
 	if err != nil {
@@ -633,7 +479,6 @@ func (c *Command) applyTrafficRedirectionRules(consulClient *api.Client, proxyRe
 			clusterARN,
 			[]int{
 				config.GetHealthCheckPort(c.config.Proxy.HealthCheckPort),
-				defaultHealthCheckBindPort,
 			},
 		)
 	}
@@ -669,19 +514,6 @@ func getProxyServiceRegistration(consulClient *api.Client, clusterARN, svcID str
 	}
 	return proxySvc, nil
 }
-
-func deregisterConsulService(client *api.Client, reg *api.CatalogRegistration, node string) error {
-	deregInput := &api.CatalogDeregistration{
-		Node:      node,
-		ServiceID: reg.Service.ID,
-		Namespace: reg.Service.Namespace,
-		Partition: reg.Service.Partition,
-	}
-
-	_, err := client.Catalog().Deregister(deregInput, nil)
-	return err
-}
-
 func getNodeMeta() map[string]string {
 	return map[string]string{
 		config.SyntheticNode: "true",

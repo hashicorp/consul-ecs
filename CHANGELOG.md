@@ -1,4 +1,4 @@
-## Unreleased
+## 0.7.0 (Nov 7, 2023)
 
 BREAKING CHANGES
 * Adopt the architecture described in [Simplified Service Mesh with Consul Dataplane](https://developer.hashicorp.com/consul/docs/connect/dataplane): [[GH-161](https://github.com/hashicorp/consul-ecs/pull/161)]
@@ -37,6 +37,11 @@ FEATURES
 
 IMPROVEMENTS
 * Bump Golang to 1.20
+
+## 0.6.1 (Nov 2, 2023)
+
+IMPROVEMENTS
+* Bump Go to `1.20`
 
 ## 0.6.0 (Mar 15, 2023)
 

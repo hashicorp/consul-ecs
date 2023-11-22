@@ -366,7 +366,7 @@
         "kind": {
           "description": "Specifies the type of gateway to register.",
           "type": "string",
-          "enum": ["mesh-gateway"]
+          "enum": ["mesh-gateway", "terminating-gateway", "api-gateway"]
         },
         "lanAddress": {
           "description": "LAN address and port for the gateway. If not specified, defaults to the task/node address.",

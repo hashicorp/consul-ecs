@@ -50,7 +50,7 @@ partition_prefix "" {
 		policy = "read"
 	}
 	service_prefix "" {
-		policy = "write"
+		policy = "read"
 	}`
 	expEntAPIGatewayPolicy = `mesh = "read"
 namespace_prefix "" {
@@ -58,7 +58,7 @@ namespace_prefix "" {
 		policy = "read"
 	}
 	service_prefix "" {
-		policy = "write"
+		policy = "read"
 	}
 }`
 )

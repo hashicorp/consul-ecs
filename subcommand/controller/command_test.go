@@ -53,14 +53,14 @@ partition_prefix "" {
 		policy = "write"
 	}`
 	expEntAPIGatewayPolicy = `mesh = "read"
-	namespace_prefix "" {
-		node_prefix "" {
-			policy = "read"
-		}
-		service_prefix "" {
-			policy = "write"
-		}
-	}`
+namespace_prefix "" {
+	node_prefix "" {
+		policy = "read"
+	}
+	service_prefix "" {
+		policy = "write"
+	}
+}`
 )
 
 var (

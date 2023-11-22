@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"reflect"
 	"sort"
 	"strconv"
@@ -488,19 +487,6 @@ func uniqueStrings(strs []string) []string {
 	}
 	sort.Strings(result)
 	return result
-}
-
-func writeToFile(str string) {
-	f, err := os.OpenFile("log.txt", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
-	if err != nil {
-		panic(err)
-	}
-
-	defer f.Close()
-
-	if _, err = f.WriteString(str + "\n"); err != nil {
-		panic(err)
-	}
 }
 
 func forceStringSlice(val interface{}) ([]string, error) {

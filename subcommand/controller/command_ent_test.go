@@ -38,3 +38,11 @@ func TestUpsertAnonymousTokenPolicyEnt(t *testing.T) {
 		},
 	})
 }
+
+func TestUpsertAPIGatewayTokenPolicyAndRole(t *testing.T) {
+	testUpsertAPIGatewayPolicyAndRole(t, map[string]apiGatewayTokenTest{
+		"test creation": {
+			partitionsEnabled: true,
+		},
+	})
+}

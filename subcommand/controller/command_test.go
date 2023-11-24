@@ -44,6 +44,23 @@ partition_prefix "" {
     service_prefix "" {
       policy = "read"
     }`
+
+	expOSSAPIGatewayPolicy = `mesh = "read"
+	node_prefix "" {
+		policy = "read"
+	}
+	service_prefix "" {
+		policy = "read"
+	}`
+	expEntAPIGatewayPolicy = `mesh = "read"
+namespace_prefix "" {
+	node_prefix "" {
+		policy = "read"
+	}
+	service_prefix "" {
+		policy = "read"
+	}
+}`
 )
 
 var (
@@ -277,6 +294,14 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnab
 		require.Contains(t, policyNames, "global-management")
 	}
 
+	require.Contains(t, policyNames, apiGatewayPolicyName)
+
+	// Check for the presence of API gateway role
+	roles, _, err := consulClient.ACL().RoleList(nil)
+	require.NoError(t, err)
+	require.Len(t, roles, 1)
+	require.Equal(t, apiGatewayRoleName, roles[0].Name)
+
 	// Check the auth methods are created
 	methods, _, err := consulClient.ACL().AuthMethodList(nil)
 	require.NoError(t, err)
@@ -304,20 +329,31 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnab
 			},
 			"EnableIAMEntityDetails": true,
 			"IAMEntityTags": []interface{}{
-				authMethodServiceNameTag,
+				authMethodGatewayKindTag,
 				authMethodNamespaceTag,
+				authMethodServiceNameTag,
 			},
 		})
 
 		// Check the binding rule is created.
 		rules, _, err := consulClient.ACL().BindingRuleList(method.Name, nil)
 		require.NoError(t, err)
-		require.Len(t, rules, 1)
+		require.Len(t, rules, 2)
 
-		rule, _, err := consulClient.ACL().BindingRuleRead(rules[0].ID, nil)
-		require.NoError(t, err)
-		require.Equal(t, rule.BindType, api.BindingRuleBindTypeService)
-		require.Equal(t, rule.BindName, fmt.Sprintf(`${entity_tags.%s}`, authMethodServiceNameTag))
+		var serviceBindingRule, gatewayBindingRule *api.ACLBindingRule
+		for _, rule := range rules {
+			switch rule.BindType {
+			case api.BindingRuleBindTypeService:
+				serviceBindingRule = rule
+			case api.BindingRuleBindTypeRole:
+				gatewayBindingRule = rule
+			}
+		}
+		require.NotNil(t, serviceBindingRule)
+		require.Equal(t, serviceBindingRule.BindName, fmt.Sprintf(`${entity_tags.%s}`, authMethodServiceNameTag))
+
+		require.NotNil(t, gatewayBindingRule)
+		require.Equal(t, gatewayBindingRule.BindName, apiGatewayRoleName)
 	}
 }
 
@@ -348,7 +384,6 @@ func TestUpsertAuthMethod(t *testing.T) {
 		},
 	}
 
-	// Simulate two controllers adding auth method config.
 	allPrincipals := []interface{}{
 		"arn:aws:iam::123456789:role/path/1/*",
 		"arn:aws:iam::123456789:role/path/2/*",
@@ -356,30 +391,69 @@ func TestUpsertAuthMethod(t *testing.T) {
 		"arn:aws:iam::123456789:role/path/4/*",
 	}
 
-	methodOne := makeAuthMethod(allPrincipals[0:3])
-	methodTwo := makeAuthMethod(allPrincipals[1:])
-
-	// Upsert once - one controller starting up.
-	{
-		err := cmd.upsertAuthMethod(consulClient, methodOne)
-		require.NoError(t, err)
-
-		upserted, _, err := consulClient.ACL().AuthMethodRead(methodOne.Name, nil)
-		require.NoError(t, err)
-		require.Equal(t, methodOne.Config, upserted.Config)
+	allIAMEntityTags := []interface{}{
+		"consul.hashicorp.com.gateway-kind",
+		"consul.hashicorp.com.namespace",
+		"consul.hashicorp.com.service",
+		"consul.hashicorp.com.some-tag-1",
+		"consul.hashicorp.com.some-tag-2",
 	}
 
-	// Upsert again - another controller starting up.
-	{
-		err := cmd.upsertAuthMethod(consulClient, methodTwo)
-		require.NoError(t, err)
+	cases := map[string]struct {
+		authMethodOne *api.ACLAuthMethod
+		authMethodTwo *api.ACLAuthMethod
+	}{
+		"only Principals differs": {
+			authMethodOne: makeAuthMethod(allPrincipals[0:3], allIAMEntityTags),
+			authMethodTwo: makeAuthMethod(allPrincipals[1:], allIAMEntityTags),
+		},
+		"only IAM Entity Tags differs": {
+			authMethodOne: makeAuthMethod(allPrincipals, allIAMEntityTags[0:3]),
+			authMethodTwo: makeAuthMethod(allPrincipals, allIAMEntityTags[2:]),
+		},
+		"both Principals and IAM Entity Tags differ": {
+			authMethodOne: makeAuthMethod(allPrincipals[0:3], allIAMEntityTags[0:3]),
+			authMethodTwo: makeAuthMethod(allPrincipals[1:], allIAMEntityTags[2:]),
+		},
+		"nothing differs": {
+			authMethodOne: makeAuthMethod(allPrincipals, allIAMEntityTags),
+			authMethodTwo: makeAuthMethod(allPrincipals, allIAMEntityTags),
+		},
+	}
 
-		upserted, _, err := consulClient.ACL().AuthMethodRead(methodTwo.Name, nil)
-		require.NoError(t, err)
+	for name, c := range cases {
+		c := c
+		t.Run(name, func(t *testing.T) {
+			// Simulate two controllers adding auth method config.
 
-		// BoundIAMPrincipalARNs should be merged together.
-		expected := makeAuthMethod(allPrincipals)
-		require.Equal(t, expected.Config, upserted.Config)
+			t.Cleanup(func() {
+				_, err := consulClient.ACL().AuthMethodDelete(c.authMethodOne.Name, nil)
+				require.NoError(t, err)
+			})
+
+			// Upsert once - one controller starting up.
+			{
+				err := cmd.upsertAuthMethod(consulClient, c.authMethodOne)
+				require.NoError(t, err)
+
+				upserted, _, err := consulClient.ACL().AuthMethodRead(c.authMethodOne.Name, nil)
+				require.NoError(t, err)
+				require.Equal(t, c.authMethodOne.Config, upserted.Config)
+			}
+
+			// Upsert again - another controller starting up.
+			{
+				err := cmd.upsertAuthMethod(consulClient, c.authMethodTwo)
+				require.NoError(t, err)
+
+				upserted, _, err := consulClient.ACL().AuthMethodRead(c.authMethodTwo.Name, nil)
+				require.NoError(t, err)
+
+				// BoundIAMPrincipalARNs, IAMEntityTags should be merged together.
+				expected := makeAuthMethod(allPrincipals, allIAMEntityTags)
+				require.Equal(t, expected.Config, upserted.Config)
+			}
+		})
 	}
 }
 
@@ -448,7 +522,7 @@ func TestUniqueStrings(t *testing.T) {
 	}
 }
 
-func makeAuthMethod(principals interface{}) *api.ACLAuthMethod {
+func makeAuthMethod(principals, iamEntityTags interface{}) *api.ACLAuthMethod {
 	return &api.ACLAuthMethod{
 		Name:        "test-method",
 		Type:        "aws-iam",
@@ -457,6 +531,7 @@ func makeAuthMethod(principals interface{}) *api.ACLAuthMethod {
 			// This is the only field that matters.
 			"BoundIAMPrincipalARNs":  principals,
 			"EnableIAMEntityDetails": true,
+			"IAMEntityTags":          iamEntityTags,
 		},
 	}
 }
@@ -595,6 +670,117 @@ func testUpsertAnonymousTokenPolicy(t *testing.T, cases map[string]anonTokenTest
 				require.Error(t, err)
 				require.Contains(t, err.Error(), c.expErr)
 			}
+		})
+	}
+}
+
+type apiGatewayTokenTest struct {
+	partitionsEnabled bool
+	policyExists      bool
+	roleExists        bool
+	wantErr           bool
+}
+
+func TestUpsertAPIGatewayPolicyAndRole(t *testing.T) {
+	testUpsertAPIGatewayPolicyAndRole(t, map[string]apiGatewayTokenTest{
+		"both policy and role doesn't exist": {},
+		"policy already exists": {
+			policyExists: true,
+		},
+		"role already exists": {
+			roleExists: true,
+			wantErr:    true,
+		},
+		"role already exists and policy also exists": {
+			roleExists:   true,
+			policyExists: true,
+		},
+	})
+}
+
+func testUpsertAPIGatewayPolicyAndRole(t *testing.T, cases map[string]apiGatewayTokenTest) {
+	t.Parallel()
+	t.Helper()
+	for name, c := range cases {
+		c := c
+		t.Run(name, func(t *testing.T) {
+			server, cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+			consulClient, err := api.NewClient(cfg)
+			require.NoError(t, err)
+
+			t.Cleanup(func() {
+				role, _, err := consulClient.ACL().RoleReadByName(apiGatewayRoleName, nil)
+				require.NoError(t, err)
+				require.NotNil(t, role)
+
+				_, err = consulClient.ACL().RoleDelete(role.ID, nil)
+				require.NoError(t, err)
+
+				policy, _, err := consulClient.ACL().PolicyReadByName(apiGatewayPolicyName, nil)
+				require.NoError(t, err)
+				require.NotNil(t, policy)
+
+				_, err = consulClient.ACL().PolicyDelete(policy.ID, nil)
+				require.NoError(t, err)
+			})
+
+			serverHost, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
+			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
+
+			cmd := Command{
+				log: hclog.Default().Named("controller"),
+				config: &config.Config{
+					Controller: config.Controller{
+						PartitionsEnabled: c.partitionsEnabled,
+					},
+					ConsulServers: config.ConsulServers{
+						Hosts: serverHost,
+						GRPC: config.GRPCSettings{
+							Port:      serverGRPCPort,
+							EnableTLS: testutil.BoolPtr(false),
+						},
+						HTTP: config.HTTPSettings{
+							Port:      serverHTTPPort,
+							EnableTLS: testutil.BoolPtr(false),
+						},
+						SkipServerWatch: true,
+					},
+				},
+			}
+
+			if c.policyExists {
+				err = cmd.upsertAPIGatewayPolicy(consulClient, apiGatewayPolicyName)
+				require.NoError(t, err)
+			}
+
+			if c.roleExists {
+				err = cmd.upsertAPIGatewayRole(consulClient, apiGatewayRoleName, apiGatewayPolicyName)
+				if c.wantErr {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			}
+
+			err = cmd.upsertAPIGatewayPolicyAndRole(consulClient, apiGatewayRoleName, apiGatewayPolicyName)
+			require.NoError(t, err)
+
+			roles, _, err := consulClient.ACL().RoleList(nil)
+			require.NoError(t, err)
+			require.Len(t, roles, 1)
+			require.Equal(t, apiGatewayRoleName, roles[0].Name)
+			require.NotNil(t, roles[0].Policies)
+
+			policy, _, err := consulClient.ACL().PolicyReadByName(apiGatewayPolicyName, nil)
+			require.NoError(t, err)
+			require.NotNil(t, policy)
+
+			expPolicy := expOSSAPIGatewayPolicy
+			if c.partitionsEnabled {
+				expPolicy = expEntAPIGatewayPolicy
+			}
+
+			require.Equal(t, expPolicy, policy.Rules)
 		})
 	}
 }

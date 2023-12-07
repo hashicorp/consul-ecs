@@ -39,8 +39,16 @@ const (
 	anonPolicyDesc = "Anonymous token Policy"
 
 	// Role and Policy for API Gateways
-	apiGatewayRoleName   = "consul-ecs-api-gateway-role"
-	apiGatewayPolicyName = "consul-ecs-api-gateway-policy"
+	apiGatewayRoleName        = "consul-ecs-api-gateway-role"
+	apiGatewayPolicyName      = "consul-ecs-api-gateway-policy"
+	apiGatewayRoleDescription = "API Gateway Role for ECS"
+
+	// Role for terminating gateways. This role will be
+	// bound to the token created by the auth method for
+	// the terminating gateway. Users can attach policies
+	// to this role via terraform.
+	terminatingGatewayRoleName        = "consul-ecs-terminating-gateway-role"
+	terminatingGatewayRoleDescription = "Terminating Gateway Role for ECS"
 )
 
 type Command struct {
@@ -224,6 +232,13 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 			Selector:    fmt.Sprintf(`entity_tags["%s"] == "api-gateway"`, authMethodGatewayKindTag),
 			BindName:    apiGatewayRoleName,
 		},
+		{
+			Description: "Bind a Consul role from IAM role tag for ECS based Terminating gateways",
+			AuthMethod:  serviceAuthMethod.Name,
+			BindType:    api.BindingRuleBindTypeRole,
+			Selector:    fmt.Sprintf(`entity_tags["%s"] == "terminating-gateway"`, authMethodGatewayKindTag),
+			BindName:    terminatingGatewayRoleName,
+		},
 	}
 
 	agentSelf, err := consulClient.Agent().Self()
@@ -248,7 +263,10 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 		return fmt.Errorf("`config.controller.partition` provided without setting `config.controller.partitionEnabled = true`")
 	}
 
-	if err := c.upsertAPIGatewayPolicyAndRole(consulClient, apiGatewayRoleName, apiGatewayPolicyName); err != nil {
+	if err := c.upsertAPIGatewayPolicyAndRole(consulClient); err != nil {
+		return err
+	}
+	if err := c.upsertRole(consulClient, terminatingGatewayRoleName, "", terminatingGatewayRoleDescription); err != nil {
 		return err
 	}
 	if err := c.upsertAuthMethod(consulClient, serviceAuthMethod); err != nil {
@@ -373,11 +391,11 @@ func (c *Command) upsertAuthMethod(consulClient *api.Client, authMethod *api.ACL
 }
 
 // upsertAPIGatewayPolicyAndRole creates or updates the Consul ACL role for the API Gateway token.
-func (c *Command) upsertAPIGatewayPolicyAndRole(consulClient *api.Client, roleName, policyName string) error {
-	if err := c.upsertAPIGatewayPolicy(consulClient, policyName); err != nil {
+func (c *Command) upsertAPIGatewayPolicyAndRole(consulClient *api.Client) error {
+	if err := c.upsertAPIGatewayPolicy(consulClient, apiGatewayPolicyName); err != nil {
 		return err
 	}
-	if err := c.upsertAPIGatewayRole(consulClient, roleName, policyName); err != nil {
+	if err := c.upsertRole(consulClient, apiGatewayRoleName, apiGatewayPolicyName, apiGatewayRoleDescription); err != nil {
 		return err
 	}
 	return nil
@@ -432,8 +450,10 @@ namespace_prefix "" {
 	return RenderTemplate(rules, c.templateData())
 }
 
-// upsertAPIGatewayRole creates the ACL role for the API gateway, if the role does not exist.
-func (c *Command) upsertAPIGatewayRole(consulClient *api.Client, roleName, policyName string) error {
+// upsertRole creates the ACL role, if the role does not exist.
+// If the role exists and a policyName is passed, we try to
+// attach the policy to the role.
+func (c *Command) upsertRole(consulClient *api.Client, roleName, policyName, roleDescription string) error {
 	// If the role already exists, we're done.
 	role, _, err := consulClient.ACL().RoleReadByName(roleName, c.queryOptions())
 	if err != nil && !controller.IsACLNotFoundError(err) {
@@ -441,7 +461,7 @@ func (c *Command) upsertAPIGatewayRole(consulClient *api.Client, roleName, polic
 	} else if err == nil && role != nil { // returns role=nil and err=nil if not found
 		c.log.Info("ACL role already exists; skipping role creation", "name", roleName)
 
-		if len(role.Policies) == 0 {
+		if len(role.Policies) == 0 && policyName != "" {
 			c.log.Info("updating ACL role with policy", "role", roleName, "policy", policyName)
 			role.Policies = []*api.ACLLink{{Name: policyName}}
 			_, _, err := consulClient.ACL().RoleUpdate(role, c.writeOptions())
@@ -454,17 +474,20 @@ func (c *Command) upsertAPIGatewayRole(consulClient *api.Client, roleName, polic
 	}
 
 	c.log.Info("creating ACL role", "name", roleName)
+
+	var policies []*api.ACLLink
+	if policyName != "" {
+		policies = []*api.ACLLink{
+			{Name: policyName},
+		}
+	}
 	_, _, err = consulClient.ACL().RoleCreate(&api.ACLRole{
 		Name:        roleName,
-		Description: "API Gateway token Role for ECS",
-		Policies: []*api.ACLLink{
-			{
-				Name: policyName,
-			},
-		},
+		Description: roleDescription,
+		Policies:    policies,
 	}, c.writeOptions())
 	if err != nil {
-		return fmt.Errorf("creating API Gateway token Role: %w", err)
+		return fmt.Errorf("creating role: %w", err)
 	}
 	c.log.Info("ACL role created successfully", "name", roleName)
 

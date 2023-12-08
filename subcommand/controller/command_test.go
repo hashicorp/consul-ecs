@@ -296,11 +296,17 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnab
 
 	require.Contains(t, policyNames, apiGatewayPolicyName)
 
-	// Check for the presence of API gateway role
+	// Check for the presence of API gateway and terminating gateway roles
 	roles, _, err := consulClient.ACL().RoleList(nil)
 	require.NoError(t, err)
-	require.Len(t, roles, 1)
-	require.Equal(t, apiGatewayRoleName, roles[0].Name)
+	require.Len(t, roles, 2)
+
+	roleNames := make([]string, 0)
+	for _, role := range roles {
+		roleNames = append(roleNames, role.Name)
+	}
+	require.Contains(t, roleNames, apiGatewayRoleName)
+	require.Contains(t, roleNames, terminatingGatewayRoleName)
 
 	// Check the auth methods are created
 	methods, _, err := consulClient.ACL().AuthMethodList(nil)
@@ -338,22 +344,29 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnab
 		// Check the binding rule is created.
 		rules, _, err := consulClient.ACL().BindingRuleList(method.Name, nil)
 		require.NoError(t, err)
-		require.Len(t, rules, 2)
+		require.Len(t, rules, 3)
 
-		var serviceBindingRule, gatewayBindingRule *api.ACLBindingRule
+		var serviceBindingRule *api.ACLBindingRule
+		gatewayBindingRules := make([]*api.ACLBindingRule, 0)
 		for _, rule := range rules {
 			switch rule.BindType {
 			case api.BindingRuleBindTypeService:
 				serviceBindingRule = rule
 			case api.BindingRuleBindTypeRole:
-				gatewayBindingRule = rule
+				gatewayBindingRules = append(gatewayBindingRules, rule)
 			}
 		}
 		require.NotNil(t, serviceBindingRule)
 		require.Equal(t, serviceBindingRule.BindName, fmt.Sprintf(`${entity_tags.%s}`, authMethodServiceNameTag))
 
-		require.NotNil(t, gatewayBindingRule)
-		require.Equal(t, gatewayBindingRule.BindName, apiGatewayRoleName)
+		require.Len(t, gatewayBindingRules, 2)
+
+		bindRuleNames := make([]string, 0)
+		for _, bindingRule := range gatewayBindingRules {
+			bindRuleNames = append(bindRuleNames, bindingRule.BindName)
+		}
+		require.Contains(t, bindRuleNames, apiGatewayRoleName)
+		require.Contains(t, bindRuleNames, terminatingGatewayRoleName)
 	}
 }
 
@@ -754,7 +767,7 @@ func testUpsertAPIGatewayPolicyAndRole(t *testing.T, cases map[string]apiGateway
 			}
 
 			if c.roleExists {
-				err = cmd.upsertAPIGatewayRole(consulClient, apiGatewayRoleName, apiGatewayPolicyName)
+				err = cmd.upsertRole(consulClient, apiGatewayRoleName, apiGatewayPolicyName, apiGatewayRoleDescription)
 				if c.wantErr {
 					require.Error(t, err)
 				} else {
@@ -762,7 +775,7 @@ func testUpsertAPIGatewayPolicyAndRole(t *testing.T, cases map[string]apiGateway
 				}
 			}
 
-			err = cmd.upsertAPIGatewayPolicyAndRole(consulClient, apiGatewayRoleName, apiGatewayPolicyName)
+			err = cmd.upsertAPIGatewayPolicyAndRole(consulClient)
 			require.NoError(t, err)
 
 			roles, _, err := consulClient.ACL().RoleList(nil)

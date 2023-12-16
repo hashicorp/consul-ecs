@@ -335,36 +335,39 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 		"source":   "consul-ecs",
 	}, c.config.Gateway.Meta)
 
-	taggedAddresses := make(map[string]api.ServiceAddress)
+	switch c.config.Gateway.Kind {
+	case api.ServiceKindMeshGateway:
+		taggedAddresses := make(map[string]api.ServiceAddress)
 
-	// Default the LAN port if it was not provided.
-	gatewaySvc.Port = config.DefaultGatewayPort
+		// Default the LAN port if it was not provided.
+		gatewaySvc.Port = config.DefaultGatewayPort
 
-	if c.config.Gateway.LanAddress != nil {
-		lanAddr := c.config.Gateway.LanAddress.ToConsulType()
-		// If a LAN address is provided then use that and add the LAN address to the tagged addresses.
-		if lanAddr.Port > 0 {
-			gatewaySvc.Port = lanAddr.Port
-		}
-		if lanAddr.Address != "" {
-			gatewaySvc.Address = lanAddr.Address
-			taggedAddresses[config.TaggedAddressLAN] = lanAddr
-		}
-	}
-
-	// TODO if assign_public_ip is set and the WAN address is not provided then
-	// we need to find the Public IP of the task (or LB) and use that for the WAN address.
-	if c.config.Gateway.WanAddress != nil {
-		wanAddr := c.config.Gateway.WanAddress.ToConsulType()
-		if wanAddr.Address != "" {
-			if wanAddr.Port == 0 {
-				wanAddr.Port = gatewaySvc.Port
+		if c.config.Gateway.LanAddress != nil {
+			lanAddr := c.config.Gateway.LanAddress.ToConsulType()
+			// If a LAN address is provided then use that and add the LAN address to the tagged addresses.
+			if lanAddr.Port > 0 {
+				gatewaySvc.Port = lanAddr.Port
 			}
-			taggedAddresses[config.TaggedAddressWAN] = wanAddr
+			if lanAddr.Address != "" {
+				gatewaySvc.Address = lanAddr.Address
+				taggedAddresses[config.TaggedAddressLAN] = lanAddr
+			}
 		}
-	}
-	if len(taggedAddresses) > 0 {
-		gatewaySvc.TaggedAddresses = taggedAddresses
+
+		// TODO if assign_public_ip is set and the WAN address is not provided then
+		// we need to find the Public IP of the task (or LB) and use that for the WAN address.
+		if c.config.Gateway.WanAddress != nil {
+			wanAddr := c.config.Gateway.WanAddress.ToConsulType()
+			if wanAddr.Address != "" {
+				if wanAddr.Port == 0 {
+					wanAddr.Port = gatewaySvc.Port
+				}
+				taggedAddresses[config.TaggedAddressWAN] = wanAddr
+			}
+		}
+		if len(taggedAddresses) > 0 {
+			gatewaySvc.TaggedAddresses = taggedAddresses
+		}
 	}
 
 	return c.constructCatalogRegistrationPayload(gatewaySvc, taskMeta, clusterARN)

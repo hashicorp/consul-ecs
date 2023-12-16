@@ -650,8 +650,6 @@ func TestRun(t *testing.T) {
 
 func TestGateway(t *testing.T) {
 	var (
-		family           = "family-name-mesh-gateway"
-		serviceName      = "service-name-mesh-gateway"
 		taskARN          = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
 		taskIP           = "10.1.2.3"
 		publicIP         = "255.1.2.3"
@@ -668,6 +666,7 @@ func TestGateway(t *testing.T) {
 	cases := map[string]struct {
 		config *config.Config
 
+		taskFamily         string
 		expServiceID       string
 		expServiceName     string
 		expLanAddress      string
@@ -681,8 +680,9 @@ func TestGateway(t *testing.T) {
 					Kind: api.ServiceKindMeshGateway,
 				},
 			},
-			expServiceID:   family + "-abcdef",
-			expServiceName: family,
+			taskFamily:     "family-name-mesh-gateway",
+			expServiceID:   "family-name-mesh-gateway-abcdef",
+			expServiceName: "family-name-mesh-gateway",
 			expLanPort:     config.DefaultGatewayPort,
 		},
 		"mesh gateway with port": {
@@ -694,8 +694,9 @@ func TestGateway(t *testing.T) {
 					},
 				},
 			},
-			expServiceID:   family + "-abcdef",
-			expServiceName: family,
+			taskFamily:     "family-name-mesh-gateway",
+			expServiceID:   "family-name-mesh-gateway-abcdef",
+			expServiceName: "family-name-mesh-gateway",
 			expLanPort:     12345,
 		},
 		"mesh gateway with service name": {
@@ -705,11 +706,12 @@ func TestGateway(t *testing.T) {
 					LanAddress: &config.GatewayAddress{
 						Port: 12345,
 					},
-					Name: serviceName,
+					Name: "service-name-mesh-gateway",
 				},
 			},
-			expServiceID:   serviceName + "-abcdef",
-			expServiceName: serviceName,
+			taskFamily:     "family-name-mesh-gateway",
+			expServiceID:   "service-name-mesh-gateway-abcdef",
+			expServiceName: "service-name-mesh-gateway",
 			expLanPort:     12345,
 		},
 		"mesh gateway with lan address": {
@@ -720,11 +722,12 @@ func TestGateway(t *testing.T) {
 						Address: taskIP,
 						Port:    12345,
 					},
-					Name: serviceName,
+					Name: "service-name-mesh-gateway",
 				},
 			},
-			expServiceID:   serviceName + "-abcdef",
-			expServiceName: serviceName,
+			taskFamily:     "family-name-mesh-gateway",
+			expServiceID:   "service-name-mesh-gateway-abcdef",
+			expServiceName: "service-name-mesh-gateway",
 			expLanAddress:  taskIP,
 			expLanPort:     12345,
 			expTaggedAddresses: map[string]api.ServiceAddress{
@@ -745,8 +748,9 @@ func TestGateway(t *testing.T) {
 				},
 				Service: config.ServiceRegistration{},
 			},
-			expServiceID:   family + "-abcdef",
-			expServiceName: family,
+			taskFamily:     "family-name-mesh-gateway",
+			expServiceID:   "family-name-mesh-gateway-abcdef",
+			expServiceName: "family-name-mesh-gateway",
 			expLanPort:     config.DefaultGatewayPort,
 			expLanAddress:  "",
 			expTaggedAddresses: map[string]api.ServiceAddress{
@@ -766,9 +770,58 @@ func TestGateway(t *testing.T) {
 					Kind: api.ServiceKindMeshGateway,
 				},
 			},
-			expServiceID:   family + "-abcdef",
-			expServiceName: family,
+			taskFamily:     "family-name-mesh-gateway",
+			expServiceID:   "family-name-mesh-gateway-abcdef",
+			expServiceName: "family-name-mesh-gateway",
 			expLanPort:     config.DefaultGatewayPort,
+		},
+		"terminating gateway": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindTerminatingGateway,
+				},
+			},
+			taskFamily:     "family-name-terminating-gateway",
+			expServiceID:   "family-name-terminating-gateway-abcdef",
+			expServiceName: "family-name-terminating-gateway",
+		},
+		"terminating gateway with auth method enabled": {
+			config: &config.Config{
+				ConsulLogin: config.ConsulLogin{
+					Enabled:       true,
+					IncludeEntity: true,
+				},
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindTerminatingGateway,
+				},
+			},
+			taskFamily:     "family-name-terminating-gateway",
+			expServiceID:   "family-name-terminating-gateway-abcdef",
+			expServiceName: "family-name-terminating-gateway",
+		},
+		"api gateway": {
+			config: &config.Config{
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindAPIGateway,
+				},
+			},
+			taskFamily:     "family-name-api-gateway",
+			expServiceID:   "family-name-api-gateway-abcdef",
+			expServiceName: "family-name-api-gateway",
+		},
+		"api gateway with auth method enabled": {
+			config: &config.Config{
+				ConsulLogin: config.ConsulLogin{
+					Enabled:       true,
+					IncludeEntity: true,
+				},
+				Gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindAPIGateway,
+				},
+			},
+			taskFamily:     "family-name-api-gateway",
+			expServiceID:   "family-name-api-gateway-abcdef",
+			expServiceName: "family-name-api-gateway",
 		},
 	}
 	for name, c := range cases {
@@ -782,7 +835,7 @@ func TestGateway(t *testing.T) {
 			taskMetadataResponse := &awsutil.ECSTaskMeta{
 				Cluster: "test",
 				TaskARN: taskARN,
-				Family:  family,
+				Family:  c.taskFamily,
 				Containers: []awsutil.ECSTaskMetaContainer{
 					{
 						Networks: []awsutil.ECSTaskMetaNetwork{
@@ -874,6 +927,11 @@ func TestGateway(t *testing.T) {
 			// to Consul before entering into the checks reconcilation loop
 			<-cmd.doneChan
 
+			expPort := config.DefaultGatewayPort
+			if c.expLanPort != 0 {
+				expPort = c.expLanPort
+			}
+
 			expectedService := &api.CatalogService{
 				Node:                   "arn:aws:ecs:us-east-1:123456789:cluster/test",
 				Address:                taskIP,
@@ -882,7 +940,7 @@ func TestGateway(t *testing.T) {
 				ServiceName:            c.expServiceName,
 				ServiceProxy:           &api.AgentServiceConnectProxyConfig{},
 				ServiceAddress:         taskIP,
-				ServicePort:            c.expLanPort,
+				ServicePort:            expPort,
 				ServiceMeta:            expectedTaskMeta,
 				ServiceTags:            []string{},
 				Datacenter:             "dc1",

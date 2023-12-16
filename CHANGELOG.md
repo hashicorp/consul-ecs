@@ -1,5 +1,18 @@
 ## Unreleased
 
+FEATURES
+* API and terminating gateways
+  - Add support for configuring API and terminating gateways as ECS tasks [[GH-192](https://github.com/hashicorp/consul-ecs/pull/192)]
+  - Add following changes to the controller to support API gateways in ACL enabled clusters [[GH-198](https://github.com/hashicorp/consul-ecs/pull/198)]
+    - Create the `consul-ecs-api-gateway-role` ACL role and `consul-ecs-api-gateway-policy` ACL policy.
+    - Add a new IAM entity tag `consul.hashicorp.name.gateway-kind` to the existing service auth method's config.
+    - Add a new binding rule specific to API gateway that helps binding the API gateway's ACL token to the preconfigured `consul-ecs-api-gateway-role`
+  - Add following changes to the controller to support Terminating gateways in ACL enabled clusters [[GH-199](https://github.com/hashicorp/consul-ecs/pull/199)]
+    - Create the `consul-ecs-terminating-gateway-role` ACL role. This role will be assigned to the ACL token obtained by the terminating gateway task after performing a Consul login. Users can assign policies to this role via terraform whenever needed.
+    - Add a new binding rule specific to terminating gateways that helps bind the terminating gateway's ACL token to the preconfigured `consul-ecs-terminating-gateway-role`
+
+## 0.7.0 (Nov 7, 2023)
+
 BREAKING CHANGES
 * Adopt the architecture described in [Simplified Service Mesh with Consul Dataplane](https://developer.hashicorp.com/consul/docs/connect/dataplane): [[GH-161](https://github.com/hashicorp/consul-ecs/pull/161)]
   - Consul client agents are no longer used.
@@ -37,6 +50,11 @@ FEATURES
 
 IMPROVEMENTS
 * Bump Golang to 1.20
+
+## 0.6.1 (Nov 2, 2023)
+
+IMPROVEMENTS
+* Bump Go to `1.20`
 
 ## 0.6.0 (Mar 15, 2023)
 

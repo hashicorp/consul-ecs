@@ -6,6 +6,7 @@ package config
 
 import (
 	"encoding/json"
+	"path/filepath"
 
 	"github.com/hashicorp/consul/api"
 )
@@ -625,4 +626,8 @@ type ConsulDNS struct {
 
 func (cfg *Config) ConsulDNSEnabled() bool {
 	return cfg.TransparentProxy.Enabled && cfg.TransparentProxy.ConsulDNS.Enabled && !cfg.IsGateway()
+}
+
+func (cfg *Config) ConstructConsulTokenFilePath() string {
+	return filepath.Join(cfg.BootstrapDir, ServiceTokenFilename)
 }

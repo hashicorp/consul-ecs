@@ -112,7 +112,10 @@ func (c *Command) run() error {
 	// Set up ECS client.
 	ecsClient := ecs.New(clientSession)
 
-	serverConnMgrCfg, err := c.config.ConsulServerConnMgrConfig(ecsMeta)
+	tokenMeta := &config.TokenMeta{
+		Token: config.GetConsulToken(),
+	}
+	serverConnMgrCfg, err := c.config.ConsulServerConnMgrConfig(ecsMeta, tokenMeta)
 	if err != nil {
 		return fmt.Errorf("constructing server connection manager config: %w", err)
 	}

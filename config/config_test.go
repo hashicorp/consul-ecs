@@ -6,6 +6,7 @@ package config
 import (
 	"crypto/tls"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/hashicorp/consul-ecs/awsutil"
@@ -37,10 +38,10 @@ APQczkCoIFiLlGp0GYeHEfjvrdm2g8Q3BUDjeAUfZPaW
 
 func TestConsulServerConnManagerConfig(t *testing.T) {
 	cases := map[string]struct {
-		cfg                    *Config
-		taskMeta               awsutil.ECSTaskMeta
-		consulHTTPTokenPresent bool
-		expConfig              func(t *testing.T, e awsutil.ECSTaskMeta) discovery.Config
+		cfg       *Config
+		taskMeta  awsutil.ECSTaskMeta
+		tokenMeta *TokenMeta
+		expConfig func(t *testing.T, e awsutil.ECSTaskMeta) discovery.Config
 	}{
 		"basic flags without TLS or ACLs": {
 			cfg: &Config{
@@ -214,7 +215,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				}
 			},
 		},
-		"Consul HTTP token is non empty": {
+		"Consul token is non empty": {
 			cfg: &Config{
 				ConsulServers: ConsulServers{
 					Hosts: "consul.dc1.address",
@@ -222,6 +223,9 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				ConsulLogin: ConsulLogin{
 					Enabled: true,
 				},
+			},
+			tokenMeta: &TokenMeta{
+				Token: "test-token",
 			},
 			expConfig: func(_ *testing.T, _ awsutil.ECSTaskMeta) discovery.Config {
 				return discovery.Config{
@@ -234,14 +238,37 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 					},
 				}
 			},
-			consulHTTPTokenPresent: true,
+		},
+		"Consul token file is non empty": {
+			cfg: &Config{
+				ConsulServers: ConsulServers{
+					Hosts: "consul.dc1.address",
+				},
+				ConsulLogin: ConsulLogin{
+					Enabled: true,
+				},
+			},
+			tokenMeta: &TokenMeta{
+				TokenFile: filepath.Join(os.TempDir(), ServiceTokenFilename),
+			},
+			expConfig: func(_ *testing.T, _ awsutil.ECSTaskMeta) discovery.Config {
+				return discovery.Config{
+					Addresses: "consul.dc1.address",
+					Credentials: discovery.Credentials{
+						Type: discovery.CredentialsTypeStatic,
+						Static: discovery.StaticTokenCredential{
+							Token: "test-token",
+						},
+					},
+				}
+			},
 		},
 	}
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			var srvConfig testutil.ServerConfigCallback
-			if c.cfg.ConsulLogin.Enabled && !c.consulHTTPTokenPresent {
+			if c.cfg.ConsulLogin.Enabled && c.tokenMeta == nil {
 				// Enable ACLs to test with the auth method
 				srvConfig = testutil.ConsulACLConfigFn
 				_, apiCfg := testutil.ConsulServer(t, srvConfig)
@@ -251,11 +278,16 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 
 				// Use the fake local AWS server.
 				c.cfg.ConsulLogin.STSEndpoint = fakeAws.URL + "/sts"
-			} else if c.cfg.ConsulLogin.Enabled {
-				t.Setenv(bootstrapTokenEnvVar, "test-token")
+			} else if c.cfg.ConsulLogin.Enabled && c.tokenMeta.TokenFile != "" {
+				err := os.WriteFile(c.tokenMeta.TokenFile, []byte("test-token"), 0644)
+				require.NoError(t, err)
+
+				t.Cleanup(func() {
+					_ = os.Remove(c.tokenMeta.TokenFile)
+				})
 			}
 
-			cfg, err := c.cfg.ConsulServerConnMgrConfig(c.taskMeta)
+			cfg, err := c.cfg.ConsulServerConnMgrConfig(c.taskMeta, c.tokenMeta)
 			require.NoError(t, err)
 
 			expectedCfg := c.expConfig(t, c.taskMeta)
@@ -265,7 +297,10 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				expectedCfg.Credentials.Login.Partition = "test-partition"
 			}
 
-			if c.cfg.ConsulLogin.Enabled && !c.consulHTTPTokenPresent {
+			if c.cfg.ConsulLogin.Enabled && c.tokenMeta != nil {
+				require.Equal(t, expectedCfg.Credentials.Type, cfg.Credentials.Type)
+				require.Equal(t, expectedCfg.Credentials.Static.Token, cfg.Credentials.Static.Token)
+			} else if c.cfg.ConsulLogin.Enabled {
 				require.Equal(t, expectedCfg.Credentials.Type, cfg.Credentials.Type)
 				require.Equal(t, expectedCfg.Credentials.Login.AuthMethod, cfg.Credentials.Login.AuthMethod)
 				require.Equal(t, expectedCfg.Credentials.Login.Namespace, cfg.Credentials.Login.Namespace)
@@ -339,7 +374,7 @@ func TestConsulServerConnManagerConfig_TLS(t *testing.T) {
 			if c.setupEnv != nil {
 				c.setupEnv(t)
 			}
-			cfg, err := c.cfg.ConsulServerConnMgrConfig(awsutil.ECSTaskMeta{})
+			cfg, err := c.cfg.ConsulServerConnMgrConfig(awsutil.ECSTaskMeta{}, nil)
 			require.NoError(t, err)
 
 			require.NotNil(t, cfg.TLS.RootCAs)

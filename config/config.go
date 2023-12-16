@@ -44,7 +44,28 @@ type TLSSettings struct {
 	TLSServerName string
 }
 
-func (c *Config) ConsulServerConnMgrConfig(taskMeta awsutil.ECSTaskMeta) (discovery.Config, error) {
+type TokenMeta struct {
+	Token     string
+	TokenFile string
+}
+
+func (t *TokenMeta) GetToken() string {
+	if t == nil {
+		return ""
+	}
+
+	return t.Token
+}
+
+func (t *TokenMeta) GetTokenFile() string {
+	if t == nil {
+		return ""
+	}
+
+	return t.TokenFile
+}
+
+func (c *Config) ConsulServerConnMgrConfig(taskMeta awsutil.ECSTaskMeta, tokenMeta *TokenMeta) (discovery.Config, error) {
 	cfg := discovery.Config{
 		Addresses: c.ConsulServers.Hosts,
 		GRPCPort:  c.ConsulServers.GRPC.Port,
@@ -75,13 +96,23 @@ func (c *Config) ConsulServerConnMgrConfig(taskMeta awsutil.ECSTaskMeta) (discov
 		cfg.TLS.ServerName = grpcTLSSettings.TLSServerName
 	}
 
-	// We skip login if CONSUL_HTTP_TOKEN is non empty
-	token := GetConsulToken()
-	if token != "" {
+	if tokenMeta.GetToken() != "" {
 		cfg.Credentials = discovery.Credentials{
 			Type: discovery.CredentialsTypeStatic,
 			Static: discovery.StaticTokenCredential{
-				Token: token,
+				Token: tokenMeta.Token,
+			},
+		}
+	} else if tokenMeta.GetTokenFile() != "" {
+		token, err := os.ReadFile(tokenMeta.TokenFile)
+		if err != nil {
+			return discovery.Config{}, err
+		}
+
+		cfg.Credentials = discovery.Credentials{
+			Type: discovery.CredentialsTypeStatic,
+			Static: discovery.StaticTokenCredential{
+				Token: string(token),
 			},
 		}
 	} else if c.ConsulLogin.Enabled {

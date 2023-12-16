@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -93,7 +92,7 @@ func (c *Command) realRun() error {
 		return err
 	}
 
-	serverConnMgrCfg, err := c.config.ConsulServerConnMgrConfig(taskMeta)
+	serverConnMgrCfg, err := c.config.ConsulServerConnMgrConfig(taskMeta, nil)
 	if err != nil {
 		return fmt.Errorf("constructing server connection manager config: %s", err)
 	}
@@ -185,11 +184,12 @@ func (c *Command) realRun() error {
 		}
 	}
 
+	c.log.Info("successfully initialized the task to operate as part of the mesh")
 	return nil
 }
 
 func (c *Command) Synopsis() string {
-	return "Initializes and monitors a mesh app"
+	return "Initializes a mesh app"
 }
 
 func (c *Command) Help() string {
@@ -210,7 +210,7 @@ func (c *Command) setupConsulAPIClient(state discovery.State) (*api.Client, erro
 	if c.config.ConsulLogin.Enabled {
 		// If enabled write the ACL token to a shared volume so that consul-dataplane
 		// can reuse it later on whenever it starts up
-		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
+		tokenFile := c.config.ConstructConsulTokenFilePath()
 		err := os.WriteFile(tokenFile, []byte(state.Token), 0644)
 		if err != nil {
 			return nil, err

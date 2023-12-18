@@ -145,6 +145,21 @@ func TestHasStopped(t *testing.T) {
 	require.Equal(t, true, container.HasStopped())
 }
 
+func TestIsNormalType(t *testing.T) {
+	container := ECSTaskMetaContainer{
+		Name:          "container1",
+		DesiredStatus: ecs.DesiredStatusRunning,
+		KnownStatus:   ecs.DesiredStatusRunning,
+		Type:          containerTypeNormal,
+	}
+
+	require.True(t, container.IsNormalType())
+
+	container.Type = "SOME_AWS_MANAGED_TYPE"
+
+	require.False(t, container.IsNormalType())
+}
+
 // Helper to restore the environment after a test.
 func restoreEnv(t *testing.T, env []string) {
 	os.Clearenv()

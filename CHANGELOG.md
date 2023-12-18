@@ -11,6 +11,8 @@ FEATURES
     - Create the `consul-ecs-terminating-gateway-role` ACL role. This role will be assigned to the ACL token obtained by the terminating gateway task after performing a Consul login. Users can assign policies to this role via terraform whenever needed.
     - Add a new binding rule specific to terminating gateways that helps bind the terminating gateway's ACL token to the preconfigured `consul-ecs-terminating-gateway-role`
 
+## 0.7.1 (Dec 18, 2023)
+
 BUG FIXES
 * Fixes a bug which prevented graceful shutdown of the Consul dataplane container. [[GH-200](https://github.com/hashicorp/consul-ecs/pull/200)]
 

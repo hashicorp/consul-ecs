@@ -24,6 +24,10 @@ const (
 	ECSMetadataURIEnvVar = "ECS_CONTAINER_METADATA_URI_V4"
 
 	AWSRegionEnvVar = "AWS_REGION"
+
+	// This is the type assigned to the containers that are
+	// present in the task definition.
+	containerTypeNormal = "NORMAL"
 )
 
 type ECSTaskMeta struct {
@@ -40,6 +44,7 @@ type ECSTaskMetaContainer struct {
 	DesiredStatus string               `json:"DesiredStatus"`
 	KnownStatus   string               `json:"KnownStatus"`
 	Networks      []ECSTaskMetaNetwork `json:"Networks"`
+	Type          string               `json:"Type"`
 }
 
 type ECSTaskMetaHealth struct {
@@ -122,6 +127,10 @@ func (e ECSTaskMeta) HasContainerStopped(name string) bool {
 func (c ECSTaskMetaContainer) HasStopped() bool {
 	return c.DesiredStatus == ecs.DesiredStatusStopped &&
 		c.KnownStatus == ecs.DesiredStatusStopped
+}
+
+func (c ECSTaskMetaContainer) IsNormalType() bool {
+	return c.Type == containerTypeNormal
 }
 
 func ECSTaskMetadata() (ECSTaskMeta, error) {

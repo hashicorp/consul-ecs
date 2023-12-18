@@ -1,3 +1,8 @@
+## Unreleased
+
+BUG FIXES
+* Fixes a bug which prevented graceful shutdown of the Consul dataplane container. [[GH-200](https://github.com/hashicorp/consul-ecs/pull/200)]
+
 ## 0.7.0 (Nov 7, 2023)
 
 BREAKING CHANGES

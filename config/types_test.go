@@ -5,6 +5,7 @@ package config
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/hashicorp/consul-ecs/testutil"
@@ -644,6 +645,14 @@ func TestConsulDNSEnabled(t *testing.T) {
 		Kind: api.ServiceKindMeshGateway,
 	}
 	require.False(t, cfg.ConsulDNSEnabled())
+}
+
+func TestConstructConsulTokenFilePath(t *testing.T) {
+	cfg := &Config{
+		BootstrapDir: "test-dir/consul-ecs/",
+	}
+
+	require.Equal(t, filepath.Join(cfg.BootstrapDir, "service-token"), cfg.ConstructConsulTokenFilePath())
 }
 
 var (

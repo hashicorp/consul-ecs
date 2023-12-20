@@ -20,6 +20,8 @@ import (
 var (
 	nonAppContainers = map[string]struct{}{
 		"consul-ecs-control-plane": {},
+		"consul-ecs-health-sync":   {},
+		"consul-dataplane":         {},
 	}
 )
 
@@ -65,7 +67,7 @@ func (t *AppContainerMonitor) Run() {
 				break // escape this case of the select
 			}
 
-			if allAppContainersStopped(taskMeta) {
+			if t.allAppContainersStopped(taskMeta) {
 				t.log.Info("application container(s) have stopped, terminating envoy")
 				t.doneCh <- struct{}{}
 				return
@@ -89,10 +91,11 @@ func (t *AppContainerMonitor) waitForSIGTERM() bool {
 	}
 }
 
-func allAppContainersStopped(taskMeta awsutil.ECSTaskMeta) bool {
+func (t *AppContainerMonitor) allAppContainersStopped(taskMeta awsutil.ECSTaskMeta) bool {
 	allStopped := true
 	for _, container := range taskMeta.Containers {
 		if isApplication(container) && !container.HasStopped() {
+			t.log.Info("container unstopped ", container.Name)
 			allStopped = false
 		}
 	}
@@ -100,6 +103,12 @@ func allAppContainersStopped(taskMeta awsutil.ECSTaskMeta) bool {
 }
 
 func isApplication(container awsutil.ECSTaskMetaContainer) bool {
+	// There could be some auto-injected containers by ECS
+	// that are not defined in the task definition.
+	if container.Type != "NORMAL" {
+		return false
+	}
+
 	_, ok := nonAppContainers[container.Name]
 	return !ok
 }

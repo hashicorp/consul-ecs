@@ -40,6 +40,7 @@ type ECSTaskMetaContainer struct {
 	DesiredStatus string               `json:"DesiredStatus"`
 	KnownStatus   string               `json:"KnownStatus"`
 	Networks      []ECSTaskMetaNetwork `json:"Networks"`
+	Type          string               `json:"Type"`
 }
 
 type ECSTaskMetaHealth struct {

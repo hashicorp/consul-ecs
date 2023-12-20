@@ -6,11 +6,8 @@ package redirecttraffic
 import (
 	"fmt"
 	"net"
-	"net/url"
-	"os"
 	"strconv"
 
-	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/iptables"
@@ -23,6 +20,8 @@ const (
 
 	consulDataplaneDNSBindHost = "127.0.0.1"
 	consulDataplaneDNSBindPort = 8600
+
+	healthSyncContainerUID = "5996"
 )
 
 type trafficRedirectProxyConfig struct {
@@ -170,15 +169,11 @@ func (c *TrafficRedirectionCfg) Apply() error {
 	// Outbound CIDRs
 	c.iptablesCfg.ExcludeOutboundCIDRs = append(c.iptablesCfg.ExcludeOutboundCIDRs, c.ExcludeOutboundCIDRs...)
 
-	// Exclude TaskMeta and Consul Server IPs from outbound traffic redirection
-	parsedURL, err := url.Parse(os.Getenv(awsutil.ECSMetadataURIEnvVar))
-	if err != nil {
-		return err
-	}
-	c.iptablesCfg.ExcludeOutboundCIDRs = append(c.iptablesCfg.ExcludeOutboundCIDRs, fmt.Sprintf("%s/32", parsedURL.Host), fmt.Sprintf("%s/32", c.ConsulServerAddress))
-
 	// UIDs
 	c.iptablesCfg.ExcludeUIDs = append(c.iptablesCfg.ExcludeUIDs, c.ExcludeUIDs...)
+
+	// Append the UID of the health-sync container
+	c.iptablesCfg.ExcludeUIDs = append(c.iptablesCfg.ExcludeUIDs, healthSyncContainerUID)
 
 	// Consul DNS
 	if c.EnableConsulDNS {
@@ -190,7 +185,7 @@ func (c *TrafficRedirectionCfg) Apply() error {
 		c.iptablesCfg.IptablesProvider = c.iptablesProvider
 	}
 
-	err = iptables.Setup(c.iptablesCfg)
+	err := iptables.Setup(c.iptablesCfg)
 	if err != nil {
 		return fmt.Errorf("failed to setup traffic redirection rules %w", err)
 	}

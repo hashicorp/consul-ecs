@@ -10,6 +10,7 @@ import (
 	cmdControlPlane "github.com/hashicorp/consul-ecs/subcommand/control-plane"
 	cmdController "github.com/hashicorp/consul-ecs/subcommand/controller"
 	cmdEnvoyEntrypoint "github.com/hashicorp/consul-ecs/subcommand/envoy-entrypoint"
+	cmdHealthSync "github.com/hashicorp/consul-ecs/subcommand/health-sync"
 	cmdNetDial "github.com/hashicorp/consul-ecs/subcommand/net-dial"
 	cmdVersion "github.com/hashicorp/consul-ecs/subcommand/version"
 	"github.com/hashicorp/consul-ecs/version"
@@ -28,6 +29,9 @@ func init() {
 		},
 		"control-plane": func() (cli.Command, error) {
 			return &cmdControlPlane.Command{UI: ui}, nil
+		},
+		"health-sync": func() (cli.Command, error) {
+			return &cmdHealthSync.Command{UI: ui}, nil
 		},
 		"controller": func() (cli.Command, error) {
 			return &cmdController.Command{UI: ui}, nil

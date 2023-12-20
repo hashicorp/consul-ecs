@@ -54,7 +54,7 @@ ENV PATH="/bin/consul-inject:${PATH}"
 VOLUME [ "/consul" ]
 
 # Set up certificates, base tools, and software.
-RUN apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils iptables gcompat libc6-compat libstdc++
+RUN apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils iptables bind-tools gcompat libc6-compat libstdc++
 
 # for FIPS CGO glibc compatibility in alpine
 # see https://github.com/golang/go/issues/59305

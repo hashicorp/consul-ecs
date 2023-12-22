@@ -961,7 +961,9 @@ func assertDataplaneConfig(t *testing.T, ecsTaskMeta *awsutil.ECSTaskMeta, cfg *
 	require.Empty(t, cmp.Diff(expectedCfg, actualDataplaneConfig, ignoreFields))
 
 	// Assert if the bearer token is present
-	require.NotEmpty(t, actualDataplaneConfig.Consul.Credentials.Login.BearerToken)
+	if cfg.ConsulLogin.Enabled {
+		require.NotEmpty(t, actualDataplaneConfig.Consul.Credentials.Login.BearerToken)
+	}
 }
 
 // In a ACL enabled cluster, we expect the node to be preregistered by the ecs-controller.

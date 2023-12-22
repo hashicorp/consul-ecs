@@ -245,6 +245,10 @@ func TestRun(t *testing.T) {
 			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
 
+			if testutil.EnterpriseFlag() {
+				createPartitionAndNamespace(t, consulClient, partition, namespace)
+			}
+
 			// Set up ECS container metadata server. This sets ECS_CONTAINER_METADATA_URI_V4.
 			taskMetadataResponse := &awsutil.ECSTaskMeta{
 				Cluster: "test",
@@ -529,6 +533,10 @@ func TestRunGateways(t *testing.T) {
 			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
 
+			if testutil.EnterpriseFlag() {
+				createPartitionAndNamespace(t, consulClient, partition, namespace)
+			}
+
 			// Set up ECS container metadata server. This sets ECS_CONTAINER_METADATA_URI_V4.
 			taskMetadataResponse := &awsutil.ECSTaskMeta{
 				Cluster: "test",
@@ -582,8 +590,8 @@ func TestRunGateways(t *testing.T) {
 			}
 
 			if testutil.EnterpriseFlag() {
-				consulEcsConfig.Service.Namespace = namespace
-				consulEcsConfig.Service.Partition = partition
+				consulEcsConfig.Gateway.Namespace = namespace
+				consulEcsConfig.Gateway.Partition = partition
 			}
 
 			testutil.SetECSConfigEnvVar(t, &consulEcsConfig)
@@ -716,6 +724,21 @@ func verifyMeshInitCommandSideEffects(t *testing.T, consulClient *api.Client, se
 	svcChecks, proxyCheck := fetchSvcAndProxyHealthChecks(t, consulClient, serviceName, proxyServiceName, queryOpts)
 	require.True(t, areAllChecksCriticalFn(svcChecks))
 	require.True(t, areAllChecksCriticalFn([]*api.HealthCheck{proxyCheck}))
+}
+
+func createPartitionAndNamespace(t *testing.T, consulClient *api.Client, partition, namespace string) {
+	_, _, err := consulClient.Partitions().Create(context.TODO(), &api.Partition{
+		Name:        partition,
+		Description: "Test partition",
+	}, nil)
+	require.NoError(t, err)
+
+	_, _, err = consulClient.Namespaces().Create(&api.Namespace{
+		Name:        namespace,
+		Description: "Test partition",
+		Partition:   partition,
+	}, nil)
+	require.NoError(t, err)
 }
 
 func assertServiceAndProxyInstances(t *testing.T, consulClient *api.Client, serviceName, proxyName string, expectedCount int, opts *api.QueryOptions) {

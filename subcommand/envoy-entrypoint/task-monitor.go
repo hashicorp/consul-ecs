@@ -19,8 +19,8 @@ import (
 
 var (
 	nonAppContainers = map[string]struct{}{
-		"consul-ecs-control-plane": {},
-		"consul-dataplane":         {},
+		"consul-ecs-mesh-init": {},
+		"consul-dataplane":     {},
 	}
 )
 

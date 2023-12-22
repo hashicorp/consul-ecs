@@ -9,10 +9,8 @@ import (
 	"net"
 	"os"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -30,10 +28,6 @@ type Command struct {
 	UI     cli.Ui
 	config *config.Config
 	log    hclog.Logger
-
-	ctx    context.Context
-	cancel context.CancelFunc
-	once   sync.Once
 }
 
 const (
@@ -41,13 +35,7 @@ const (
 	caCertFileName          = "consul-grpc-ca-cert.pem"
 )
 
-func (c *Command) init() {
-	c.ctx, c.cancel = context.WithCancel(context.Background())
-}
-
 func (c *Command) Run(args []string) int {
-	c.once.Do(c.init)
-
 	if len(args) > 0 {
 		c.UI.Error(fmt.Sprintf("unexpected argument: %v", args[0]))
 		return 1
@@ -71,7 +59,8 @@ func (c *Command) Run(args []string) int {
 }
 
 func (c *Command) realRun() error {
-	defer c.cleanup()
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
 
 	taskMeta, err := awsutil.ECSTaskMetadata()
 	if err != nil {
@@ -88,7 +77,7 @@ func (c *Command) realRun() error {
 		return fmt.Errorf("constructing server connection manager config: %s", err)
 	}
 
-	watcher, err := discovery.NewWatcher(c.ctx, serverConnMgrCfg, c.log)
+	watcher, err := discovery.NewWatcher(ctx, serverConnMgrCfg, c.log)
 	if err != nil {
 		return fmt.Errorf("unable to create consul server watcher: %s", err)
 	}
@@ -150,7 +139,12 @@ func (c *Command) realRun() error {
 		return err
 	}
 
-	err = c.generateAndWriteDataplaneConfig(proxyRegistration, state.Token, rpcCACertFile)
+	var loginCreds *discovery.Credentials
+	if c.config.ConsulLogin.Enabled {
+		loginCreds = &serverConnMgrCfg.Credentials
+	}
+
+	err = c.generateAndWriteDataplaneConfig(proxyRegistration, loginCreds, rpcCACertFile)
 	if err != nil {
 		return err
 	}
@@ -167,11 +161,6 @@ func (c *Command) Help() string {
 	return ""
 }
 
-func (c *Command) cleanup() {
-	// Cancel background goroutines
-	c.cancel()
-}
-
 func retryLogger(log hclog.Logger) backoff.Notify {
 	return func(err error, duration time.Duration) {
 		log.Error(err.Error(), "retry", duration.String())
@@ -179,18 +168,6 @@ func retryLogger(log hclog.Logger) backoff.Notify {
 }
 
 func (c *Command) setupConsulAPIClient(state discovery.State) (*api.Client, error) {
-	if c.config.ConsulLogin.Enabled {
-		// If enabled write the ACL token to a shared volume so that consul-dataplane
-		// can reuse it later on whenever it starts up
-		tokenFile := filepath.Join(c.config.BootstrapDir, config.ServiceTokenFilename)
-		err := os.WriteFile(tokenFile, []byte(state.Token), 0644)
-		if err != nil {
-			return nil, err
-		}
-
-		c.log.Info("wrote ACL token to shared volume", "token-file", tokenFile)
-	}
-
 	// Client config for the client that talks directly to the server agent
 	cfg := c.config.ClientConfig()
 	cfg.Address = net.JoinHostPort(state.Address.IP.String(), strconv.FormatInt(int64(c.config.ConsulServers.HTTP.Port), 10))
@@ -369,13 +346,13 @@ func (c *Command) copyECSBinaryToSharedVolume() error {
 // generateAndWriteDataplaneConfig generates the configuration json
 // needed for dataplane to configure itself and writes it to a shared
 // volume.
-func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.CatalogRegistration, consulToken, caCertFilePath string) error {
+func (c *Command) generateAndWriteDataplaneConfig(proxyRegistration *api.CatalogRegistration, consulLoginCreds *discovery.Credentials, caCertFilePath string) error {
 	input := &dataplane.GetDataplaneConfigJSONInput{
-		ProxyRegistration:  proxyRegistration,
-		ConsulServerConfig: c.config.ConsulServers,
-		ConsulToken:        consulToken,
-		CACertFile:         caCertFilePath,
-		LogLevel:           logging.FromConfig(c.config).LogLevel,
+		ProxyRegistration:      proxyRegistration,
+		ConsulServerConfig:     c.config.ConsulServers,
+		ConsulLoginCredentials: consulLoginCreds,
+		CACertFile:             caCertFilePath,
+		LogLevel:               logging.FromConfig(c.config).LogLevel,
 	}
 
 	if c.config.IsGateway() {

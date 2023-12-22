@@ -118,6 +118,7 @@ func AuthMethodInit(t *testing.T, consulClient *api.Client, expectedServiceName,
 			"STSEndpoint": fakeAws.URL + "/sts",
 			"IAMEndpoint": fakeAws.URL + "/iam",
 		},
+		Partition: opts.Partition,
 	}, opts)
 	require.NoError(t, err)
 

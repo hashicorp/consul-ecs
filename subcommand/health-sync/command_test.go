@@ -226,7 +226,7 @@ func TestRun(t *testing.T) {
 
 			if testutil.EnterpriseFlag() {
 				partition = "foo"
-				namespace = "bar"
+				namespace = "default"
 			}
 
 			apiQueryOptions := &api.QueryOptions{
@@ -514,7 +514,7 @@ func TestRunGateways(t *testing.T) {
 
 			if testutil.EnterpriseFlag() {
 				partition = "foo"
-				namespace = "bar"
+				namespace = "default"
 			}
 
 			apiQueryOptions := &api.QueryOptions{

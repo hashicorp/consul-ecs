@@ -98,7 +98,7 @@ jobs:
         PACKAGE_NAMES=$(go list ./... | grep -v 'mocks\|hack\|testing' | tr '\n' ' ')
         echo "Testing $(echo $PACKAGE_NAMES | wc -w) packages"
         if [[ "${{ matrix.consul-version }}" == *ent ]]; then
-          FLAGS=-enterprise -timeout 3m
+          FLAGS=-enterprise
           TAGS=-tags=enterprise
         fi
         gotestsum \

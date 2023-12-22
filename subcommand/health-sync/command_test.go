@@ -820,7 +820,7 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 		// Check if checks are in the expected state for services
 		for _, expCheck := range expectedServiceChecks {
 			filter := fmt.Sprintf("CheckID == `%s`", expCheck.CheckID)
-			checks, _, err := consulClient.Health().Checks(expCheck.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expCheck.Namespace})
+			checks, _, err := consulClient.Health().Checks(expCheck.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expCheck.Namespace, Partition: expCheck.Partition})
 			require.NoError(r, err)
 
 			for _, check := range checks {
@@ -830,7 +830,7 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 
 		// Check if the check for proxy is in the expected state
 		filter := fmt.Sprintf("CheckID == `%s`", expectedProxyCheck.CheckID)
-		checks, _, err := consulClient.Health().Checks(expectedProxyCheck.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expectedProxyCheck.Namespace})
+		checks, _, err := consulClient.Health().Checks(expectedProxyCheck.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expectedProxyCheck.Namespace, Partition: expectedProxyCheck.Partition})
 		require.NoError(r, err)
 		require.Equal(r, 1, len(checks))
 		require.Equal(r, expectedProxyCheck.Status, checks[0].Status)

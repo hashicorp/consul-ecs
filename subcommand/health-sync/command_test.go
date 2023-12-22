@@ -268,7 +268,7 @@ func TestRun(t *testing.T) {
 			))
 
 			if c.consulLogin.Enabled {
-				fakeAws := testutil.AuthMethodInit(t, consulClient, serviceName, config.DefaultAuthMethodName)
+				fakeAws := testutil.AuthMethodInit(t, consulClient, serviceName, config.DefaultAuthMethodName, &api.WriteOptions{Partition: partition})
 
 				// Use the fake local AWS server.
 				c.consulLogin.STSEndpoint = fakeAws.URL + "/sts"
@@ -555,7 +555,7 @@ func TestRunGateways(t *testing.T) {
 			))
 
 			if c.consulLogin.Enabled {
-				fakeAws := testutil.AuthMethodInit(t, consulClient, family, config.DefaultAuthMethodName)
+				fakeAws := testutil.AuthMethodInit(t, consulClient, family, config.DefaultAuthMethodName, &api.WriteOptions{Partition: partition})
 
 				// Use the fake local AWS server.
 				c.consulLogin.STSEndpoint = fakeAws.URL + "/sts"

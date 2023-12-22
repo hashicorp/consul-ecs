@@ -103,6 +103,7 @@ jobs:
         fi
         gotestsum \
           --format=short-verbose \
+          --timeout=3m \
           --jsonfile $TEST_RESULTS_DIR/${{ matrix.consul-version }}/json/go-test-race.log \
           --junitfile $TEST_RESULTS_DIR/${{ matrix.consul-version }}/gotestsum-report.xml \
           -- $PACKAGE_NAMES $TAGS -- $FLAGS

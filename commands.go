@@ -9,6 +9,7 @@ import (
 	cmdAppEntrypoint "github.com/hashicorp/consul-ecs/subcommand/app-entrypoint"
 	cmdController "github.com/hashicorp/consul-ecs/subcommand/controller"
 	cmdEnvoyEntrypoint "github.com/hashicorp/consul-ecs/subcommand/envoy-entrypoint"
+	cmdHealthSync "github.com/hashicorp/consul-ecs/subcommand/health-sync"
 	cmdMeshInit "github.com/hashicorp/consul-ecs/subcommand/mesh-init"
 	cmdNetDial "github.com/hashicorp/consul-ecs/subcommand/net-dial"
 	cmdVersion "github.com/hashicorp/consul-ecs/subcommand/version"
@@ -40,6 +41,9 @@ func init() {
 		},
 		"net-dial": func() (cli.Command, error) {
 			return &cmdNetDial.Command{UI: ui}, nil
+		},
+		"health-sync": func() (cli.Command, error) {
+			return &cmdHealthSync.Command{UI: ui}, nil
 		},
 	}
 }

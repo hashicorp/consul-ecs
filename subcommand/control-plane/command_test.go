@@ -399,7 +399,7 @@ func TestRun(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, expectedService, expectedProxy, expectedServiceName, expectedProxy.ServiceName)
 			assertCheckRegistration(t, consulClient, expectedServiceChecks, expectedProxyCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfig(t, taskMetadataResponse, consulEcsConfig, c.skipServerWatch, serverGRPCPort, envoyBootstrapDir, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition, consulEcsConfig.LogLevel)
+			assertDataplaneConfig(t, taskMetadataResponse, consulEcsConfig, c.skipServerWatch, serverGRPCPort, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition, consulEcsConfig.LogLevel)
 
 			for _, expCheck := range expectedServiceChecks {
 				expCheck.Status = api.HealthCritical
@@ -720,7 +720,7 @@ func TestGateway(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, nil, expectedService, "", c.expServiceName)
 			assertCheckRegistration(t, consulClient, nil, expectedCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfig(t, taskMetadataResponse, c.config, true, serverGRPCPort, c.config.BootstrapDir, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition, "INFO")
+			assertDataplaneConfig(t, taskMetadataResponse, c.config, true, serverGRPCPort, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition, "INFO")
 
 			expectedCheck.Status = api.HealthCritical
 			assertHealthChecks(t, consulClient, nil, expectedCheck)
@@ -896,7 +896,7 @@ func assertWrittenFiles(t *testing.T, expectedFiles []*fileMeta) {
 	}
 }
 
-func assertDataplaneConfig(t *testing.T, ecsTaskMeta *awsutil.ECSTaskMeta, cfg *config.Config, skipServerWatch bool, grpcPort int, bootstrapDir, dataplaneConfigJSONFile, proxySvcID, namespace, partition, logLevel string) {
+func assertDataplaneConfig(t *testing.T, ecsTaskMeta *awsutil.ECSTaskMeta, cfg *config.Config, skipServerWatch bool, grpcPort int, dataplaneConfigJSONFile, proxySvcID, namespace, partition, logLevel string) {
 	clusterARN, err := ecsTaskMeta.ClusterARN()
 	require.NoError(t, err)
 

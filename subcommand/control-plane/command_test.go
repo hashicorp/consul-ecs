@@ -4,7 +4,6 @@
 package controlplane
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,6 +17,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
+	"github.com/hashicorp/consul-ecs/internal/dataplane"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
@@ -145,6 +145,7 @@ func TestRun(t *testing.T) {
 		},
 		"auth method enabled": {
 			consulLogin: config.ConsulLogin{
+				Datacenter:    "dc1",
 				Enabled:       true,
 				IncludeEntity: true,
 				Meta: map[string]string{
@@ -242,11 +243,6 @@ func TestRun(t *testing.T) {
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}
 
-			cmd.ctx, cmd.cancel = context.WithCancel(context.Background())
-			t.Cleanup(func() {
-				cmd.cancel()
-			})
-
 			envoyBootstrapDir := testutil.TempDir(t)
 			dataplaneConfigJSONFile := filepath.Join(envoyBootstrapDir, dataplaneConfigFileName)
 			expectedFileMeta := []*fileMeta{
@@ -265,7 +261,7 @@ func TestRun(t *testing.T) {
 			_, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
 			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
 
-			consulEcsConfig := config.Config{
+			consulEcsConfig := &config.Config{
 				LogLevel:             "DEBUG",
 				BootstrapDir:         envoyBootstrapDir,
 				HealthSyncContainers: c.healthSyncContainers,
@@ -296,7 +292,7 @@ func TestRun(t *testing.T) {
 				consulEcsConfig.Service.Namespace = expectedNamespace
 				consulEcsConfig.Service.Partition = expectedPartition
 			}
-			testutil.SetECSConfigEnvVar(t, &consulEcsConfig)
+			testutil.SetECSConfigEnvVar(t, consulEcsConfig)
 
 			if !c.missingAWSRegion {
 				t.Setenv(awsutil.AWSRegionEnvVar, testRegion)
@@ -403,7 +399,7 @@ func TestRun(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, expectedService, expectedProxy, expectedServiceName, expectedProxy.ServiceName)
 			assertCheckRegistration(t, consulClient, expectedServiceChecks, expectedProxyCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, c.skipServerWatch, serverGRPCPort, c.consulLogin.Enabled, envoyBootstrapDir, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition, consulEcsConfig.LogLevel)
+			assertDataplaneConfig(t, taskMetadataResponse, consulEcsConfig, c.skipServerWatch, serverGRPCPort, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition, consulEcsConfig.LogLevel)
 
 			for _, expCheck := range expectedServiceChecks {
 				expCheck.Status = api.HealthCritical
@@ -412,7 +408,6 @@ func TestRun(t *testing.T) {
 
 			// Verify with retries that the checks have reached the expected state
 			assertHealthChecks(t, consulClient, expectedServiceChecks, expectedProxyCheck)
-			cmd.cancel()
 		})
 	}
 }
@@ -679,11 +674,6 @@ func TestGateway(t *testing.T) {
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}
 
-			cmd.ctx, cmd.cancel = context.WithCancel(context.Background())
-			t.Cleanup(func() {
-				cmd.cancel()
-			})
-
 			code := cmd.Run(nil)
 			require.Equal(t, code, 0, ui.ErrorWriter.String())
 
@@ -730,12 +720,10 @@ func TestGateway(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, nil, expectedService, "", c.expServiceName)
 			assertCheckRegistration(t, consulClient, nil, expectedCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, true, serverGRPCPort, c.config.ConsulLogin.Enabled, c.config.BootstrapDir, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition, "INFO")
+			assertDataplaneConfig(t, taskMetadataResponse, c.config, true, serverGRPCPort, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition, "INFO")
 
 			expectedCheck.Status = api.HealthCritical
 			assertHealthChecks(t, consulClient, nil, expectedCheck)
-
-			cmd.cancel()
 		})
 	}
 }
@@ -908,23 +896,74 @@ func assertWrittenFiles(t *testing.T, expectedFiles []*fileMeta) {
 	}
 }
 
-func assertDataplaneConfigJSON(t *testing.T, skipServerWatch bool, grpcPort int, loginEnabled bool, bootstrapDir, dataplaneConfigJSONFile, proxySvcID, namespace, partition, logLevel string) {
-	var credentialsConfigJSON string
-	if loginEnabled {
-		token := getACLToken(t, bootstrapDir)
-		credentialsConfigJSON = fmt.Sprintf(`,
-		"credentials": {
-			"type": "static",
-			"static": {
-				"token": "%s"
-			}
-		}`, token)
+func assertDataplaneConfig(t *testing.T, ecsTaskMeta *awsutil.ECSTaskMeta, cfg *config.Config, skipServerWatch bool, grpcPort int, dataplaneConfigJSONFile, proxySvcID, namespace, partition, logLevel string) {
+	clusterARN, err := ecsTaskMeta.ClusterARN()
+	require.NoError(t, err)
+
+	expectedCfg := &dataplane.DataplaneConfig{
+		Consul: dataplane.ConsulConfig{
+			Addresses:       "127.0.0.1",
+			GRPCPort:        grpcPort,
+			SkipServerWatch: skipServerWatch,
+			TLS: &dataplane.TLSConfig{
+				Disabled: true,
+			},
+		},
+		Proxy: dataplane.ProxyConfig{
+			NodeName:  clusterARN,
+			ID:        proxySvcID,
+			Partition: partition,
+			Namespace: namespace,
+		},
+		XDSServer: dataplane.XDSServerConfig{
+			Address: "127.0.0.1",
+		},
+		Envoy: dataplane.EnvoyConfig{
+			ReadyBindAddr: "127.0.0.1",
+			ReadyBindPort: 22000,
+		},
+		Logging: dataplane.LoggingConfig{
+			LogLevel: logLevel,
+		},
 	}
 
-	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, skipServerWatch, credentialsConfigJSON, proxySvcID, namespace, partition, logLevel)
-	actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
+	if cfg.ConsulLogin.Enabled {
+		meta := make(map[string]string)
+
+		for k, v := range cfg.ConsulLogin.Meta {
+			meta[k] = v
+		}
+		meta[config.ConsulTokenTaskIDMeta] = ecsTaskMeta.TaskID()
+		meta[config.ConsulTokenClusterIDMeta] = clusterARN
+
+		// We intentionally ignore the bearer token from this config
+		// because it gets generated in a random fashion.
+		expectedCfg.Consul.Credentials = &dataplane.CredentialsConfig{
+			CredentialType: "login",
+			Login: dataplane.LoginCredentialsConfig{
+				AuthMethod: config.DefaultAuthMethodName,
+				Datacenter: cfg.ConsulLogin.Datacenter,
+				Partition:  partition,
+				Meta:       meta,
+			},
+		}
+	}
+
+	actualDataplaneJSON, err := os.ReadFile(dataplaneConfigJSONFile)
 	require.NoError(t, err)
-	require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
+	require.NotNil(t, actualDataplaneJSON)
+
+	var actualDataplaneConfig *dataplane.DataplaneConfig
+	err = json.Unmarshal(actualDataplaneJSON, &actualDataplaneConfig)
+	require.NoError(t, err)
+
+	ignoreFields := cmpopts.IgnoreFields(dataplane.DataplaneConfig{}, "Consul.Credentials.Login.BearerToken")
+	require.Empty(t, cmp.Diff(expectedCfg, actualDataplaneConfig, ignoreFields))
+
+	// Assert if the bearer token is present
+	if cfg.ConsulLogin.Enabled {
+		require.NotEmpty(t, actualDataplaneConfig.Consul.Credentials.Login.BearerToken)
+	}
 }
 
 // In a ACL enabled cluster, we expect the node to be preregistered by the ecs-controller.
@@ -968,14 +1007,6 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 	})
 }
 
-func getACLToken(t *testing.T, bootstrapDir string) string {
-	tokenFile := filepath.Join(bootstrapDir, config.ServiceTokenFilename)
-	token, err := os.ReadFile(tokenFile)
-	require.NoError(t, err)
-
-	return string(token)
-}
-
 func constructTaskMetaResponseString(resp *awsutil.ECSTaskMeta) (string, error) {
 	byteStr, err := json.Marshal(resp)
 	if err != nil {
@@ -983,33 +1014,4 @@ func constructTaskMetaResponseString(resp *awsutil.ECSTaskMeta) (string, error) 
 	}
 
 	return string(byteStr), nil
-}
-
-func getExpectedDataplaneCfgJSON() string {
-	return `{
-	"consul": {
-	  "addresses": "127.0.0.1",
-	  "grpcPort": %d,
-	  "serverWatchDisabled": %t,
-	  "tls": {
-		"disabled": true
-	   }%s
-	},
-	"proxy": {
-	  "nodeName": "arn:aws:ecs:us-east-1:123456789:cluster/test",
-	  "id": "%s",
-	  "namespace": "%s",
-	  "partition": "%s"
-	},
-	"xdsServer": {
-	  "bindAddress": "127.0.0.1"
-	},
-	"envoy": {
-		"readyBindAddress": "127.0.0.1",
-		"readyBindPort": 22000
-	},
-	"logging": {
-		"logLevel": "%s"
-	}
-  }`
 }

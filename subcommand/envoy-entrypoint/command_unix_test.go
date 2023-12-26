@@ -115,7 +115,7 @@ func TestRun(t *testing.T) {
 				testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
 					meta := makeTaskMeta(
 						"some-app-container",
-						"consul-ecs-control-plane",
+						"consul-ecs-mesh-init",
 						"consul-dataplane",
 						"some-aws-managed-container",
 					)

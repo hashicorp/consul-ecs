@@ -247,7 +247,7 @@ func TestConsulServerConnManagerConfig(t *testing.T) {
 				_, apiCfg := testutil.ConsulServer(t, srvConfig)
 				consulClient, err := api.NewClient(apiCfg)
 				require.NoError(t, err)
-				fakeAws := testutil.AuthMethodInit(t, consulClient, c.taskMeta.Family, c.cfg.ConsulLogin.Method)
+				fakeAws := testutil.AuthMethodInit(t, consulClient, c.taskMeta.Family, c.cfg.ConsulLogin.Method, nil)
 
 				// Use the fake local AWS server.
 				c.cfg.ConsulLogin.STSEndpoint = fakeAws.URL + "/sts"

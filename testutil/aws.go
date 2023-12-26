@@ -85,7 +85,7 @@ func TaskMetaServer(t *testing.T, handler http.Handler) {
 //
 //	fakeAws := authMethodInit(...)
 //	consulLogin.ExtraLoginFlags = []string{"-aws-sts-endpoint", fakeAws.URL + "/sts"}
-func AuthMethodInit(t *testing.T, consulClient *api.Client, expectedServiceName, authMethodName string) *httptest.Server {
+func AuthMethodInit(t *testing.T, consulClient *api.Client, expectedServiceName, authMethodName string, opts *api.WriteOptions) *httptest.Server {
 	arn := "arn:aws:iam::1234567890:role/my-role"
 	uniqueId := "AAAsomeuniqueid"
 
@@ -118,7 +118,7 @@ func AuthMethodInit(t *testing.T, consulClient *api.Client, expectedServiceName,
 			"STSEndpoint": fakeAws.URL + "/sts",
 			"IAMEndpoint": fakeAws.URL + "/iam",
 		},
-	}, nil)
+	}, opts)
 	require.NoError(t, err)
 
 	_, _, err = consulClient.ACL().BindingRuleCreate(&api.ACLBindingRule{
@@ -126,7 +126,7 @@ func AuthMethodInit(t *testing.T, consulClient *api.Client, expectedServiceName,
 		BindType:   api.BindingRuleBindTypeService,
 		// Pull the service name from the IAM role `service-name` tag.
 		BindName: "${entity_tags.service-name}",
-	}, nil)
+	}, opts)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

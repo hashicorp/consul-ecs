@@ -40,7 +40,7 @@ LABEL description="consul-ecs provides first-class integration between Consul an
 # Create a non-root user to run the software.
 RUN addgroup $BIN_NAME && \
     adduser -S -G $BIN_NAME $BIN_NAME && \
-    # Changing the owner of /consul to NAME allows control-plane to run as NAME rather
+    # Changing the owner of /consul to NAME allows mesh-init to run as NAME rather
     # than root. See
     # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/bind-mounts.html
     # for more information

@@ -1,7 +1,7 @@
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package controlplane
+package healthsync
 
 import (
 	"context"
@@ -56,8 +56,9 @@ func (d *dataplaneMonitor) run() {
 				break
 			}
 
+			d.log.Info("Waiting for dataplane container to stop")
 			if taskMeta.HasContainerStopped(config.ConsulDataplaneContainerName) {
-				d.log.Info("dataplane container has stopped, terminating control plane")
+				d.log.Info("dataplane container has stopped, terminating health-sync")
 				return
 			}
 		}

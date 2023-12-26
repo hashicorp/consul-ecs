@@ -1,5 +1,25 @@
 ## Unreleased
 
+BREAKING CHANGES
+* Following are the changes made to the `control-plane` container
+  - Rename `control-plane` subcommand to `mesh-init`. [[GH-209](https://github.com/hashicorp/consul-ecs/pull/209)]
+  - Removes a lot of functionalities from `control-plane` [[GH-207](https://github.com/hashicorp/consul-ecs/pull/207)]
+  - `mesh-init` will be a short lived container with the following responsibities
+    - Perform Consul login and obtain a ACL token.
+    - Register the service and sidecar proxy to Consul catalog.
+    - Write ECS binary to shared volume.
+    - Prepare and write Consul Dataplane configuration to a shared volume.
+  - `mesh-init` unlike `control-plane` no longer writes the login token to a shared volume and passes it on to the `Consul-dataplane` container. It instead generates the login configuration needed to get a Consul ACL token and writes it as part of the Consul dataplane configuration to a shared volume. Dataplane uses the login configuration to mint the token with the required permissions.[[GH-208](https://github.com/hashicorp/consul-ecs/pull/208)]
+* Adds a new command `health-sync` with the following responsibilities [[GH-210](https://github.com/hashicorp/consul-ecs/pull/210)]
+  - Perform Consul login and obtain an ACL token.
+  - Setup the Consul client to talk directly to the server.
+  - Accumulate all the health checks associated with the service and the proxy which would have been previously registered as `critical` by `mesh-init`
+  - Enters into a long running reconciliation loop where it
+    - Periodically syncs back ECS container health status into Consul.
+    - Marks all service and proxy checks as critical upon receiving SIGTERM.
+    - Listens to changes to the Consul servers and reconfigures the Consul client if at all the server details change.
+    - Gracefully shuts down(upon receiving SIGTERM) making sure that the Consul Dataplane has terminated properly and then proceeds with deregistering the service and proxy and performs a Consul logout to invalidate the ACL token.
+
 FEATURES
 * API and terminating gateways
   - Add support for configuring API and terminating gateways as ECS tasks [[GH-192](https://github.com/hashicorp/consul-ecs/pull/192)]

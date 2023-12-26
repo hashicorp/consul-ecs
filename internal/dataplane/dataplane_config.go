@@ -5,6 +5,7 @@ package dataplane
 
 import (
 	"github.com/hashicorp/consul-ecs/config"
+	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
 )
 
@@ -21,10 +22,9 @@ type GetDataplaneConfigJSONInput struct {
 	// User provided information about the Consul servers
 	ConsulServerConfig config.ConsulServers
 
-	// ACL token returned by the server after a successful login.
-	// If empty, credential details are not populated in the resulting
-	// dataplane config JSON.
-	ConsulToken string
+	// Login credentials that will be passed on to the dataplane's
+	// configuration.
+	ConsulLoginCredentials *discovery.Credentials
 
 	// Path of the CA cert file for Consul server's RPC interface
 	CACertFile string
@@ -39,7 +39,7 @@ type GetDataplaneConfigJSONInput struct {
 // GetDataplaneConfigJSON returns back a configuration JSON which
 // (after writing it to a shared volume) can be used to start consul-dataplane
 func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
-	cfg := &dataplaneConfig{
+	cfg := &DataplaneConfig{
 		Consul: ConsulConfig{
 			Addresses:       i.ConsulServerConfig.Hosts,
 			GRPCPort:        i.ConsulServerConfig.GRPC.Port,
@@ -80,11 +80,16 @@ func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 		}
 	}
 
-	if i.ConsulToken != "" {
+	if i.ConsulLoginCredentials != nil {
 		cfg.Consul.Credentials = &CredentialsConfig{
-			CredentialType: "static",
-			Static: StaticCredentialConfig{
-				Token: i.ConsulToken,
+			CredentialType: "login",
+			Login: LoginCredentialsConfig{
+				AuthMethod:  i.ConsulLoginCredentials.Login.AuthMethod,
+				Namespace:   i.ConsulLoginCredentials.Login.Namespace,
+				Partition:   i.ConsulLoginCredentials.Login.Partition,
+				Datacenter:  i.ConsulLoginCredentials.Login.Datacenter,
+				BearerToken: i.ConsulLoginCredentials.Login.BearerToken,
+				Meta:        i.ConsulLoginCredentials.Login.Meta,
 			},
 		}
 	}

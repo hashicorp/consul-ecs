@@ -173,7 +173,7 @@ func (c *Command) realRun() error {
 	}
 
 	if c.config.TransparentProxyEnabled() {
-		err := c.applyTrafficRedirectionRules(consulClient, proxyRegistration, state.Address.IP.String(), clusterARN)
+		err := c.applyTrafficRedirectionRules(consulClient, proxyRegistration, clusterARN)
 		if err != nil {
 			return err
 		}
@@ -448,7 +448,7 @@ func (c *Command) writeRPCCACertToSharedVolume() (string, error) {
 	return caCertPath, nil
 }
 
-func (c *Command) applyTrafficRedirectionRules(consulClient *api.Client, proxyRegistration *api.CatalogRegistration, consulServerIP, clusterARN string) error {
+func (c *Command) applyTrafficRedirectionRules(consulClient *api.Client, proxyRegistration *api.CatalogRegistration, clusterARN string) error {
 	proxySvc, err := getProxyServiceRegistration(consulClient, clusterARN, proxyRegistration.Service.ID)
 	if err != nil {
 		return err
@@ -457,8 +457,6 @@ func (c *Command) applyTrafficRedirectionRules(consulClient *api.Client, proxyRe
 	if c.trafficRedirectionProvider == nil {
 		c.trafficRedirectionProvider = redirecttraffic.New(c.config,
 			proxySvc,
-			consulServerIP,
-			clusterARN,
 			[]int{
 				config.GetHealthCheckPort(c.config.Proxy.HealthCheckPort),
 			},

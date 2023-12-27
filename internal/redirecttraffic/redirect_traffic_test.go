@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/iptables"
@@ -151,6 +150,7 @@ func TestApply(t *testing.T) {
 				expectedUIDs := []string{
 					"1234",
 					"5678",
+					"5996", // Health sync container UID
 				}
 				for _, uid := range cfg.ExcludeUIDs {
 					require.Contains(t, expectedUIDs, uid)
@@ -171,8 +171,6 @@ func TestApply(t *testing.T) {
 				expectedCIDRs := []string{
 					"1.1.1.1/24",
 					"2.2.2.2/24",
-					"172.67.89.20/32",
-					"169.254.170.2/32",
 				}
 				for _, cidr := range cfg.ExcludeOutboundCIDRs {
 					require.Contains(t, expectedCIDRs, cidr)
@@ -200,12 +198,9 @@ func TestApply(t *testing.T) {
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			t.Setenv(awsutil.ECSMetadataURIEnvVar, "http://169.254.170.2/v4/task_id")
 			iptablesProvider := &mockIptablesProvider{}
 			provider := New(c.cfg,
 				c.proxySvc,
-				"172.67.89.20",
-				"arn:aws:ecs:us-east-1:123456789:cluster/test",
 				[]int{22000},
 				WithIPTablesProvider(iptablesProvider),
 			)

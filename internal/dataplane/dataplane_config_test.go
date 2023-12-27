@@ -292,7 +292,18 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 						EnableTLS:     testutil.BoolPtr(true),
 					},
 				},
-				ConsulToken:          "test-token-123",
+				ConsulLoginCredentials: &discovery.Credentials{
+					Type: "login",
+					Login: discovery.LoginCredential{
+						AuthMethod:  "test-auth-method",
+						BearerToken: "bearer-token",
+						Datacenter:  "dc1",
+						Meta: map[string]string{
+							"consul.hashicorp.com/task-id": "my-task-id",
+							"consul.hashicorp.com/cluster": "test-cluster-arn",
+						},
+					},
+				},
 				CACertFile:           "/consul/ca-cert.pem",
 				ProxyHealthCheckPort: 23000,
 				LogLevel:             "TRACE",
@@ -309,15 +320,21 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 					"tlsServerName": "consul.dc1"
 				  },
 				  "credentials": {
-					"type": "static",
-					"static": {
-						"token": "test-token-123"
+					"type": "login",
+					"login": {
+						"authMethod": "test-auth-method",
+						"bearerToken": "bearer-token",
+						"datacenter": "dc1",
+						"meta": {
+							"consul.hashicorp.com/task-id": "my-task-id",
+							"consul.hashicorp.com/cluster": "test-cluster-arn"
+						}
 					}
 				  }
 				},
-				"service": {
+				"proxy": {
 				  "nodeName": "test-node-name",
-				  "serviceID": "test-side-car-123",
+				  "id": "test-side-car-123",
 				  "namespace": "%s",
 				  "partition": "%s"
 				},

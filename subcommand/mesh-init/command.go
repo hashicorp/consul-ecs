@@ -170,6 +170,8 @@ func (c *Command) realRun() error {
 		if err != nil {
 			return fmt.Errorf("failed to configure Consul DNS: %w", err)
 		}
+
+		c.log.Info("successfully configured Consul DNS for the task")
 	}
 
 	if c.config.TransparentProxyEnabled() {
@@ -467,6 +469,8 @@ func (c *Command) applyTrafficRedirectionRules(consulClient *api.Client, proxyRe
 	if err != nil {
 		return fmt.Errorf("failed to setup traffic redirection rules: %w", err)
 	}
+
+	c.log.Info("successfully applied traffic redirection rules")
 
 	return nil
 }

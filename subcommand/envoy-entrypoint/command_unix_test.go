@@ -115,7 +115,9 @@ func TestRun(t *testing.T) {
 				testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
 					meta := makeTaskMeta(
 						"some-app-container",
-						"consul-ecs-control-plane",
+						"consul-ecs-mesh-init",
+						"consul-dataplane",
+						"some-aws-managed-container",
 					)
 
 					if atomic.LoadInt64(&ecsMetaRequestCount) < 2 {
@@ -195,11 +197,17 @@ func TestRun(t *testing.T) {
 func makeTaskMeta(containerNames ...string) awsutil.ECSTaskMeta {
 	var containers []awsutil.ECSTaskMetaContainer
 	for _, name := range containerNames {
-		containers = append(containers, awsutil.ECSTaskMetaContainer{
+		container := awsutil.ECSTaskMetaContainer{
 			Name:          name,
 			DesiredStatus: ecs.DesiredStatusStopped,
 			KnownStatus:   ecs.DesiredStatusRunning,
-		})
+			Type:          "NORMAL",
+		}
+
+		if container.Name == "some-aws-managed-container" {
+			container.Type = "AWS MANAGED"
+		}
+		containers = append(containers, container)
 	}
 
 	return awsutil.ECSTaskMeta{

@@ -1,11 +1,10 @@
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package controlplane
+package healthsync
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
@@ -14,54 +13,83 @@ import (
 	"github.com/hashicorp/go-multierror"
 )
 
-const (
-	consulECSCheckType = "consul-ecs-health-check"
+// fetchHealthChecks fetches the Consul health checks for both the service
+// and proxy registrations
+func (c *Command) fetchHealthChecks(consulClient *api.Client, taskMeta awsutil.ECSTaskMeta) (map[string]*api.HealthCheck, error) {
+	serviceName := c.constructServiceName(taskMeta.Family)
+	serviceID := makeServiceID(serviceName, taskMeta.TaskID())
+	proxySvcID, proxySvcName := makeProxySvcIDAndName(serviceID, serviceName)
 
-	consulHealthSyncCheckName = "Consul ECS health check synced"
-
-	consulDataplaneReadinessCheckName = "Consul dataplane readiness"
-
-	// syncChecksInterval is how often we poll the container health endpoint and
-	// sync the checks back to the Consul servers.
-	//
-	// The rate limit for the health endpoint is about 40 per second,
-	// so 1 second polling seems reasonable.
-	syncChecksInterval = 1 * time.Second
-)
-
-func (c *Command) constructChecks(service *api.AgentService) api.HealthChecks {
-	checks := make(api.HealthChecks, 0)
-	if service.Kind == api.ServiceKindTypical {
-		for _, containerName := range c.config.HealthSyncContainers {
-			check := &api.HealthCheck{
-				CheckID:   constructCheckID(service.ID, containerName),
-				Name:      consulHealthSyncCheckName,
-				Type:      consulECSCheckType,
-				ServiceID: service.ID,
-				Namespace: service.Namespace,
-				Status:    api.HealthCritical,
-				Output:    healthCheckOutputReason(api.HealthCritical, service.Service),
-				Notes:     fmt.Sprintf("consul-ecs created and updates this check because the %s container has an ECS health check.", containerName),
-			}
-			c.checks[check.CheckID] = check
-			checks = append(checks, check)
+	healthCheckMap := make(map[string]*api.HealthCheck)
+	var queryOpts *api.QueryOptions
+	if c.config.IsGateway() {
+		queryOpts = &api.QueryOptions{
+			Namespace: c.config.Gateway.Namespace,
+			Partition: c.config.Gateway.Partition,
+		}
+	} else {
+		queryOpts = &api.QueryOptions{
+			Namespace: c.config.Service.Namespace,
+			Partition: c.config.Service.Partition,
 		}
 	}
 
-	// Add a custom check that indicates dataplane readiness
-	dataplaneCheck := &api.HealthCheck{
-		CheckID:   constructCheckID(service.ID, config.ConsulDataplaneContainerName),
-		Name:      consulDataplaneReadinessCheckName,
-		Type:      consulECSCheckType,
-		ServiceID: service.ID,
-		Namespace: service.Namespace,
-		Status:    api.HealthCritical,
-		Output:    healthCheckOutputReason(api.HealthCritical, service.Service),
-		Notes:     "consul-ecs created and updates this check to indicate consul-dataplane container's readiness",
+	checks, err := getServiceHealthChecks(consulClient, serviceName, serviceID, queryOpts)
+	if err != nil {
+		return nil, err
 	}
-	c.checks[dataplaneCheck.CheckID] = dataplaneCheck
-	checks = append(checks, dataplaneCheck)
-	return checks
+
+	for _, check := range checks {
+		healthCheckMap[check.CheckID] = check
+	}
+
+	if c.config.IsGateway() {
+		return healthCheckMap, nil
+	}
+
+	// Get the health checks associated with the sidecar
+	checks, err = getServiceHealthChecks(consulClient, proxySvcName, proxySvcID, queryOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(checks) != 1 {
+		return nil, fmt.Errorf("only one check should be associated with the sidecar proxy service")
+	}
+
+	healthCheckMap[checks[0].CheckID] = checks[0]
+
+	return healthCheckMap, nil
+}
+
+// setChecksCritical sets checks for all of the containers to critical
+func (c *Command) setChecksCritical(consulClient *api.Client, taskMeta awsutil.ECSTaskMeta, clusterARN string, parsedContainerNames []string) error {
+	var result error
+
+	taskID := taskMeta.TaskID()
+	serviceName := c.constructServiceName(taskMeta.Family)
+
+	for _, containerName := range parsedContainerNames {
+		var err error
+		if containerName == config.ConsulDataplaneContainerName {
+			err = c.handleHealthForDataplaneContainer(consulClient, taskID, serviceName, clusterARN, containerName, ecs.HealthStatusUnhealthy)
+		} else {
+			checkID := constructCheckID(makeServiceID(serviceName, taskID), containerName)
+			err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecs.HealthStatusUnhealthy)
+		}
+
+		if err == nil {
+			c.log.Info("set Consul health status to critical",
+				"container", containerName)
+		} else {
+			c.log.Warn("failed to set Consul health status to critical",
+				"err", err,
+				"container", containerName)
+			result = multierror.Append(result, err)
+		}
+	}
+
+	return result
 }
 
 // syncChecks fetches metadata for the ECS task and uses that metadata to
@@ -70,7 +98,6 @@ func (c *Command) constructChecks(service *api.AgentService) api.HealthChecks {
 // the last invocation of this function.
 func (c *Command) syncChecks(consulClient *api.Client,
 	currentStatuses map[string]string,
-	serviceName string,
 	clusterARN string,
 	parsedContainerNames []string) map[string]string {
 	// Fetch task metadata to get latest health of the containers
@@ -79,6 +106,8 @@ func (c *Command) syncChecks(consulClient *api.Client,
 		c.log.Error("unable to get task metadata", "err", err)
 		return currentStatuses
 	}
+
+	serviceName := c.constructServiceName(taskMeta.Family)
 
 	containersToSync, missingContainers := findContainersToSync(parsedContainerNames, taskMeta)
 
@@ -137,34 +166,6 @@ func (c *Command) syncChecks(consulClient *api.Client,
 	return currentStatuses
 }
 
-// setChecksCritical sets checks for all of the containers to critical
-func (c *Command) setChecksCritical(consulClient *api.Client, taskID, serviceName, clusterARN string, parsedContainerNames []string) error {
-	var result error
-
-	for _, containerName := range parsedContainerNames {
-
-		var err error
-		if containerName == config.ConsulDataplaneContainerName {
-			err = c.handleHealthForDataplaneContainer(consulClient, taskID, serviceName, clusterARN, containerName, ecs.HealthStatusUnhealthy)
-		} else {
-			checkID := constructCheckID(makeServiceID(serviceName, taskID), containerName)
-			err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecs.HealthStatusUnhealthy)
-		}
-
-		if err == nil {
-			c.log.Info("set Consul health status to critical",
-				"container", containerName)
-		} else {
-			c.log.Warn("failed to set Consul health status to critical",
-				"err", err,
-				"container", containerName)
-			result = multierror.Append(result, err)
-		}
-	}
-
-	return result
-}
-
 // handleHealthForDataplaneContainer takes care of the special handling needed for syncing
 // the health of consul-dataplane container. We register two checks (one for the service
 // and the other for proxy) when registering a typical service to the catalog. Updates
@@ -210,16 +211,18 @@ func (c *Command) updateConsulHealthStatus(consulClient *api.Client, checkID str
 	return err
 }
 
-func constructCheckID(serviceID, containerName string) string {
-	return fmt.Sprintf("%s-%s", serviceID, containerName)
-}
-
-func healthCheckOutputReason(status, serviceName string) string {
-	if status == api.HealthPassing {
-		return "ECS health check passing"
+func getServiceHealthChecks(consulClient *api.Client, serviceName, serviceID string, opts *api.QueryOptions) (api.HealthChecks, error) {
+	opts.Filter = fmt.Sprintf("ServiceID == `%s`", serviceID)
+	checks, _, err := consulClient.Health().Checks(serviceName, opts)
+	if err != nil {
+		return nil, err
 	}
 
-	return fmt.Sprintf("Service %s is not ready", serviceName)
+	return checks, nil
+}
+
+func constructCheckID(serviceID, containerName string) string {
+	return fmt.Sprintf("%s-%s", serviceID, containerName)
 }
 
 func findContainersToSync(containerNames []string, taskMeta awsutil.ECSTaskMeta) ([]awsutil.ECSTaskMetaContainer, []string) {

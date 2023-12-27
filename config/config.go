@@ -28,6 +28,10 @@ const (
 	ConsulDataplaneDNSBindHost = "127.0.0.1"
 	ConsulDataplaneDNSBindPort = 8600
 
+	// Login meta fields added to the token
+	ConsulTokenTaskIDMeta    = "consul.hashicorp.com/task-id"
+	ConsulTokenClusterIDMeta = "consul.hashicorp.com/cluster"
+
 	defaultGRPCPort    = 8503
 	defaultHTTPPort    = 8501
 	defaultIAMRolePath = "/consul-ecs/"
@@ -182,8 +186,8 @@ func (c *Config) getLoginDiscoveryCredentials(taskMeta awsutil.ECSTaskMeta) (dis
 
 	cfg.Login.Meta = mergeMeta(
 		map[string]string{
-			"consul.hashicorp.com/task-id": taskMeta.TaskID(),
-			"consul.hashicorp.com/cluster": clusterARN,
+			ConsulTokenTaskIDMeta:    taskMeta.TaskID(),
+			ConsulTokenClusterIDMeta: clusterARN,
 		},
 		c.ConsulLogin.Meta,
 	)

@@ -19,7 +19,9 @@ import (
 
 var (
 	nonAppContainers = map[string]struct{}{
-		"consul-ecs-control-plane": {},
+		"consul-ecs-mesh-init":   {},
+		"consul-dataplane":       {},
+		"consul-ecs-health-sync": {},
 	}
 )
 
@@ -100,6 +102,12 @@ func allAppContainersStopped(taskMeta awsutil.ECSTaskMeta) bool {
 }
 
 func isApplication(container awsutil.ECSTaskMetaContainer) bool {
+	// ECS might auto-inject some containers that aren't part of
+	// the task definition. We treat them as non app containers.
+	if !container.IsNormalType() {
+		return false
+	}
+
 	_, ok := nonAppContainers[container.Name]
 	return !ok
 }

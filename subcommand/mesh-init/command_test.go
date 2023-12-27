@@ -1,46 +1,30 @@
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package controlplane
+package meshinit
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
+	"github.com/hashicorp/consul-ecs/internal/dataplane"
 	"github.com/hashicorp/consul-ecs/testutil"
-	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/consul/sdk/freeport"
 	"github.com/hashicorp/consul/sdk/iptables"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
 )
-
-type healthSyncContainerMetaData struct {
-	// Indicates if we should mark this container missing in ECS
-	// when we fetch data before syncing checks
-	missing bool
-
-	// Status of the container when we first fetch task meta info
-	// from ECS
-	status string
-}
 
 type fileMeta struct {
 	name string
@@ -86,24 +70,22 @@ func TestRun(t *testing.T) {
 	testZone := "us-west-2b"
 
 	cases := map[string]struct {
-		servicePort                     int
-		upstreams                       []config.Upstream
-		expUpstreams                    []api.Upstream
-		tags                            []string
-		expTags                         []string
-		additionalMeta                  map[string]string
-		expAdditionalMeta               map[string]string
-		serviceName                     string
-		expServiceName                  string
-		proxyPort                       int
-		healthSyncContainers            map[string]healthSyncContainerMetaData
-		missingDataplaneContainer       bool
-		shouldMissingContainersReappear bool
-		expectedDataplaneConfigJSON     string
-		skipServerWatch                 bool
-		enableConsulDNS                 bool
-		enableTProxy                    bool
-		missingAWSRegion                bool
+		servicePort                 int
+		upstreams                   []config.Upstream
+		expUpstreams                []api.Upstream
+		tags                        []string
+		expTags                     []string
+		additionalMeta              map[string]string
+		expAdditionalMeta           map[string]string
+		serviceName                 string
+		expServiceName              string
+		proxyPort                   int
+		healthSyncContainers        []string
+		expectedDataplaneConfigJSON string
+		skipServerWatch             bool
+		enableConsulDNS             bool
+		enableTProxy                bool
+		missingAWSRegion            bool
 
 		consulLogin config.ConsulLogin
 	}{
@@ -142,69 +124,12 @@ func TestRun(t *testing.T) {
 			},
 		},
 		"service with one healthy healthSyncContainer": {
-			skipServerWatch: true,
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
-				},
-			},
+			skipServerWatch:      true,
+			healthSyncContainers: []string{"container-1"},
 		},
 		"service with two healthy healthSyncContainers": {
-			skipServerWatch: true,
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
-				},
-				"container-2": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
-				},
-			},
-		},
-		"service with one healthy and one unhealthy healthSyncContainers": {
-			skipServerWatch: true,
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
-				},
-				"container-2": {
-					missing: false,
-					status:  ecs.HealthStatusUnhealthy,
-				},
-			},
-		},
-		"service with one healthy and one missing healthSyncContainers": {
-			skipServerWatch: true,
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
-				},
-				"container-2": {
-					missing: true,
-				},
-			},
-		},
-		"service with missing dataplane container": {
-			skipServerWatch:           true,
-			missingDataplaneContainer: true,
-		},
-		"service with a missing container synced as healthy after it appears": {
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
-				},
-				"container-2": {
-					missing: true,
-					status:  ecs.HealthStatusUnhealthy,
-				},
-			},
-			shouldMissingContainersReappear: true,
-			skipServerWatch:                 false,
+			skipServerWatch:      true,
+			healthSyncContainers: []string{"container-1", "container-2"},
 		},
 		"service with tags": {
 			skipServerWatch: true,
@@ -223,6 +148,7 @@ func TestRun(t *testing.T) {
 		},
 		"auth method enabled": {
 			consulLogin: config.ConsulLogin{
+				Datacenter:    "dc1",
 				Enabled:       true,
 				IncludeEntity: true,
 				Meta: map[string]string{
@@ -318,7 +244,7 @@ func TestRun(t *testing.T) {
 			))
 
 			if c.consulLogin.Enabled {
-				fakeAws := testutil.AuthMethodInit(t, consulClient, expectedServiceName, config.DefaultAuthMethodName)
+				fakeAws := testutil.AuthMethodInit(t, consulClient, expectedServiceName, config.DefaultAuthMethodName, nil)
 
 				// Use the fake local AWS server.
 				c.consulLogin.STSEndpoint = fakeAws.URL + "/sts"
@@ -327,21 +253,7 @@ func TestRun(t *testing.T) {
 			}
 
 			ui := cli.NewMockUi()
-			cmd := Command{UI: ui, isTestEnv: true}
-
-			port := strconv.FormatInt(int64(freeport.GetOne(t)), 10)
-			cmd.healthCheckListenerAddr = net.JoinHostPort(defaultHealthCheckBindAddr, port)
-
-			cmd.ctx, cmd.cancel = context.WithCancel(context.Background())
-			t.Cleanup(func() {
-				cmd.cancel()
-			})
-
-			cmd.doneChan = make(chan struct{})
-			cmd.proceedChan = make(chan struct{})
-
-			watcherCh := make(chan discovery.State, 1)
-			cmd.watcherCh = watcherCh
+			cmd := Command{UI: ui}
 
 			envoyBootstrapDir := testutil.TempDir(t)
 			dataplaneConfigJSONFile := filepath.Join(envoyBootstrapDir, dataplaneConfigFileName)
@@ -358,17 +270,13 @@ func TestRun(t *testing.T) {
 				},
 			}
 
-			serverHost, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
+			_, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
 			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
 
-			containersToSync := make([]string, 0)
-			for name := range c.healthSyncContainers {
-				containersToSync = append(containersToSync, name)
-			}
-			consulEcsConfig := config.Config{
+			consulEcsConfig := &config.Config{
 				LogLevel:             "DEBUG",
 				BootstrapDir:         envoyBootstrapDir,
-				HealthSyncContainers: containersToSync,
+				HealthSyncContainers: c.healthSyncContainers,
 				ConsulLogin:          c.consulLogin,
 				ConsulServers: config.ConsulServers{
 					Hosts: "127.0.0.1",
@@ -418,20 +326,14 @@ func TestRun(t *testing.T) {
 				consulEcsConfig.Service.Namespace = expectedNamespace
 				consulEcsConfig.Service.Partition = expectedPartition
 			}
-			testutil.SetECSConfigEnvVar(t, &consulEcsConfig)
+			testutil.SetECSConfigEnvVar(t, consulEcsConfig)
 
 			if !c.missingAWSRegion {
 				t.Setenv(awsutil.AWSRegionEnvVar, testRegion)
 			}
 
-			go func() {
-				code := cmd.Run(nil)
-				require.Equal(t, code, 0, ui.ErrorWriter.String())
-			}()
-
-			// We wait till the control plane registers the services and proxies
-			// to Consul before entering into the checks reconcilation loop
-			<-cmd.doneChan
+			code := cmd.Run(nil)
+			require.Equal(t, code, 0, ui.ErrorWriter.String())
 
 			expServiceID := fmt.Sprintf("%s-abcdef", expectedServiceName)
 			expSidecarServiceID := fmt.Sprintf("%s-abcdef-sidecar-proxy", expectedServiceName)
@@ -510,7 +412,7 @@ func TestRun(t *testing.T) {
 				},
 			}
 
-			for name := range c.healthSyncContainers {
+			for _, name := range c.healthSyncContainers {
 				expectedServiceChecks = append(expectedServiceChecks, &api.HealthCheck{
 					CheckID:     constructCheckID(expServiceID, name),
 					Type:        consulECSCheckType,
@@ -535,97 +437,8 @@ func TestRun(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, expectedService, expectedProxy, expectedServiceName, expectedProxy.ServiceName, c.enableTProxy)
 			assertCheckRegistration(t, consulClient, expectedServiceChecks, expectedProxyCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, c.skipServerWatch, serverGRPCPort, c.consulLogin.Enabled, envoyBootstrapDir, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition, consulEcsConfig.LogLevel, c.enableConsulDNS)
+			assertDataplaneConfig(t, taskMetadataResponse, consulEcsConfig, c.skipServerWatch, serverGRPCPort, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition, consulEcsConfig.LogLevel, c.enableConsulDNS)
 
-			// Construct task meta response for the first few iterations
-			// of syncChecks
-			taskMetaRespStr = injectContainersIntoTaskMetaResponse(t, c.missingDataplaneContainer, false, taskMetadataResponse, c.healthSyncContainers)
-			currentTaskMetaResp.Store(taskMetaRespStr)
-
-			// Populate expectedServiceChecks based on the new status
-			// of containers returned by the task meta server
-			for _, expCheck := range expectedServiceChecks {
-				found := false
-				if expCheck.Name == consulDataplaneReadinessCheckName && c.missingDataplaneContainer {
-					expCheck.Status = api.HealthCritical
-					continue
-				}
-
-				for name, hcs := range c.healthSyncContainers {
-					checkID := constructCheckID(expServiceID, name)
-					if expCheck.CheckID == checkID {
-						if hcs.missing {
-							expCheck.Status = api.HealthCritical
-						} else {
-							expCheck.Status = ecsHealthToConsulHealth(hcs.status)
-						}
-						found = true
-						break
-					}
-				}
-
-				if !found {
-					expCheck.Status = api.HealthPassing
-				}
-			}
-
-			expectedProxyCheck.Status = api.HealthPassing
-			if c.missingDataplaneContainer {
-				expectedProxyCheck.Status = api.HealthCritical
-			}
-
-			if c.enableTProxy {
-				require.True(t, mockProvider.applyCalled)
-			}
-
-			// Signals control plane to enter into a state where it
-			// periodically sync checks back to Consul
-			close(cmd.proceedChan)
-
-			// Verify with retries that the checks have reached the expected state
-			assertHealthChecks(t, consulClient, expectedServiceChecks, expectedProxyCheck)
-
-			addr, err := discovery.MakeAddr(serverHost, serverGRPCPort)
-			require.NoError(t, err)
-
-			newServerState := discovery.State{
-				Address: addr,
-			}
-			if c.consulLogin.Enabled {
-				newServerState.Token = getACLToken(t, envoyBootstrapDir)
-			}
-			watcherCh <- newServerState
-
-			// Some containers might reappear after sometime they went missing.
-			// This block makes a missing reappear in the task meta response and
-			// tests if the control plane is able to sync back the status of the
-			// container to Consul servers.
-			if c.shouldMissingContainersReappear {
-				taskMetaRespStr = injectContainersIntoTaskMetaResponse(t, false, false, taskMetadataResponse, c.healthSyncContainers)
-				currentTaskMetaResp.Store(taskMetaRespStr)
-
-				for _, expCheck := range expectedServiceChecks {
-					found := false
-					for name, hcs := range c.healthSyncContainers {
-						checkID := constructCheckID(expServiceID, name)
-						if expCheck.CheckID == checkID {
-							expCheck.Status = ecsHealthToConsulHealth(hcs.status)
-							found = true
-							break
-						}
-					}
-					if !found {
-						expCheck.Status = api.HealthPassing
-					}
-				}
-
-				expectedProxyCheck.Status = api.HealthPassing
-				assertHealthChecks(t, consulClient, expectedServiceChecks, expectedProxyCheck)
-			}
-
-			// Send SIGTERM and verify the status of checks
-			signalSIGTERM(t)
-			// SIGTERM should mark all the checks as critical
 			for _, expCheck := range expectedServiceChecks {
 				expCheck.Status = api.HealthCritical
 			}
@@ -633,17 +446,6 @@ func TestRun(t *testing.T) {
 
 			// Verify with retries that the checks have reached the expected state
 			assertHealthChecks(t, consulClient, expectedServiceChecks, expectedProxyCheck)
-
-			stopDataplaneContainer(taskMetadataResponse)
-			taskMetaRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
-			require.NoError(t, err)
-			currentTaskMetaResp.Store(taskMetaRespStr)
-
-			assertDeregistration(t, consulClient, expectedServiceName, expectedProxy.ServiceName)
-			if c.consulLogin.Enabled {
-				assertConsulLogout(t, cfg, envoyBootstrapDir)
-			}
-			cmd.cancel()
 		})
 	}
 }
@@ -898,7 +700,7 @@ func TestGateway(t *testing.T) {
 			c.config.Gateway.Partition = partition
 
 			if c.config.ConsulLogin.Enabled {
-				fakeAws := testutil.AuthMethodInit(t, consulClient, c.expServiceName, config.DefaultAuthMethodName)
+				fakeAws := testutil.AuthMethodInit(t, consulClient, c.expServiceName, config.DefaultAuthMethodName, nil)
 				// Use the fake local AWS server.
 				c.config.ConsulLogin.STSEndpoint = fakeAws.URL + "/sts"
 
@@ -908,24 +710,10 @@ func TestGateway(t *testing.T) {
 			testutil.SetECSConfigEnvVar(t, c.config)
 
 			ui := cli.NewMockUi()
-			cmd := Command{UI: ui, isTestEnv: true}
+			cmd := Command{UI: ui}
 
-			cmd.ctx, cmd.cancel = context.WithCancel(context.Background())
-			t.Cleanup(func() {
-				cmd.cancel()
-			})
-
-			cmd.doneChan = make(chan struct{})
-			cmd.proceedChan = make(chan struct{})
-
-			go func() {
-				code := cmd.Run(nil)
-				require.Equal(t, code, 0, ui.ErrorWriter.String())
-			}()
-
-			// We wait till the control plane registers the proxy
-			// to Consul before entering into the checks reconcilation loop
-			<-cmd.doneChan
+			code := cmd.Run(nil)
+			require.Equal(t, code, 0, ui.ErrorWriter.String())
 
 			expPort := config.DefaultGatewayPort
 			if c.expLanPort != 0 {
@@ -970,37 +758,10 @@ func TestGateway(t *testing.T) {
 			assertServiceAndProxyRegistrations(t, consulClient, nil, expectedService, "", c.expServiceName, false)
 			assertCheckRegistration(t, consulClient, nil, expectedCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfigJSON(t, true, serverGRPCPort, c.config.ConsulLogin.Enabled, c.config.BootstrapDir, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition, "INFO", false)
-
-			// Signals control plane to enter into a state where it
-			// periodically sync checks back to Consul
-			close(cmd.proceedChan)
-
-			taskMetadataResponse.Containers = append(taskMetadataResponse.Containers, constructContainerResponse(config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy))
-			taskMetadataRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
-			require.NoError(t, err)
-			currentTaskMetaResp.Store(taskMetadataRespStr)
-
-			expectedCheck.Status = api.HealthPassing
-
-			assertHealthChecks(t, consulClient, nil, expectedCheck)
-
-			// Send SIGTERM and verify the status of checks
-			signalSIGTERM(t)
+			assertDataplaneConfig(t, taskMetadataResponse, c.config, true, serverGRPCPort, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition, "INFO", false)
 
 			expectedCheck.Status = api.HealthCritical
 			assertHealthChecks(t, consulClient, nil, expectedCheck)
-
-			stopDataplaneContainer(taskMetadataResponse)
-			taskMetadataRespStr, err = constructTaskMetaResponseString(taskMetadataResponse)
-			require.NoError(t, err)
-			currentTaskMetaResp.Store(taskMetadataRespStr)
-
-			assertDeregistration(t, consulClient, "", expectedService.ServiceName)
-			if c.config.ConsulLogin.Enabled {
-				assertConsulLogout(t, apiCfg, c.config.BootstrapDir)
-			}
-			cmd.cancel()
 		})
 	}
 }
@@ -1102,7 +863,7 @@ func TestWriteCACertToVolume(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 
 			ui := cli.NewMockUi()
-			cmd := Command{UI: ui, isTestEnv: true}
+			cmd := Command{UI: ui}
 
 			cmd.config = &config.Config{
 				BootstrapDir:  testutil.TempDir(t),
@@ -1178,33 +939,81 @@ func assertWrittenFiles(t *testing.T, expectedFiles []*fileMeta) {
 	}
 }
 
-func assertDataplaneConfigJSON(t *testing.T, skipServerWatch bool, grpcPort int, loginEnabled bool, bootstrapDir, dataplaneConfigJSONFile, proxySvcID, namespace, partition, logLevel string, consulDNSEnabled bool) {
-	var credentialsConfigJSON string
-	var dnsConfigJSON string
-	if loginEnabled {
-		token := getACLToken(t, bootstrapDir)
-		credentialsConfigJSON = fmt.Sprintf(`,
-		"credentials": {
-			"type": "static",
-			"static": {
-				"token": "%s"
-			}
-		}`, token)
+func assertDataplaneConfig(t *testing.T, ecsTaskMeta *awsutil.ECSTaskMeta, cfg *config.Config, skipServerWatch bool, grpcPort int, dataplaneConfigJSONFile, proxySvcID, namespace, partition, logLevel string, consulDNSEnabled bool) {
+	clusterARN, err := ecsTaskMeta.ClusterARN()
+	require.NoError(t, err)
+
+	expectedCfg := &dataplane.DataplaneConfig{
+		Consul: dataplane.ConsulConfig{
+			Addresses:       "127.0.0.1",
+			GRPCPort:        grpcPort,
+			SkipServerWatch: skipServerWatch,
+			TLS: &dataplane.TLSConfig{
+				Disabled: true,
+			},
+		},
+		Proxy: dataplane.ProxyConfig{
+			NodeName:  clusterARN,
+			ID:        proxySvcID,
+			Partition: partition,
+			Namespace: namespace,
+		},
+		XDSServer: dataplane.XDSServerConfig{
+			Address: "127.0.0.1",
+		},
+		Envoy: dataplane.EnvoyConfig{
+			ReadyBindAddr: "127.0.0.1",
+			ReadyBindPort: 22000,
+		},
+		Logging: dataplane.LoggingConfig{
+			LogLevel: logLevel,
+		},
+	}
+
+	if cfg.ConsulLogin.Enabled {
+		meta := make(map[string]string)
+
+		for k, v := range cfg.ConsulLogin.Meta {
+			meta[k] = v
+		}
+		meta[config.ConsulTokenTaskIDMeta] = ecsTaskMeta.TaskID()
+		meta[config.ConsulTokenClusterIDMeta] = clusterARN
+
+		// We intentionally ignore the bearer token from this config
+		// because it gets generated in a random fashion.
+		expectedCfg.Consul.Credentials = &dataplane.CredentialsConfig{
+			CredentialType: "login",
+			Login: dataplane.LoginCredentialsConfig{
+				AuthMethod: config.DefaultAuthMethodName,
+				Datacenter: cfg.ConsulLogin.Datacenter,
+				Partition:  partition,
+				Meta:       meta,
+			},
+		}
 	}
 
 	if consulDNSEnabled {
-		dnsConfigJSON = `,
-		"dnsServer": {
-			"bindAddress": "127.0.0.1",
-			"bindPort": 8600
+		expectedCfg.DNSServer = &dataplane.DNSServerConfig{
+			BindAddress: "127.0.0.1",
+			BindPort:    8600,
 		}
-		`
 	}
 
-	expectedDataplaneConfigJSON := fmt.Sprintf(getExpectedDataplaneCfgJSON(), grpcPort, skipServerWatch, credentialsConfigJSON, proxySvcID, namespace, partition, logLevel, dnsConfigJSON)
-	actualDataplaneConfig, err := os.ReadFile(dataplaneConfigJSONFile)
+	actualDataplaneJSON, err := os.ReadFile(dataplaneConfigJSONFile)
 	require.NoError(t, err)
-	require.JSONEq(t, expectedDataplaneConfigJSON, string(actualDataplaneConfig))
+	require.NotNil(t, actualDataplaneJSON)
+
+	var actualDataplaneConfig *dataplane.DataplaneConfig
+	err = json.Unmarshal(actualDataplaneJSON, &actualDataplaneConfig)
+	require.NoError(t, err)
+
+	ignoreFields := cmpopts.IgnoreFields(dataplane.DataplaneConfig{}, "Consul.Credentials.Login.BearerToken")
+	require.Empty(t, cmp.Diff(expectedCfg, actualDataplaneConfig, ignoreFields))
+
+	// Assert if the bearer token is present
+	if cfg.ConsulLogin.Enabled {
+		require.NotEmpty(t, actualDataplaneConfig.Consul.Credentials.Login.BearerToken)
+	}
 }
 
 // In a ACL enabled cluster, we expect the node to be preregistered by the ecs-controller.
@@ -1248,79 +1057,6 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 	})
 }
 
-func assertDeregistration(t *testing.T, consulClient *api.Client, serviceName, proxyName string) {
-	timer := &retry.Timer{Timeout: 5 * time.Second, Wait: 500 * time.Millisecond}
-	retry.RunWith(timer, t, func(r *retry.R) {
-		if serviceName != "" {
-			serviceInstances, _, err := consulClient.Catalog().Service(serviceName, "", nil)
-			require.NoError(r, err)
-			require.Equal(r, 0, len(serviceInstances))
-		}
-
-		serviceInstances, _, err := consulClient.Catalog().Service(proxyName, "", nil)
-		require.NoError(r, err)
-		require.Equal(r, 0, len(serviceInstances))
-	})
-}
-
-func assertConsulLogout(t *testing.T, cfg *api.Config, bootstrapDir string) {
-	cfg.Token = getACLToken(t, bootstrapDir)
-	client, err := api.NewClient(cfg)
-	require.NoError(t, err)
-
-	tok, _, err := client.ACL().TokenReadSelf(nil)
-	require.Error(t, err)
-	require.Nil(t, tok)
-}
-
-func getACLToken(t *testing.T, bootstrapDir string) string {
-	tokenFile := filepath.Join(bootstrapDir, config.ServiceTokenFilename)
-	token, err := os.ReadFile(tokenFile)
-	require.NoError(t, err)
-
-	return string(token)
-}
-
-func injectContainersIntoTaskMetaResponse(t *testing.T, skipDataplaneContainer, ignoreMissingContainers bool, taskMetadataResponse *awsutil.ECSTaskMeta, healthSyncContainers map[string]healthSyncContainerMetaData) string {
-	var taskMetaContainersResponse []awsutil.ECSTaskMetaContainer
-	if !ignoreMissingContainers && !skipDataplaneContainer {
-		taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy))
-	}
-	for name, hsc := range healthSyncContainers {
-		if !ignoreMissingContainers && hsc.missing {
-			continue
-		}
-
-		taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(name, hsc.status))
-	}
-	taskMetadataResponse.Containers = taskMetaContainersResponse
-	taskMetaRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
-	require.NoError(t, err)
-
-	return taskMetaRespStr
-}
-
-func constructContainerResponse(name, health string) awsutil.ECSTaskMetaContainer {
-	return awsutil.ECSTaskMetaContainer{
-		Name: name,
-		Health: awsutil.ECSTaskMetaHealth{
-			Status: health,
-		},
-	}
-}
-
-// stopDataplaneContainer marks the dataplane container's status as STOPPED in the
-// task meta response
-func stopDataplaneContainer(taskMetadataResp *awsutil.ECSTaskMeta) {
-	for i, c := range taskMetadataResp.Containers {
-		if c.Name == config.ConsulDataplaneContainerName {
-			taskMetadataResp.Containers[i].DesiredStatus = ecs.DesiredStatusStopped
-			taskMetadataResp.Containers[i].KnownStatus = ecs.DesiredStatusStopped
-			return
-		}
-	}
-}
-
 func constructTaskMetaResponseString(resp *awsutil.ECSTaskMeta) (string, error) {
 	byteStr, err := json.Marshal(resp)
 	if err != nil {
@@ -1328,42 +1064,6 @@ func constructTaskMetaResponseString(resp *awsutil.ECSTaskMeta) (string, error) 
 	}
 
 	return string(byteStr), nil
-}
-
-func getExpectedDataplaneCfgJSON() string {
-	return `{
-	"consul": {
-	  "addresses": "127.0.0.1",
-	  "grpcPort": %d,
-	  "serverWatchDisabled": %t,
-	  "tls": {
-		"disabled": true
-	   }%s
-	},
-	"proxy": {
-	  "nodeName": "arn:aws:ecs:us-east-1:123456789:cluster/test",
-	  "id": "%s",
-	  "namespace": "%s",
-	  "partition": "%s"
-	},
-	"xdsServer": {
-	  "bindAddress": "127.0.0.1"
-	},
-	"envoy": {
-		"readyBindAddress": "127.0.0.1",
-		"readyBindPort": 22000
-	},
-	"logging": {
-		"logLevel": "%s"
-	}%s
-  }`
-}
-
-func signalSIGTERM(t *testing.T) {
-	err := syscall.Kill(os.Getpid(), syscall.SIGTERM)
-	require.NoError(t, err)
-	// Give it time to react
-	time.Sleep(100 * time.Millisecond)
 }
 
 type mockTrafficRedirectionProvider struct {

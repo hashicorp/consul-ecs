@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 )
 
-type dataplaneConfig struct {
+type DataplaneConfig struct {
 	Consul    ConsulConfig     `json:"consul"`
 	Proxy     ProxyConfig      `json:"proxy"`
 	XDSServer XDSServerConfig  `json:"xdsServer"`
@@ -32,11 +32,16 @@ type TLSConfig struct {
 
 type CredentialsConfig struct {
 	CredentialType string                 `json:"type"`
-	Static         StaticCredentialConfig `json:"static"`
+	Login          LoginCredentialsConfig `json:"login"`
 }
 
-type StaticCredentialConfig struct {
-	Token string `json:"token"`
+type LoginCredentialsConfig struct {
+	AuthMethod  string            `json:"authMethod"`
+	Namespace   string            `json:"namespace,omitempty"`
+	Partition   string            `json:"partition,omitempty"`
+	Datacenter  string            `json:"datacenter"`
+	BearerToken string            `json:"bearerToken"`
+	Meta        map[string]string `json:"meta"`
 }
 
 type ProxyConfig struct {
@@ -64,7 +69,7 @@ type DNSServerConfig struct {
 	BindPort    int    `json:"bindPort"`
 }
 
-func (d *dataplaneConfig) generateJSON() ([]byte, error) {
+func (d *DataplaneConfig) generateJSON() ([]byte, error) {
 	dataplaneJSON, err := json.Marshal(&d)
 	if err != nil {
 		return nil, err

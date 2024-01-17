@@ -17,9 +17,6 @@ import (
 const (
 	defaultProxyUserID = 5995
 
-	consulDataplaneDNSBindHost = "127.0.0.1"
-	consulDataplaneDNSBindPort = 8600
-
 	// UID of the health-sync container
 	defaultHealthSyncProcessUID = "5996"
 )
@@ -170,8 +167,8 @@ func (c *TrafficRedirectionCfg) Apply() error {
 
 	// Consul DNS
 	if c.EnableConsulDNS {
-		c.iptablesCfg.ConsulDNSIP = consulDataplaneDNSBindHost
-		c.iptablesCfg.ConsulDNSPort = consulDataplaneDNSBindPort
+		c.iptablesCfg.ConsulDNSIP = config.ConsulDataplaneDNSBindHost
+		c.iptablesCfg.ConsulDNSPort = config.ConsulDataplaneDNSBindPort
 	}
 
 	if c.iptablesProvider != nil {

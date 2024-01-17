@@ -7,9 +7,12 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/hashicorp/consul-ecs)](https://goreportcard.com/report/github.com/hashicorp/consul-ecs)
 
 This repository holds the Go code used by the `hashicorp/consul-ecs` Docker image.
-This image is used to help with the installation and operation of Consul on ECS.
+This image is used to help with the installation and operation of Consul on ECS.  
 
-See [https://consul.io/docs/ecs](https://consul.io/docs/ecs) for more information.
+### Supporting Materials
+
+- HashiCorp Consul AWS ECS documentation: [https://consul.io/docs/ecs](https://consul.io/docs/ecs)
+- Terraform modules for Consul AWS ECS are hosted here: https://github.com/hashicorp/terraform-aws-consul-ecs
 
 ## Roadmap
 

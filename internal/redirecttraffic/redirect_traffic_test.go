@@ -32,10 +32,11 @@ func TestApply(t *testing.T) {
 				},
 			},
 			proxySvc: &api.AgentService{
+				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
 			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {
-				require.Equal(t, defaultProxyInboundPort, cfg.ProxyInboundPort)
+				require.Equal(t, 20000, cfg.ProxyInboundPort)
 				require.Equal(t, iptables.DefaultTProxyOutboundPort, cfg.ProxyOutboundPort)
 				require.Equal(t, strconv.Itoa(defaultProxyUserID), cfg.ProxyUserID)
 			},
@@ -47,6 +48,7 @@ func TestApply(t *testing.T) {
 				},
 			},
 			proxySvc: &api.AgentService{
+				Port: 20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{
 					Config: map[string]interface{}{
 						"bind_port": 12000,
@@ -64,6 +66,7 @@ func TestApply(t *testing.T) {
 				},
 			},
 			proxySvc: &api.AgentService{
+				Port: 20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{
 					TransparentProxy: &api.TransparentProxyConfig{
 						OutboundListenerPort: 12000,
@@ -82,6 +85,7 @@ func TestApply(t *testing.T) {
 				},
 			},
 			proxySvc: &api.AgentService{
+				Port: 20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{
 					Config: map[string]interface{}{
 						"envoy_prometheus_bind_addr": "0.0.0.0:9090",
@@ -123,6 +127,7 @@ func TestApply(t *testing.T) {
 				},
 			},
 			proxySvc: &api.AgentService{
+				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
 			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {
@@ -144,6 +149,7 @@ func TestApply(t *testing.T) {
 				},
 			},
 			proxySvc: &api.AgentService{
+				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
 			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {
@@ -165,6 +171,7 @@ func TestApply(t *testing.T) {
 				},
 			},
 			proxySvc: &api.AgentService{
+				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
 			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {
@@ -187,6 +194,7 @@ func TestApply(t *testing.T) {
 				},
 			},
 			proxySvc: &api.AgentService{
+				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
 			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {

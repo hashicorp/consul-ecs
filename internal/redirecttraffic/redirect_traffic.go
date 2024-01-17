@@ -15,8 +15,7 @@ import (
 )
 
 const (
-	defaultProxyUserID      = 5995
-	defaultProxyInboundPort = 20000
+	defaultProxyUserID = 5995
 
 	consulDataplaneDNSBindHost = "127.0.0.1"
 	consulDataplaneDNSBindPort = 8600
@@ -90,11 +89,11 @@ func New(cfg *config.Config, proxySvc *api.AgentService, additionalInboundPortsT
 //	ConsulDNSIP: Consul Dataplane's DNS server (i.e. localhost)
 //	ConsulDNSPort: Consul Dataplane's DNS server's bind port
 //	ProxyUserID: a constant set by default in the mesh-task module for the Consul dataplane's container
-//	ProxyInboundPort: the default inbound port or bind port
+//	ProxyInboundPort: the proxy service's port or bind port
 //	ProxyOutboundPort: default transparent proxy outbound port
 //	ExcludeInboundPorts: prometheus, envoy stats, expose paths and `transparentProxy.excludeInboundPorts`
 //	ExcludeOutboundPorts: `transparentProxy.excludeOutboundPorts` in CONSUL_ECS_CONFIG_JSON
-//	ExcludeOutboundCIDRs: TaskMeta IP, Consul Server IP and `transparentProxy.excludeOutboundCIDRs` in CONSUL_ECS_CONFIG_JSON
+//	ExcludeOutboundCIDRs: `transparentProxy.excludeOutboundCIDRs` in CONSUL_ECS_CONFIG_JSON
 //	ExcludeUIDs: `transparentProxy.excludeUIDs` in CONSUL_ECS_CONFIG_JSON
 func (c *TrafficRedirectionCfg) Apply() error {
 	if c.ProxySvc == nil {
@@ -109,7 +108,7 @@ func (c *TrafficRedirectionCfg) Apply() error {
 
 	c.iptablesCfg = iptables.Config{
 		ProxyUserID:       strconv.Itoa(defaultProxyUserID),
-		ProxyInboundPort:  defaultProxyInboundPort,
+		ProxyInboundPort:  c.ProxySvc.Port,
 		ProxyOutboundPort: iptables.DefaultTProxyOutboundPort,
 	}
 
@@ -177,6 +176,10 @@ func (c *TrafficRedirectionCfg) Apply() error {
 
 	if c.iptablesProvider != nil {
 		c.iptablesCfg.IptablesProvider = c.iptablesProvider
+	}
+
+	c.iptablesCfg.AddAdditionalRulesFn = func(iptablesProvider iptables.Provider) {
+		iptablesProvider.AddRule("iptables", "-t", "nat", "--policy", "POSTROUTING", "ACCEPT")
 	}
 
 	err := iptables.Setup(c.iptablesCfg)

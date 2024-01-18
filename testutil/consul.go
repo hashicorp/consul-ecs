@@ -14,7 +14,6 @@ import (
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/testutil"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm/logger"
 )
 
 type ServerConfigCallback = testutil.ServerConfigCallback
@@ -55,7 +54,7 @@ func ConsulServer(t *testing.T, cb ServerConfigCallback) (*testutil.TestServer, 
 				break
 			}
 
-			logger.Warn("ACL system is not ready yet")
+			t.Log("ACL system is not ready yet")
 			time.Sleep(250 * time.Millisecond)
 		}
 
@@ -63,7 +62,7 @@ func ConsulServer(t *testing.T, cb ServerConfigCallback) (*testutil.TestServer, 
 			_, _, err = client.ACL().TokenReadSelf(nil)
 			if err != nil {
 				if isACLNotBootstrapped(err) {
-					logger.Warn("system is rebooting", "error", err)
+					t.Log("system is rebooting", "error", err)
 					time.Sleep(250 * time.Millisecond)
 					continue
 				}

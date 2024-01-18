@@ -41,7 +41,12 @@ func ConsulServer(t *testing.T, cb ServerConfigCallback) (*testutil.TestServer, 
 	cfg := api.DefaultConfig()
 	cfg.Address = server.HTTPAddr
 	if server.Config.ACL.Enabled {
-		cfg.Token = server.Config.ACL.Tokens.InitialManagement
+		client, err := api.NewClient(cfg)
+		require.NoError(t, err)
+
+		tok, _, err := client.ACL().BootstrapWithToken(AdminToken)
+		require.NoError(t, err)
+		cfg.Token = tok.SecretID
 	}
 
 	// Set CONSUL_HTTP_ADDR for mesh-init. Required to invoke the consul binary (i.e. in mesh-init).
@@ -56,7 +61,6 @@ func ConsulServer(t *testing.T, cb ServerConfigCallback) (*testutil.TestServer, 
 // ConsulACLConfigFn configures a Consul test server with ACLs.
 func ConsulACLConfigFn(c *testutil.TestServerConfig) {
 	c.ACL.Enabled = true
-	c.ACL.Tokens.InitialManagement = AdminToken
 	c.ACL.DefaultPolicy = "deny"
 }
 

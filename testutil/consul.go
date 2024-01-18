@@ -7,11 +7,14 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/testutil"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm/logger"
 )
 
 type ServerConfigCallback = testutil.ServerConfigCallback
@@ -41,12 +44,34 @@ func ConsulServer(t *testing.T, cb ServerConfigCallback) (*testutil.TestServer, 
 	cfg := api.DefaultConfig()
 	cfg.Address = server.HTTPAddr
 	if server.Config.ACL.Enabled {
+		cfg.Token = AdminToken
 		client, err := api.NewClient(cfg)
 		require.NoError(t, err)
 
-		tok, _, err := client.ACL().BootstrapWithToken(AdminToken)
-		require.NoError(t, err)
-		cfg.Token = tok.SecretID
+		for {
+			ready, err := isACLBootstrapped(client)
+			require.NoError(t, err)
+			if ready {
+				break
+			}
+
+			logger.Warn("ACL system is not ready yet")
+			time.Sleep(250 * time.Millisecond)
+		}
+
+		for {
+			_, _, err = client.ACL().TokenReadSelf(nil)
+			if err != nil {
+				if isACLNotBootstrapped(err) {
+					logger.Warn("system is rebooting", "error", err)
+					time.Sleep(250 * time.Millisecond)
+					continue
+				}
+
+				t.Fail()
+			}
+			break
+		}
 	}
 
 	// Set CONSUL_HTTP_ADDR for mesh-init. Required to invoke the consul binary (i.e. in mesh-init).
@@ -61,6 +86,7 @@ func ConsulServer(t *testing.T, cb ServerConfigCallback) (*testutil.TestServer, 
 // ConsulACLConfigFn configures a Consul test server with ACLs.
 func ConsulACLConfigFn(c *testutil.TestServerConfig) {
 	c.ACL.Enabled = true
+	c.ACL.Tokens.InitialManagement = AdminToken
 	c.ACL.DefaultPolicy = "deny"
 }
 
@@ -76,4 +102,27 @@ func GetHostAndPortFromAddress(address string) (string, int) {
 	}
 
 	return host, int(port)
+}
+
+func isACLBootstrapped(client *api.Client) (bool, error) {
+	policy, _, err := client.ACL().PolicyReadByName("global-management", nil)
+	if err != nil {
+		if strings.Contains(err.Error(), "Unexpected response code: 403 (ACL not found)") {
+			return false, nil
+		} else if isACLNotBootstrapped(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return policy != nil, nil
+}
+
+func isACLNotBootstrapped(err error) bool {
+	switch {
+	case strings.Contains(err.Error(), "ACL system must be bootstrapped before making any requests that require authorization"):
+		return true
+	case strings.Contains(err.Error(), "The ACL system is currently in legacy mode"):
+		return true
+	}
+	return false
 }

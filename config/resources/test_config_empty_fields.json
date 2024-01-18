@@ -28,5 +28,6 @@
     "healthCheckPort": 0,
     "proxy": {}
   },
-  "proxy": {}
+  "proxy": {},
+  "transparentProxy": {}
 }

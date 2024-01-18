@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/consul-ecs/internal/dataplane"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
+	"github.com/hashicorp/consul/sdk/iptables"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
@@ -82,6 +83,8 @@ func TestRun(t *testing.T) {
 		healthSyncContainers        []string
 		expectedDataplaneConfigJSON string
 		skipServerWatch             bool
+		enableConsulDNS             bool
+		enableTProxy                bool
 		missingAWSRegion            bool
 
 		consulLogin config.ConsulLogin
@@ -152,6 +155,15 @@ func TestRun(t *testing.T) {
 					"unittest-tag": "12345",
 				},
 			},
+		},
+		"service with TProxy enabled": {
+			skipServerWatch: true,
+			enableTProxy:    true,
+		},
+		"service with TProxy and Consul DNS enabled": {
+			skipServerWatch: true,
+			enableTProxy:    true,
+			enableConsulDNS: true,
 		},
 	}
 
@@ -286,6 +298,28 @@ func TestRun(t *testing.T) {
 					Tags: c.tags,
 					Meta: c.additionalMeta,
 				},
+				TransparentProxy: config.TransparentProxyConfig{
+					Enabled: c.enableTProxy,
+					ConsulDNS: config.ConsulDNS{
+						Enabled: c.enableConsulDNS,
+					},
+				},
+			}
+
+			var mockProvider *mockTrafficRedirectionProvider
+			if c.enableTProxy {
+				mockProvider = &mockTrafficRedirectionProvider{applyCalled: false}
+				cmd.trafficRedirectionProvider = mockProvider
+
+				if c.enableConsulDNS {
+					etcResolvFile, err := os.CreateTemp("", "")
+					require.NoError(t, err)
+					t.Cleanup(func() {
+						_ = os.Remove(etcResolvFile.Name())
+					})
+
+					cmd.etcResolvConfFile = etcResolvFile.Name()
+				}
 			}
 
 			if testutil.EnterpriseFlag() {
@@ -362,6 +396,10 @@ func TestRun(t *testing.T) {
 				ServiceLocality: localityParams,
 			}
 
+			if c.enableTProxy {
+				expectedProxy.ServiceProxy.Mode = api.ProxyModeTransparent
+			}
+
 			expectedServiceChecks := api.HealthChecks{
 				{
 					CheckID:     constructCheckID(expServiceID, config.ConsulDataplaneContainerName),
@@ -396,10 +434,10 @@ func TestRun(t *testing.T) {
 				Status:      api.HealthCritical,
 			}
 
-			assertServiceAndProxyRegistrations(t, consulClient, expectedService, expectedProxy, expectedServiceName, expectedProxy.ServiceName)
+			assertServiceAndProxyRegistrations(t, consulClient, expectedService, expectedProxy, expectedServiceName, expectedProxy.ServiceName, c.enableTProxy)
 			assertCheckRegistration(t, consulClient, expectedServiceChecks, expectedProxyCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfig(t, taskMetadataResponse, consulEcsConfig, c.skipServerWatch, serverGRPCPort, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition, consulEcsConfig.LogLevel)
+			assertDataplaneConfig(t, taskMetadataResponse, consulEcsConfig, c.skipServerWatch, serverGRPCPort, dataplaneConfigJSONFile, expectedProxy.ServiceID, expectedNamespace, expectedPartition, consulEcsConfig.LogLevel, c.enableConsulDNS)
 
 			for _, expCheck := range expectedServiceChecks {
 				expCheck.Status = api.HealthCritical
@@ -717,10 +755,10 @@ func TestGateway(t *testing.T) {
 				Status:      api.HealthCritical,
 			}
 
-			assertServiceAndProxyRegistrations(t, consulClient, nil, expectedService, "", c.expServiceName)
+			assertServiceAndProxyRegistrations(t, consulClient, nil, expectedService, "", c.expServiceName, false)
 			assertCheckRegistration(t, consulClient, nil, expectedCheck)
 			assertWrittenFiles(t, expectedFileMeta)
-			assertDataplaneConfig(t, taskMetadataResponse, c.config, true, serverGRPCPort, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition, "INFO")
+			assertDataplaneConfig(t, taskMetadataResponse, c.config, true, serverGRPCPort, dataplaneConfigJSONFile, expectedService.ServiceID, namespace, partition, "INFO", false)
 
 			expectedCheck.Status = api.HealthCritical
 			assertHealthChecks(t, consulClient, nil, expectedCheck)
@@ -849,7 +887,7 @@ func TestWriteCACertToVolume(t *testing.T) {
 	}
 }
 
-func assertServiceAndProxyRegistrations(t *testing.T, consulClient *api.Client, expectedService, expectedProxy *api.CatalogService, serviceName, proxyName string) {
+func assertServiceAndProxyRegistrations(t *testing.T, consulClient *api.Client, expectedService, expectedProxy *api.CatalogService, serviceName, proxyName string, tproxyEnabled bool) {
 	// Note: TaggedAddressees may be set, but it seems like a race.
 	// We don't support tproxy in ECS, so I don't think we care about this?
 	agentServiceIgnoreFields := cmpopts.IgnoreFields(api.CatalogService{},
@@ -860,6 +898,11 @@ func assertServiceAndProxyRegistrations(t *testing.T, consulClient *api.Client, 
 		require.NoError(t, err)
 		require.Equal(t, 1, len(serviceInstances))
 		require.Empty(t, cmp.Diff(expectedService, serviceInstances[0], agentServiceIgnoreFields))
+
+		if tproxyEnabled {
+			require.Equal(t, serviceInstances[0].ServiceAddress, serviceInstances[0].ServiceTaggedAddresses["virtual"].Address)
+			require.Equal(t, serviceInstances[0].ServicePort, serviceInstances[0].ServiceTaggedAddresses["virtual"].Port)
+		}
 	}
 
 	proxyServiceInstances, _, err := consulClient.Catalog().Service(proxyName, "", nil)
@@ -896,7 +939,7 @@ func assertWrittenFiles(t *testing.T, expectedFiles []*fileMeta) {
 	}
 }
 
-func assertDataplaneConfig(t *testing.T, ecsTaskMeta *awsutil.ECSTaskMeta, cfg *config.Config, skipServerWatch bool, grpcPort int, dataplaneConfigJSONFile, proxySvcID, namespace, partition, logLevel string) {
+func assertDataplaneConfig(t *testing.T, ecsTaskMeta *awsutil.ECSTaskMeta, cfg *config.Config, skipServerWatch bool, grpcPort int, dataplaneConfigJSONFile, proxySvcID, namespace, partition, logLevel string, consulDNSEnabled bool) {
 	clusterARN, err := ecsTaskMeta.ClusterARN()
 	require.NoError(t, err)
 
@@ -946,6 +989,13 @@ func assertDataplaneConfig(t *testing.T, ecsTaskMeta *awsutil.ECSTaskMeta, cfg *
 				Partition:  partition,
 				Meta:       meta,
 			},
+		}
+	}
+
+	if consulDNSEnabled {
+		expectedCfg.DNSServer = &dataplane.DNSServerConfig{
+			BindAddress: "127.0.0.1",
+			BindPort:    8600,
 		}
 	}
 
@@ -1014,4 +1064,17 @@ func constructTaskMetaResponseString(resp *awsutil.ECSTaskMeta) (string, error) 
 	}
 
 	return string(byteStr), nil
+}
+
+type mockTrafficRedirectionProvider struct {
+	applyCalled bool
+}
+
+func (m *mockTrafficRedirectionProvider) Apply() error {
+	m.applyCalled = true
+	return nil
+}
+
+func (m *mockTrafficRedirectionProvider) Config() iptables.Config {
+	return iptables.Config{}
 }

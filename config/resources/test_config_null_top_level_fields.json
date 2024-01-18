@@ -33,5 +33,6 @@
     "proxy": null,
     "healthCheckPort": null
   },
-  "proxy": null
+  "proxy": null,
+  "transparentProxy": null
 }

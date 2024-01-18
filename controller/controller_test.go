@@ -18,6 +18,7 @@ import (
 var mutex sync.Mutex
 
 func TestRun(t *testing.T) {
+	t.Parallel()
 	resource1 := &testResource{
 		name: "resource1",
 	}

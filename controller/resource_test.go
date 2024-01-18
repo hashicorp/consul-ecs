@@ -47,7 +47,6 @@ type ClientCfg struct {
 const testClusterArn = "arn:aws:ecs:bogus-east-1:000000000000:cluster/my-cluster"
 
 func TestTaskStateListerList(t *testing.T) {
-	t.Parallel()
 	meshTasks := []*ecs.Task{
 		makeECSTask(t, "mesh-task-id-1", meshTag, "true"),
 		makeECSTask(t, "mesh-task-id-2", meshTag, "true"),
@@ -261,7 +260,6 @@ func TestTaskStateListerList(t *testing.T) {
 		sortTaskStates(c.expResources)
 
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			consulClient, cfg := initConsul(t)
 			clientCfg := &ClientCfg{cfg: cfg}
 
@@ -294,8 +292,6 @@ func TestTaskStateListerList(t *testing.T) {
 }
 
 func TestTaskStateReconcile(t *testing.T) {
-	t.Parallel()
-
 	type testCase struct {
 		initTokens         []*api.ACLTokenListEntry
 		initServices       []*api.CatalogRegistration
@@ -423,7 +419,6 @@ func TestTaskStateReconcile(t *testing.T) {
 	for name, c := range cases {
 		c := c
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			client, cfg := initConsul(t)
 			clientCfg := &ClientCfg{cfg: cfg}
 
@@ -488,7 +483,6 @@ func TestTaskStateReconcile(t *testing.T) {
 }
 
 func TestReconcileNamespaces(t *testing.T) {
-	t.Parallel()
 	type testCase struct {
 		partition string
 		resources []Resource
@@ -550,7 +544,6 @@ func TestReconcileNamespaces(t *testing.T) {
 	for name, c := range cases {
 		c := c
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			consulClient, cfg := initConsul(t)
 			clientCfg := &ClientCfg{cfg: cfg}
 

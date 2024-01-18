@@ -34,6 +34,11 @@ type GetDataplaneConfigJSONInput struct {
 
 	// The logLevel that will be used to configure dataplane's logger.
 	LogLevel string
+
+	// Whether Consul DNS is enabled in the mesh-task. If yes, dataplane
+	// starts a local DNS server and transparently proxies it to Consul
+	// server's DNS interface
+	ConsulDNSEnabled bool
 }
 
 // GetDataplaneConfigJSON returns back a configuration JSON which
@@ -91,6 +96,13 @@ func (i *GetDataplaneConfigJSONInput) GetDataplaneConfigJSON() ([]byte, error) {
 				BearerToken: i.ConsulLoginCredentials.Login.BearerToken,
 				Meta:        i.ConsulLoginCredentials.Login.Meta,
 			},
+		}
+	}
+
+	if i.ConsulDNSEnabled {
+		cfg.DNSServer = &DNSServerConfig{
+			BindAddress: config.ConsulDataplaneDNSBindHost,
+			BindPort:    config.ConsulDataplaneDNSBindPort,
 		}
 	}
 

@@ -439,6 +439,60 @@
       },
       "required": ["kind"],
       "additionalProperties": false
+    },
+    "transparentProxy": {
+      "description": "Transparent proxy configuration for the Consul service",
+      "type": ["object", "null"],
+      "properties": {
+        "enabled": {
+          "description": "Whether transparent proxy is enabled or disabled for this task. Defaults to true",
+          "type": ["boolean", "null"]
+        },
+        "excludeInboundPorts": {
+          "description": "List of inbound ports to exclude from traffic redirection",
+          "type": ["array", "null"],
+          "items": {
+            "type": "integer"
+          },
+          "uniqueItems": true
+        },
+        "excludeOutboundPorts": {
+          "description": "List of outbound ports to exclude from traffic redirection",
+          "type": ["array", "null"],
+          "items": {
+            "type": "integer"
+          },
+          "uniqueItems": true
+        },
+        "excludeOutboundCIDRs": {
+          "description": "List of outbound IP CIDRs to exclude from traffic redirection",
+          "type": ["array", "null"],
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "excludeUIDs": {
+          "description": "List of additional UserIDs to exclude from traffic redirection",
+          "type": ["array", "null"],
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "consulDNS": {
+          "description": "Configuration for DNS inside the ECS task",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Whether Consul DNS should be enabled for this task. Requires transparent proxy to be enabled. Defaults to false. If enabled, services in the mesh will use Consul DNS for default DNS resolution.",
+              "type": ["boolean", "null"]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": ["bootstrapDir", "consulServers"],

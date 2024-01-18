@@ -19,8 +19,14 @@ BREAKING CHANGES
     - Marks all service and proxy checks as critical upon receiving SIGTERM.
     - Listens to changes to the Consul servers and reconfigures the Consul client if at all the server details change.
     - Gracefully shuts down(upon receiving SIGTERM) making sure that the Consul Dataplane has terminated properly and then proceeds with deregistering the service and proxy and performs a Consul logout to invalidate the ACL token.
+* The `transparentProxy.enabled` field defaults to `true` if not specified. Transparent proxy is not yet supported for FARGATE based launch types. When performing upgrades from previous versions of Consul ECS, care must be taken to always pass `false` for the `transparentProxy.enabled` field for FARGET launch types to ensure that `mesh-init` process doesn't fail due to insufficient privileges when applying traffic redirection rules
 
 FEATURES
+* Transparent proxy support for ECS EC2 launch type [[GH-212](https://github.com/hashicorp/consul-ecs/pull/212)]
+  - Add a `transparentProxy` stanza to the `ECS_CONFIG_JSON` schema to control traffic redirection settings for the ECS task.[[GH-171](https://github.com/hashicorp/consul-ecs/pull/171)]
+  - Enable support for Consul DNS within the ECS task via the `transparentProxy.consulDNS` stanza. When enabled, Consul Dataplane starts up a DNS server on port 8600 and proxies DNS queries to the Consul DNS server. The `/etc/resolv.conf` file of the ECS task is also modified to make sure that `127.0.0.1` is the first nameserver in the list.[[GH-170](https://github.com/hashicorp/consul-ecs/pull/170)]
+  - Adds a `redirecttraffic` package that invokes the `iptables` SDK of Consul which internally applies the traffic redirection rules needed to properly setup transparent proxy within the ECS task. [[GH-173](https://github.com/hashicorp/consul-ecs/pull/173)]
+  - The mesh-init process, in addition to registering service and proxy to Consul, also invokes the required modules to apply traffic redirection rules and set up Consul DNS within the ECS task. [[GH-174](https://github.com/hashicorp/consul-ecs/pull/174)]
 * API and terminating gateways
   - Add support for configuring API and terminating gateways as ECS tasks [[GH-192](https://github.com/hashicorp/consul-ecs/pull/192)]
   - Add following changes to the controller to support API gateways in ACL enabled clusters [[GH-198](https://github.com/hashicorp/consul-ecs/pull/198)]

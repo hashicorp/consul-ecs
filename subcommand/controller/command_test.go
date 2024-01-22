@@ -837,22 +837,6 @@ func testUpsertMeshGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTo
 			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
 
-			t.Cleanup(func() {
-				role, _, err := consulClient.ACL().RoleReadByName(meshGatewayRoleName, nil)
-				require.NoError(t, err)
-				require.NotNil(t, role)
-
-				_, err = consulClient.ACL().RoleDelete(role.ID, nil)
-				require.NoError(t, err)
-
-				policy, _, err := consulClient.ACL().PolicyReadByName(meshGatewayPolicyName, nil)
-				require.NoError(t, err)
-				require.NotNil(t, policy)
-
-				_, err = consulClient.ACL().PolicyDelete(policy.ID, nil)
-				require.NoError(t, err)
-			})
-
 			serverHost, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
 			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
 
@@ -908,6 +892,22 @@ func testUpsertMeshGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTo
 			opts := &api.QueryOptions{
 				Partition: cmd.config.Controller.Partition,
 			}
+
+			t.Cleanup(func() {
+				role, _, err := consulClient.ACL().RoleReadByName(meshGatewayRoleName, opts)
+				require.NoError(t, err)
+				require.NotNil(t, role)
+
+				_, err = consulClient.ACL().RoleDelete(role.ID, &api.WriteOptions{Partition: opts.Partition})
+				require.NoError(t, err)
+
+				policy, _, err := consulClient.ACL().PolicyReadByName(meshGatewayPolicyName, opts)
+				require.NoError(t, err)
+				require.NotNil(t, policy)
+
+				_, err = consulClient.ACL().PolicyDelete(policy.ID, &api.WriteOptions{Partition: opts.Partition})
+				require.NoError(t, err)
+			})
 
 			roles, _, err := consulClient.ACL().RoleList(opts)
 			require.NoError(t, err)

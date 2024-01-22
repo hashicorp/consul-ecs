@@ -61,6 +61,14 @@ namespace_prefix "" {
 		policy = "read"
 	}
 }`
+
+	expOSSMeshGatewayPolicy = `mesh = "write"
+peering = "read"`
+	expEntMeshGatewayPolicy = `mesh = "write"
+peering = "read"
+partition_prefix "" {
+	peering = "read"
+}`
 )
 
 var (
@@ -295,11 +303,12 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnab
 	}
 
 	require.Contains(t, policyNames, apiGatewayPolicyName)
+	require.Contains(t, policyNames, meshGatewayPolicyName)
 
 	// Check for the presence of API gateway and terminating gateway roles
 	roles, _, err := consulClient.ACL().RoleList(nil)
 	require.NoError(t, err)
-	require.Len(t, roles, 2)
+	require.Len(t, roles, 3)
 
 	roleNames := make([]string, 0)
 	for _, role := range roles {
@@ -307,6 +316,7 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnab
 	}
 	require.Contains(t, roleNames, apiGatewayRoleName)
 	require.Contains(t, roleNames, terminatingGatewayRoleName)
+	require.Contains(t, roleNames, meshGatewayRoleName)
 
 	// Check the auth methods are created
 	methods, _, err := consulClient.ACL().AuthMethodList(nil)
@@ -344,7 +354,7 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnab
 		// Check the binding rule is created.
 		rules, _, err := consulClient.ACL().BindingRuleList(method.Name, nil)
 		require.NoError(t, err)
-		require.Len(t, rules, 3)
+		require.Len(t, rules, 4)
 
 		var serviceBindingRule *api.ACLBindingRule
 		gatewayBindingRules := make([]*api.ACLBindingRule, 0)
@@ -359,7 +369,7 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnab
 		require.NotNil(t, serviceBindingRule)
 		require.Equal(t, serviceBindingRule.BindName, fmt.Sprintf(`${entity_tags.%s}`, authMethodServiceNameTag))
 
-		require.Len(t, gatewayBindingRules, 2)
+		require.Len(t, gatewayBindingRules, 3)
 
 		bindRuleNames := make([]string, 0)
 		for _, bindingRule := range gatewayBindingRules {
@@ -367,6 +377,7 @@ func checkConsulResources(t *testing.T, consulClient *api.Client, partitionsEnab
 		}
 		require.Contains(t, bindRuleNames, apiGatewayRoleName)
 		require.Contains(t, bindRuleNames, terminatingGatewayRoleName)
+		require.Contains(t, bindRuleNames, meshGatewayRoleName)
 	}
 }
 
@@ -687,15 +698,16 @@ func testUpsertAnonymousTokenPolicy(t *testing.T, cases map[string]anonTokenTest
 	}
 }
 
-type apiGatewayTokenTest struct {
-	partitionsEnabled bool
-	policyExists      bool
-	roleExists        bool
-	wantErr           bool
+type gatewayTokenTest struct {
+	partitionsEnabled      bool
+	useNonDefaultPartition bool
+	policyExists           bool
+	roleExists             bool
+	wantErr                bool
 }
 
 func TestUpsertAPIGatewayPolicyAndRole(t *testing.T) {
-	testUpsertAPIGatewayPolicyAndRole(t, map[string]apiGatewayTokenTest{
+	testUpsertAPIGatewayPolicyAndRole(t, map[string]gatewayTokenTest{
 		"both policy and role doesn't exist": {},
 		"policy already exists": {
 			policyExists: true,
@@ -711,7 +723,7 @@ func TestUpsertAPIGatewayPolicyAndRole(t *testing.T) {
 	})
 }
 
-func testUpsertAPIGatewayPolicyAndRole(t *testing.T, cases map[string]apiGatewayTokenTest) {
+func testUpsertAPIGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTokenTest) {
 	t.Parallel()
 	t.Helper()
 	for name, c := range cases {
@@ -762,7 +774,7 @@ func testUpsertAPIGatewayPolicyAndRole(t *testing.T, cases map[string]apiGateway
 			}
 
 			if c.policyExists {
-				err = cmd.upsertAPIGatewayPolicy(consulClient, apiGatewayPolicyName)
+				err = cmd.upsertConsulPolicy(consulClient, apiGatewayPolicyName, apiGatewayPolicyDescription)
 				require.NoError(t, err)
 			}
 
@@ -791,6 +803,126 @@ func testUpsertAPIGatewayPolicyAndRole(t *testing.T, cases map[string]apiGateway
 			expPolicy := expOSSAPIGatewayPolicy
 			if c.partitionsEnabled {
 				expPolicy = expEntAPIGatewayPolicy
+			}
+
+			require.Equal(t, expPolicy, policy.Rules)
+		})
+	}
+}
+
+func TestUpsertMeshGatewayPolicyAndRole(t *testing.T) {
+	testUpsertMeshGatewayPolicyAndRole(t, map[string]gatewayTokenTest{
+		"both policy and role doesn't exist": {},
+		"policy already exists": {
+			policyExists: true,
+		},
+		"role already exists": {
+			roleExists: true,
+			wantErr:    true,
+		},
+		"role already exists and policy also exists": {
+			roleExists:   true,
+			policyExists: true,
+		},
+	})
+}
+
+func testUpsertMeshGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTokenTest) {
+	t.Parallel()
+	t.Helper()
+	for name, c := range cases {
+		c := c
+		t.Run(name, func(t *testing.T) {
+			server, cfg := testutil.ConsulServer(t, testutil.ConsulACLConfigFn)
+			consulClient, err := api.NewClient(cfg)
+			require.NoError(t, err)
+
+			serverHost, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
+			_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
+
+			cmd := Command{
+				log: hclog.Default().Named("controller"),
+				config: &config.Config{
+					Controller: config.Controller{
+						PartitionsEnabled: c.partitionsEnabled,
+					},
+					ConsulServers: config.ConsulServers{
+						Hosts: serverHost,
+						GRPC: config.GRPCSettings{
+							Port:      serverGRPCPort,
+							EnableTLS: testutil.BoolPtr(false),
+						},
+						HTTP: config.HTTPSettings{
+							Port:      serverHTTPPort,
+							EnableTLS: testutil.BoolPtr(false),
+						},
+						SkipServerWatch: true,
+					},
+				},
+			}
+
+			if c.partitionsEnabled {
+				cmd.config.Controller.Partition = "default"
+				if c.useNonDefaultPartition {
+					cmd.config.Controller.Partition = testPartitionName
+
+					partition := &api.Partition{Name: testPartitionName, Description: "Test partition"}
+					_, _, err := consulClient.Partitions().Create(context.Background(), partition, nil)
+					require.NoError(t, err)
+				}
+			}
+
+			if c.policyExists {
+				err = cmd.upsertConsulPolicy(consulClient, meshGatewayPolicyName, meshGatewayPolicyDescription)
+				require.NoError(t, err)
+			}
+
+			if c.roleExists {
+				err = cmd.upsertRole(consulClient, meshGatewayRoleName, meshGatewayPolicyName, meshGatewayRoleDescription)
+				if c.wantErr {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			}
+
+			err = cmd.upsertMeshGatewayPolicyAndRole(consulClient)
+			require.NoError(t, err)
+
+			opts := &api.QueryOptions{
+				Partition: cmd.config.Controller.Partition,
+			}
+
+			t.Cleanup(func() {
+				role, _, err := consulClient.ACL().RoleReadByName(meshGatewayRoleName, opts)
+				require.NoError(t, err)
+				require.NotNil(t, role)
+
+				_, err = consulClient.ACL().RoleDelete(role.ID, &api.WriteOptions{Partition: opts.Partition})
+				require.NoError(t, err)
+
+				policy, _, err := consulClient.ACL().PolicyReadByName(meshGatewayPolicyName, opts)
+				require.NoError(t, err)
+				require.NotNil(t, policy)
+
+				_, err = consulClient.ACL().PolicyDelete(policy.ID, &api.WriteOptions{Partition: opts.Partition})
+				require.NoError(t, err)
+			})
+
+			roles, _, err := consulClient.ACL().RoleList(opts)
+			require.NoError(t, err)
+			require.Len(t, roles, 1)
+
+			require.Equal(t, meshGatewayRoleName, roles[0].Name)
+			require.NotNil(t, roles[0].Policies)
+
+			policy, _, err := consulClient.ACL().PolicyReadByName(meshGatewayPolicyName, opts)
+			require.NoError(t, err)
+			require.NotNil(t, policy)
+
+			expPolicy := expOSSMeshGatewayPolicy
+			if c.partitionsEnabled && !c.useNonDefaultPartition {
+				expPolicy = expEntMeshGatewayPolicy
 			}
 
 			require.Equal(t, expPolicy, policy.Rules)

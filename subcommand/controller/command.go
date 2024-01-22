@@ -478,7 +478,7 @@ func (c *Command) upsertConsulPolicy(consulClient *api.Client, policyName, polic
 	// If the policy already exists, we're done.
 	policy, _, err := consulClient.ACL().PolicyReadByName(policyName, c.queryOptions())
 	if err != nil && !controller.IsACLNotFoundError(err) {
-		return fmt.Errorf("reading API Gateway ACL policy: %w", err)
+		return fmt.Errorf("reading %s ACL policy: %w", policyName, err)
 	} else if err == nil && policy != nil {
 		c.log.Info("ACL policy already exists; skipping policy creation", "name", policyName)
 		return nil
@@ -488,7 +488,7 @@ func (c *Command) upsertConsulPolicy(consulClient *api.Client, policyName, polic
 	c.log.Info("creating ACL policy", "name", policyName)
 	rules, err := c.getRulesForPolicy(policyName)
 	if err != nil {
-		return fmt.Errorf("failed to generate API gateway token policy rules: %w", err)
+		return fmt.Errorf("failed to generate %s policy rules: %w", policyName, err)
 	}
 
 	_, _, err = consulClient.ACL().PolicyCreate(&api.ACLPolicy{

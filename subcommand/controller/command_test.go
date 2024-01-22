@@ -772,7 +772,7 @@ func testUpsertAPIGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTok
 			}
 
 			if c.policyExists {
-				err = cmd.upsertConsulPolicy(consulClient, apiGatewayPolicyName, apiGatewayPolicyDescription, cmd.writeOptions())
+				err = cmd.upsertConsulPolicy(consulClient, apiGatewayPolicyName, apiGatewayPolicyDescription)
 				require.NoError(t, err)
 			}
 
@@ -876,7 +876,7 @@ func testUpsertMeshGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTo
 			}
 
 			if c.policyExists {
-				err = cmd.upsertConsulPolicy(consulClient, meshGatewayPolicyName, meshGatewayPolicyDescription, cmd.writeOptions())
+				err = cmd.upsertConsulPolicy(consulClient, meshGatewayPolicyName, meshGatewayPolicyDescription)
 				require.NoError(t, err)
 			}
 

@@ -39,9 +39,10 @@ const (
 	anonPolicyDesc = "Anonymous token Policy"
 
 	// Role and Policy for API Gateways
-	apiGatewayRoleName        = "consul-ecs-api-gateway-role"
-	apiGatewayPolicyName      = "consul-ecs-api-gateway-policy"
-	apiGatewayRoleDescription = "API Gateway Role for ECS"
+	apiGatewayRoleName          = "consul-ecs-api-gateway-role"
+	apiGatewayPolicyName        = "consul-ecs-api-gateway-policy"
+	apiGatewayRoleDescription   = "API Gateway Role for ECS"
+	apiGatewayPolicyDescription = "API Gateway token Policy"
 
 	// Role for terminating gateways. This role will be
 	// bound to the token created by the auth method for
@@ -49,6 +50,11 @@ const (
 	// to this role via terraform.
 	terminatingGatewayRoleName        = "consul-ecs-terminating-gateway-role"
 	terminatingGatewayRoleDescription = "Terminating Gateway Role for ECS"
+
+	meshGatewayRoleName          = "consul-ecs-mesh-gateway-role"
+	meshGatewayRoleDescription   = "Mesh Gateway Role for ECS"
+	meshGatewayPolicyName        = "consul-ecs-mesh-gateway-policy"
+	meshGatewayPolicyDescription = "Mesh Gateway token Policy"
 )
 
 type Command struct {
@@ -239,6 +245,13 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 			Selector:    fmt.Sprintf(`entity_tags["%s"] == "terminating-gateway"`, authMethodGatewayKindTag),
 			BindName:    terminatingGatewayRoleName,
 		},
+		{
+			Description: "Bind a Consul role from IAM role tag for ECS based mesh gateways",
+			AuthMethod:  serviceAuthMethod.Name,
+			BindType:    api.BindingRuleBindTypeRole,
+			Selector:    fmt.Sprintf(`entity_tags["%s"] == "mesh-gateway"`, authMethodGatewayKindTag),
+			BindName:    meshGatewayRoleName,
+		},
 	}
 
 	agentSelf, err := consulClient.Agent().Self()
@@ -264,6 +277,9 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 	}
 
 	if err := c.upsertAPIGatewayPolicyAndRole(consulClient); err != nil {
+		return err
+	}
+	if err := c.upsertMeshGatewayPolicyAndRole(consulClient); err != nil {
 		return err
 	}
 	if err := c.upsertRole(consulClient, terminatingGatewayRoleName, "", terminatingGatewayRoleDescription); err != nil {
@@ -392,62 +408,13 @@ func (c *Command) upsertAuthMethod(consulClient *api.Client, authMethod *api.ACL
 
 // upsertAPIGatewayPolicyAndRole creates or updates the Consul ACL role for the API Gateway token.
 func (c *Command) upsertAPIGatewayPolicyAndRole(consulClient *api.Client) error {
-	if err := c.upsertAPIGatewayPolicy(consulClient, apiGatewayPolicyName); err != nil {
+	if err := c.upsertConsulPolicy(consulClient, apiGatewayPolicyName, apiGatewayPolicyDescription); err != nil {
 		return err
 	}
 	if err := c.upsertRole(consulClient, apiGatewayRoleName, apiGatewayPolicyName, apiGatewayRoleDescription); err != nil {
 		return err
 	}
 	return nil
-}
-
-// upsertAPIGatewayPolicy creates the ACL policy for the API gateway, if the policy does not exist.
-func (c *Command) upsertAPIGatewayPolicy(consulClient *api.Client, policyName string) error {
-	// If the policy already exists, we're done.
-	policy, _, err := consulClient.ACL().PolicyReadByName(policyName, c.queryOptions())
-	if err != nil && !controller.IsACLNotFoundError(err) {
-		return fmt.Errorf("reading API Gateway ACL policy: %w", err)
-	} else if err == nil && policy != nil { // returns policy=nil and err=nil if not found
-		c.log.Info("ACL policy already exists; skipping policy creation", "name", policyName)
-		return nil
-	}
-
-	// Otherwise, the policy is not found, so create it.
-	c.log.Info("creating ACL policy", "name", policyName)
-	apiGatewayRules, err := c.apiGatewayPolicyRules()
-	if err != nil {
-		return fmt.Errorf("failed to generate API gateway token policy rules: %w", err)
-	}
-
-	_, _, err = consulClient.ACL().PolicyCreate(&api.ACLPolicy{
-		Name:        policyName,
-		Description: "API Gateway token Policy",
-		Rules:       apiGatewayRules,
-	}, c.writeOptions())
-	if err != nil {
-		return fmt.Errorf("creating API Gateway token ACL policy: %w", err)
-	}
-	c.log.Info("ACL policy created successfully", "name", policyName)
-	return nil
-}
-
-func (c *Command) apiGatewayPolicyRules() (string, error) {
-	rules := `
-mesh = "read"
-{{- if .Enterprise }}
-namespace_prefix "" {
-{{- end }}
-	node_prefix "" {
-		policy = "read"
-	}
-	service_prefix "" {
-		policy = "read"
-	}
-{{- if .Enterprise }}
-}
-{{- end }}
-`
-	return RenderTemplate(rules, c.templateData())
 }
 
 // upsertRole creates the ACL role, if the role does not exist.
@@ -457,7 +424,7 @@ func (c *Command) upsertRole(consulClient *api.Client, roleName, policyName, rol
 	// If the role already exists, we're done.
 	role, _, err := consulClient.ACL().RoleReadByName(roleName, c.queryOptions())
 	if err != nil && !controller.IsACLNotFoundError(err) {
-		return fmt.Errorf("reading API Gateway ACL role: %w", err)
+		return fmt.Errorf("reading %s ACL role: %w", roleName, err)
 	} else if err == nil && role != nil { // returns role=nil and err=nil if not found
 		c.log.Info("ACL role already exists; skipping role creation", "name", roleName)
 
@@ -492,6 +459,91 @@ func (c *Command) upsertRole(consulClient *api.Client, roleName, policyName, rol
 	c.log.Info("ACL role created successfully", "name", roleName)
 
 	return nil
+}
+
+// upsertMeshGatewayPolicyAndRole creates or updates the Consul ACL role for the Mesh Gateway token.
+func (c *Command) upsertMeshGatewayPolicyAndRole(consulClient *api.Client) error {
+	if err := c.upsertConsulPolicy(consulClient, meshGatewayPolicyName, meshGatewayPolicyDescription); err != nil {
+		return err
+	}
+	if err := c.upsertRole(consulClient, meshGatewayRoleName, meshGatewayPolicyName, meshGatewayRoleDescription); err != nil {
+		return err
+	}
+	return nil
+}
+
+// upsertConsulPolicy creates the ACL policy and the associated rules with the given name,
+// if the policy does not exist.
+func (c *Command) upsertConsulPolicy(consulClient *api.Client, policyName, policyDescription string) error {
+	// If the policy already exists, we're done.
+	policy, _, err := consulClient.ACL().PolicyReadByName(policyName, c.queryOptions())
+	if err != nil && !controller.IsACLNotFoundError(err) {
+		return fmt.Errorf("reading %s ACL policy: %w", policyName, err)
+	} else if err == nil && policy != nil {
+		c.log.Info("ACL policy already exists; skipping policy creation", "name", policyName)
+		return nil
+	}
+
+	// Otherwise, the policy is not found, so create it.
+	c.log.Info("creating ACL policy", "name", policyName)
+	rules, err := c.getRulesForPolicy(policyName)
+	if err != nil {
+		return fmt.Errorf("failed to generate %s policy rules: %w", policyName, err)
+	}
+
+	_, _, err = consulClient.ACL().PolicyCreate(&api.ACLPolicy{
+		Name:        policyName,
+		Description: policyDescription,
+		Rules:       rules,
+	}, c.writeOptions())
+	if err != nil {
+		return fmt.Errorf("creating ACL policy: %w", err)
+	}
+	c.log.Info("ACL policy created successfully", "name", policyName)
+	return nil
+}
+
+func (c *Command) getRulesForPolicy(policy string) (string, error) {
+	switch policy {
+	case meshGatewayPolicyName:
+		return c.meshGatewayPolicyRules()
+	case apiGatewayPolicyName:
+		return c.apiGatewayPolicyRules()
+	default:
+		return "", fmt.Errorf("failed to fetch rules for the given policy %s", policy)
+	}
+}
+
+func (c *Command) apiGatewayPolicyRules() (string, error) {
+	rules := `
+mesh = "read"
+{{- if .Enterprise }}
+namespace_prefix "" {
+{{- end }}
+	node_prefix "" {
+		policy = "read"
+	}
+	service_prefix "" {
+		policy = "read"
+	}
+{{- if .Enterprise }}
+}
+{{- end }}
+`
+	return RenderTemplate(rules, c.templateData())
+}
+
+func (c *Command) meshGatewayPolicyRules() (string, error) {
+	rules := `
+mesh = "write"
+peering = "read"
+{{- if eq .Partition "default" }}
+partition_prefix "" {
+	peering = "read"
+}
+{{- end }}
+`
+	return RenderTemplate(rules, c.templateData())
 }
 
 func uniqueStrings(strs []string) []string {
@@ -706,10 +758,14 @@ type Config struct {
 
 type templateData struct {
 	Enterprise bool
+	Partition  string
 }
 
 func (c *Command) templateData() templateData {
-	return templateData{Enterprise: c.config.Controller.PartitionsEnabled}
+	return templateData{
+		Enterprise: c.config.Controller.PartitionsEnabled,
+		Partition:  c.config.Controller.Partition,
+	}
 }
 
 func (c *Command) anonymousPolicyRules() (string, error) {

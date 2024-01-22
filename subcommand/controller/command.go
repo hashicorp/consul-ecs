@@ -536,11 +536,10 @@ namespace_prefix "" {
 func (c *Command) meshGatewayPolicyRules() (string, error) {
 	rules := `
 mesh = "write"
-{{- if .Enterprise }}
+peering = "read"
+{{- if eq .Partition "default" }}
 partition_prefix "" {
-{{- end }}
 	peering = "read"
-{{- if .Enterprise }}
 }
 {{- end }}
 `
@@ -759,10 +758,14 @@ type Config struct {
 
 type templateData struct {
 	Enterprise bool
+	Partition  string
 }
 
 func (c *Command) templateData() templateData {
-	return templateData{Enterprise: c.config.Controller.PartitionsEnabled}
+	return templateData{
+		Enterprise: c.config.Controller.PartitionsEnabled,
+		Partition:  c.config.Controller.Partition,
+	}
 }
 
 func (c *Command) anonymousPolicyRules() (string, error) {

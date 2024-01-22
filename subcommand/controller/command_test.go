@@ -698,10 +698,11 @@ func testUpsertAnonymousTokenPolicy(t *testing.T, cases map[string]anonTokenTest
 }
 
 type gatewayTokenTest struct {
-	partitionsEnabled bool
-	policyExists      bool
-	roleExists        bool
-	wantErr           bool
+	partitionsEnabled      bool
+	useNonDefaultPartition bool
+	policyExists           bool
+	roleExists             bool
+	wantErr                bool
 }
 
 func TestUpsertAPIGatewayPolicyAndRole(t *testing.T) {
@@ -859,6 +860,7 @@ func testUpsertMeshGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTo
 				config: &config.Config{
 					Controller: config.Controller{
 						PartitionsEnabled: c.partitionsEnabled,
+						Partition:         "default",
 					},
 					ConsulServers: config.ConsulServers{
 						Hosts: serverHost,
@@ -873,6 +875,10 @@ func testUpsertMeshGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTo
 						SkipServerWatch: true,
 					},
 				},
+			}
+
+			if c.partitionsEnabled && c.useNonDefaultPartition {
+				cmd.config.Controller.Partition = testPartitionName
 			}
 
 			if c.policyExists {
@@ -904,7 +910,7 @@ func testUpsertMeshGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTo
 			require.NotNil(t, policy)
 
 			expPolicy := expOSSMeshGatewayPolicy
-			if c.partitionsEnabled {
+			if c.partitionsEnabled && !c.useNonDefaultPartition {
 				expPolicy = expEntMeshGatewayPolicy
 			}
 

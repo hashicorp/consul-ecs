@@ -52,5 +52,9 @@ func TestUpsertMeshGatewayTokenPolicyAndRole(t *testing.T) {
 		"test creation": {
 			partitionsEnabled: true,
 		},
+		"test creation with non default partition": {
+			partitionsEnabled:      true,
+			useNonDefaultPartition: true,
+		},
 	})
 }

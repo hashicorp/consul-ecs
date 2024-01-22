@@ -905,14 +905,18 @@ func testUpsertMeshGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTo
 			err = cmd.upsertMeshGatewayPolicyAndRole(consulClient)
 			require.NoError(t, err)
 
-			roles, _, err := consulClient.ACL().RoleList(nil)
+			opts := &api.QueryOptions{
+				Partition: cmd.config.Controller.Partition,
+			}
+
+			roles, _, err := consulClient.ACL().RoleList(opts)
 			require.NoError(t, err)
 			require.Len(t, roles, 1)
 
 			require.Equal(t, meshGatewayRoleName, roles[0].Name)
 			require.NotNil(t, roles[0].Policies)
 
-			policy, _, err := consulClient.ACL().PolicyReadByName(meshGatewayPolicyName, nil)
+			policy, _, err := consulClient.ACL().PolicyReadByName(meshGatewayPolicyName, opts)
 			require.NoError(t, err)
 			require.NotNil(t, policy)
 

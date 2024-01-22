@@ -408,7 +408,7 @@ func (c *Command) upsertAuthMethod(consulClient *api.Client, authMethod *api.ACL
 
 // upsertAPIGatewayPolicyAndRole creates or updates the Consul ACL role for the API Gateway token.
 func (c *Command) upsertAPIGatewayPolicyAndRole(consulClient *api.Client) error {
-	if err := c.upsertConsulPolicy(consulClient, apiGatewayPolicyName, apiGatewayPolicyDescription, c.writeOptions()); err != nil {
+	if err := c.upsertConsulPolicy(consulClient, apiGatewayPolicyName, apiGatewayPolicyDescription); err != nil {
 		return err
 	}
 	if err := c.upsertRole(consulClient, apiGatewayRoleName, apiGatewayPolicyName, apiGatewayRoleDescription); err != nil {
@@ -463,7 +463,7 @@ func (c *Command) upsertRole(consulClient *api.Client, roleName, policyName, rol
 
 // upsertMeshGatewayPolicyAndRole creates or updates the Consul ACL role for the Mesh Gateway token.
 func (c *Command) upsertMeshGatewayPolicyAndRole(consulClient *api.Client) error {
-	if err := c.upsertConsulPolicy(consulClient, meshGatewayPolicyName, meshGatewayPolicyDescription, nil); err != nil {
+	if err := c.upsertConsulPolicy(consulClient, meshGatewayPolicyName, meshGatewayPolicyDescription); err != nil {
 		return err
 	}
 	if err := c.upsertRole(consulClient, meshGatewayRoleName, meshGatewayPolicyName, meshGatewayRoleDescription); err != nil {
@@ -474,7 +474,7 @@ func (c *Command) upsertMeshGatewayPolicyAndRole(consulClient *api.Client) error
 
 // upsertConsulPolicy creates the ACL policy and the associated rules with the given name,
 // if the policy does not exist.
-func (c *Command) upsertConsulPolicy(consulClient *api.Client, policyName, policyDescription string, opts *api.WriteOptions) error {
+func (c *Command) upsertConsulPolicy(consulClient *api.Client, policyName, policyDescription string) error {
 	// If the policy already exists, we're done.
 	policy, _, err := consulClient.ACL().PolicyReadByName(policyName, c.queryOptions())
 	if err != nil && !controller.IsACLNotFoundError(err) {
@@ -495,7 +495,7 @@ func (c *Command) upsertConsulPolicy(consulClient *api.Client, policyName, polic
 		Name:        policyName,
 		Description: policyDescription,
 		Rules:       rules,
-	}, opts)
+	}, c.writeOptions())
 	if err != nil {
 		return fmt.Errorf("creating ACL policy: %w", err)
 	}

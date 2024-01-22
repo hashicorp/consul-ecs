@@ -424,7 +424,7 @@ func (c *Command) upsertRole(consulClient *api.Client, roleName, policyName, rol
 	// If the role already exists, we're done.
 	role, _, err := consulClient.ACL().RoleReadByName(roleName, c.queryOptions())
 	if err != nil && !controller.IsACLNotFoundError(err) {
-		return fmt.Errorf("reading API Gateway ACL role: %w", err)
+		return fmt.Errorf("reading %s ACL role: %w", roleName, err)
 	} else if err == nil && role != nil { // returns role=nil and err=nil if not found
 		c.log.Info("ACL role already exists; skipping role creation", "name", roleName)
 

@@ -63,7 +63,7 @@ namespace_prefix "" {
 }`
 
 	expOSSMeshGatewayPolicy = `mesh = "write"
-	peering = "read"`
+peering = "read"`
 	expEntMeshGatewayPolicy = `mesh = "write"
 partition_prefix "" {
 	peering = "read"

@@ -881,6 +881,10 @@ func testUpsertMeshGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTo
 				cmd.config.Controller.Partition = "default"
 				if c.useNonDefaultPartition {
 					cmd.config.Controller.Partition = testPartitionName
+
+					partition := &api.Partition{Name: testPartitionName, Description: "Test partition"}
+					_, _, err := consulClient.Partitions().Create(context.Background(), partition, nil)
+					require.NoError(t, err)
 				}
 			}
 

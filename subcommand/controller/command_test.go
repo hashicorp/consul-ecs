@@ -861,7 +861,6 @@ func testUpsertMeshGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTo
 				config: &config.Config{
 					Controller: config.Controller{
 						PartitionsEnabled: c.partitionsEnabled,
-						Partition:         "default",
 					},
 					ConsulServers: config.ConsulServers{
 						Hosts: serverHost,
@@ -878,8 +877,11 @@ func testUpsertMeshGatewayPolicyAndRole(t *testing.T, cases map[string]gatewayTo
 				},
 			}
 
-			if c.partitionsEnabled && c.useNonDefaultPartition {
-				cmd.config.Controller.Partition = testPartitionName
+			if c.partitionsEnabled {
+				cmd.config.Controller.Partition = "default"
+				if c.useNonDefaultPartition {
+					cmd.config.Controller.Partition = testPartitionName
+				}
 			}
 
 			if c.policyExists {

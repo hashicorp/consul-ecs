@@ -1,3 +1,10 @@
+## Unreleased
+
+BUG FIXES
+* Fix permissions given to the ACL token generated for a Mesh gateway based ECS task. The controller must be upgraded to this version for the fix to kick in. Following are the changes made to add additional permissions [[GH-216](https://github.com/hashicorp/consul-ecs/pull/216)]
+  - Create the `consul-ecs-mesh-gateway-role` ACL role and `consul-ecs-mesh-gateway-policy` ACL policy with the `mesh:write` and `peering:read` permissions.
+  - Add a new binding rule specific to Mesh gateway that helps binding the Mesh gateway's ACL token to the preconfigured `consul-ecs-mesh-gateway-role`
+
 ## 0.7.1 (Dec 18, 2023)
 
 BUG FIXES

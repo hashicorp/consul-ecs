@@ -31,11 +31,17 @@ const (
 	// Binding rules don't support a '/' character, so we need compatible IAM role tag names.
 	authMethodServiceNameTag = "consul.hashicorp.com.service-name"
 	authMethodNamespaceTag   = "consul.hashicorp.com.namespace"
+	authMethodGatewayKindTag = "consul.hashicorp.com.gateway-kind"
 
 	// anonTokenID is the well-known ID for the anonymous ACL token.
 	anonTokenID    = "00000000-0000-0000-0000-000000000002"
 	anonPolicyName = "anonymous-token-policy"
 	anonPolicyDesc = "Anonymous token Policy"
+
+	meshGatewayRoleName          = "consul-ecs-mesh-gateway-role"
+	meshGatewayRoleDescription   = "Mesh Gateway Role for ECS"
+	meshGatewayPolicyName        = "consul-ecs-mesh-gateway-policy"
+	meshGatewayPolicyDescription = "Mesh Gateway token Policy"
 )
 
 type Command struct {
@@ -190,8 +196,9 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 			// Must be true to use wildcard and tags
 			"EnableIAMEntityDetails": true,
 			"IAMEntityTags": []string{
-				authMethodServiceNameTag,
+				authMethodGatewayKindTag,
 				authMethodNamespaceTag,
+				authMethodServiceNameTag,
 			},
 		},
 	}
@@ -204,11 +211,20 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 		)
 	}
 
-	serviceBindingRule := &api.ACLBindingRule{
-		Description: "Bind a service identity from IAM role tag for ECS",
-		AuthMethod:  serviceAuthMethod.Name,
-		BindType:    api.BindingRuleBindTypeService,
-		BindName:    fmt.Sprintf(`${entity_tags.%s}`, authMethodServiceNameTag),
+	bindingRules := []*api.ACLBindingRule{
+		{
+			Description: "Bind a service identity from IAM role tag for ECS",
+			AuthMethod:  serviceAuthMethod.Name,
+			BindType:    api.BindingRuleBindTypeService,
+			BindName:    fmt.Sprintf(`${entity_tags.%s}`, authMethodServiceNameTag),
+		},
+		{
+			Description: "Bind a Consul role from IAM role tag for ECS based mesh gateways",
+			AuthMethod:  serviceAuthMethod.Name,
+			BindType:    api.BindingRuleBindTypeRole,
+			Selector:    fmt.Sprintf(`entity_tags["%s"] == "mesh-gateway"`, authMethodGatewayKindTag),
+			BindName:    meshGatewayRoleName,
+		},
 	}
 
 	agentSelf, err := consulClient.Agent().Self()
@@ -233,12 +249,20 @@ func (c *Command) upsertConsulResources(consulClient *api.Client, ecsMeta awsuti
 		return fmt.Errorf("`config.controller.partition` provided without setting `config.controller.partitionEnabled = true`")
 	}
 
+	if err := c.upsertMeshGatewayPolicyAndRole(consulClient); err != nil {
+		return err
+	}
+
 	if err := c.upsertAuthMethod(consulClient, serviceAuthMethod); err != nil {
 		return err
 	}
-	if err := c.upsertBindingRule(consulClient, serviceBindingRule); err != nil {
-		return err
+
+	for _, rule := range bindingRules {
+		if err := c.upsertBindingRule(consulClient, rule); err != nil {
+			return err
+		}
 	}
+
 	if err := c.upsertAnonymousTokenPolicy(consulClient, agentConfig); err != nil {
 		return err
 	}
@@ -277,7 +301,7 @@ func (c *Command) upsertPartition(consulClient *api.Client) error {
 }
 
 // upsertAuthMethod will create the auth method if it does not already exist. If the auth method
-// already exists, it will merge the two lists of BoundIAMPrincipalARNs and update the auth method
+// already exists, it will merge the two lists of BoundIAMPrincipalARNs and and EntityTags and update the auth method
 // if necessary.
 //
 // Note: there is a race if two controllers do a simultaneous read-write of the auth method. This
@@ -305,14 +329,35 @@ func (c *Command) upsertAuthMethod(consulClient *api.Client, authMethod *api.ACL
 		// Merge current principals with possibly new/other principals, and dedupe.
 		principals := uniqueStrings(append(currentPrincipals, ourPrincipals...))
 
-		if reflect.DeepEqual(principals, currentPrincipals) {
+		// Check the difference in the method.Config["IAMEntityTags"] array and update
+		// the auth method accordingly.
+		currentIAMEntityTags, err := forceStringSlice(method.Config["IAMEntityTags"])
+		if err != nil {
+			c.log.Warn("incorrect type for IAMEntityTags", "auth-method", method.Name, "msg", err.Error())
+		}
+
+		ourIAMEntityTags, err := forceStringSlice(authMethod.Config["IAMEntityTags"])
+		if err != nil {
+			c.log.Warn("incorrect type for IAMEntityTags", "auth-method", method.Name, "msg", err.Error())
+		}
+
+		// Merge the tags
+		iamEntityTags := uniqueStrings(append(currentIAMEntityTags, ourIAMEntityTags...))
+
+		if reflect.DeepEqual(principals, currentPrincipals) &&
+			reflect.DeepEqual(iamEntityTags, currentIAMEntityTags) {
 			c.log.Info("ACL auth method already exists; skipping upsert", "name", authMethod.Name)
 			return nil
 		}
 
-		c.log.Info("ACL auth method exists; updating BoundIAMPrincipalARNs",
-			"name", authMethod.Name, "current-arns", fmt.Sprint(currentPrincipals), "our-arns", fmt.Sprint(principals))
+		c.log.Info("ACL auth method exists; updating BoundIAMPrincipalARNs/IAMEntityTags",
+			"name", authMethod.Name, "current-arns", fmt.Sprint(currentPrincipals),
+			"our-arns", fmt.Sprint(principals),
+			"current-iam-entity-tags", fmt.Sprint(currentIAMEntityTags),
+			"our-iam-entity-tags", fmt.Sprint(iamEntityTags),
+		)
 		authMethod.Config["BoundIAMPrincipalARNs"] = principals
+		authMethod.Config["IAMEntityTags"] = iamEntityTags
 
 		method, _, err = consulClient.ACL().AuthMethodUpdate(authMethod, c.writeOptions())
 		if err != nil {
@@ -328,6 +373,114 @@ func (c *Command) upsertAuthMethod(consulClient *api.Client, authMethod *api.ACL
 		c.log.Info("ACL auth method created successfully", "name", method.Name)
 	}
 	return nil
+}
+
+// upsertRole creates the ACL role, if the role does not exist.
+// If the role exists and a policyName is passed, we try to
+// attach the policy to the role.
+func (c *Command) upsertRole(consulClient *api.Client, roleName, policyName, roleDescription string) error {
+	// If the role already exists, we're done.
+	role, _, err := consulClient.ACL().RoleReadByName(roleName, c.queryOptions())
+	if err != nil && !controller.IsACLNotFoundError(err) {
+		return fmt.Errorf("reading API Gateway ACL role: %w", err)
+	} else if err == nil && role != nil { // returns role=nil and err=nil if not found
+		c.log.Info("ACL role already exists; skipping role creation", "name", roleName)
+
+		if len(role.Policies) == 0 && policyName != "" {
+			c.log.Info("updating ACL role with policy", "role", roleName, "policy", policyName)
+			role.Policies = []*api.ACLLink{{Name: policyName}}
+			_, _, err := consulClient.ACL().RoleUpdate(role, c.writeOptions())
+			if err != nil {
+				return fmt.Errorf("updating Consul client ACL role: %s", err)
+			}
+			c.log.Info("update ACL role successfully", "name", roleName)
+		}
+		return nil
+	}
+
+	c.log.Info("creating ACL role", "name", roleName)
+
+	var policies []*api.ACLLink
+	if policyName != "" {
+		policies = []*api.ACLLink{
+			{Name: policyName},
+		}
+	}
+	_, _, err = consulClient.ACL().RoleCreate(&api.ACLRole{
+		Name:        roleName,
+		Description: roleDescription,
+		Policies:    policies,
+	}, c.writeOptions())
+	if err != nil {
+		return fmt.Errorf("creating role: %w", err)
+	}
+	c.log.Info("ACL role created successfully", "name", roleName)
+
+	return nil
+}
+
+// upsertMeshGatewayPolicyAndRole creates or updates the Consul ACL role for the Mesh Gateway token.
+func (c *Command) upsertMeshGatewayPolicyAndRole(consulClient *api.Client) error {
+	if err := c.upsertConsulPolicy(consulClient, meshGatewayPolicyName, meshGatewayPolicyDescription); err != nil {
+		return err
+	}
+	if err := c.upsertRole(consulClient, meshGatewayRoleName, meshGatewayPolicyName, meshGatewayRoleDescription); err != nil {
+		return err
+	}
+	return nil
+}
+
+// upsertConsulPolicy creates the ACL policy and the associated rules with the given name,
+// if the policy does not exist.
+func (c *Command) upsertConsulPolicy(consulClient *api.Client, policyName, policyDescription string) error {
+	// If the policy already exists, we're done.
+	policy, _, err := consulClient.ACL().PolicyReadByName(policyName, c.queryOptions())
+	if err != nil && !controller.IsACLNotFoundError(err) {
+		return fmt.Errorf("reading API Gateway ACL policy: %w", err)
+	} else if err == nil && policy != nil {
+		c.log.Info("ACL policy already exists; skipping policy creation", "name", policyName)
+		return nil
+	}
+
+	// Otherwise, the policy is not found, so create it.
+	c.log.Info("creating ACL policy", "name", policyName)
+	rules, err := c.getRulesForPolicy(policyName)
+	if err != nil {
+		return fmt.Errorf("failed to generate API gateway token policy rules: %w", err)
+	}
+
+	_, _, err = consulClient.ACL().PolicyCreate(&api.ACLPolicy{
+		Name:        policyName,
+		Description: policyDescription,
+		Rules:       rules,
+	}, c.writeOptions())
+	if err != nil {
+		return fmt.Errorf("creating ACL policy: %w", err)
+	}
+	c.log.Info("ACL policy created successfully", "name", policyName)
+	return nil
+}
+
+func (c *Command) getRulesForPolicy(policy string) (string, error) {
+	switch policy {
+	case meshGatewayPolicyName:
+		return c.meshGatewayPolicyRules()
+	default:
+		return "", fmt.Errorf("failed to fetch rules for the given policy %s", policy)
+	}
+}
+
+func (c *Command) meshGatewayPolicyRules() (string, error) {
+	rules := `
+mesh = "write"
+peering = "read"
+{{- if eq .Partition "default" }}
+partition_prefix "" {
+	peering = "read"
+}
+{{- end }}
+`
+	return RenderTemplate(rules, c.templateData())
 }
 
 func uniqueStrings(strs []string) []string {
@@ -378,11 +531,23 @@ func (c *Command) upsertBindingRule(consulClient *api.Client, bindingRule *api.A
 	if err != nil {
 		return fmt.Errorf("listing ACL binding rules for auth method %s: %w", method, err)
 	}
-	if len(rules) > 0 {
-		// For now, we just expect at least one binding rule to exist.
-		// TODO: Can we create the rule with a client-generated ID?
-		c.log.Info("ACL binding rule created successfully", "method", method,
-			"bind-type", rules[0].BindType, "bind-name", rules[0].BindName)
+
+	// Check for existing rules that match the bind name and description
+	// If present, make sure to update those rules.
+	for _, existingRule := range rules {
+		if existingRule.BindName == bindingRule.BindName && existingRule.Description == bindingRule.Description {
+			bindingRule.ID = existingRule.ID
+			break
+		}
+	}
+
+	if bindingRule.ID != "" {
+		rule, _, err := consulClient.ACL().BindingRuleUpdate(bindingRule, c.writeOptions())
+		if err != nil {
+			return fmt.Errorf("updating ACL binding rule: %w", err)
+		}
+		c.log.Info("ACL binding rule updated successfully", "method", method,
+			"bind-type", rule.BindType, "bind-name", rule.BindName)
 		return nil
 	}
 
@@ -530,10 +695,14 @@ type Config struct {
 
 type templateData struct {
 	Enterprise bool
+	Partition  string
 }
 
 func (c *Command) templateData() templateData {
-	return templateData{Enterprise: c.config.Controller.PartitionsEnabled}
+	return templateData{
+		Enterprise: c.config.Controller.PartitionsEnabled,
+		Partition:  c.config.Controller.Partition,
+	}
 }
 
 func (c *Command) anonymousPolicyRules() (string, error) {

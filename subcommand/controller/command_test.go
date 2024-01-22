@@ -65,6 +65,7 @@ namespace_prefix "" {
 	expOSSMeshGatewayPolicy = `mesh = "write"
 peering = "read"`
 	expEntMeshGatewayPolicy = `mesh = "write"
+peering = "read"
 partition_prefix "" {
 	peering = "read"
 }`

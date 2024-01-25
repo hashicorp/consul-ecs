@@ -1,4 +1,4 @@
-## Unreleased
+## 0.7.2 (Jan 25, 2024)
 
 BUG FIXES
 * Fix permissions given to the ACL token generated for a Mesh gateway based ECS task. The controller must be upgraded to this version for the fix to kick in. Following are the changes made to add additional permissions [[GH-216](https://github.com/hashicorp/consul-ecs/pull/216)]

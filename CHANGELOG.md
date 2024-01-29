@@ -1,3 +1,8 @@
+## Unreleased
+
+IMPROVEMENTS
+* Bump Go to `1.21.6`
+
 ## 0.6.1 (Nov 2, 2023)
 
 IMPROVEMENTS

@@ -155,7 +155,7 @@ func TestRun(t *testing.T) {
 					// Sanity check. We mock two requests with app container running, and the rest with the app container stopped.
 					require.GreaterOrEqual(r, atomic.LoadInt64(&ecsMetaRequestCount), int64(3))
 
-					t.Logf("Check the fake Envoy process exits")
+					r.Log("Check the fake Envoy process exits")
 					proc, err := os.FindProcess(envoyPid)
 					require.NoError(r, err, "Failed to find fake Envoy process")
 					// A zero-signal checks the validity of the process id.

@@ -1,3 +1,8 @@
+## Unreleased
+
+IMPROVEMENTS
+* Bump Go to `1.21.6`
+
 ## 0.7.2 (Jan 25, 2024)
 
 BUG FIXES

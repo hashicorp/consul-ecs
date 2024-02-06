@@ -175,11 +175,11 @@ func (c *TrafficRedirectionCfg) Apply() error {
 		c.iptablesCfg.IptablesProvider = c.iptablesProvider
 	}
 
-	c.iptablesCfg.AddAdditionalRulesFn = func(iptablesProvider iptables.Provider) {
+	addAdditionalRulesFn := func(iptablesProvider iptables.Provider) {
 		iptablesProvider.AddRule("iptables", "-t", "nat", "--policy", "POSTROUTING", "ACCEPT")
 	}
 
-	err := iptables.Setup(c.iptablesCfg)
+	err := iptables.SetupWithAdditionalRules(c.iptablesCfg, addAdditionalRulesFn)
 	if err != nil {
 		return fmt.Errorf("failed to setup traffic redirection rules %w", err)
 	}

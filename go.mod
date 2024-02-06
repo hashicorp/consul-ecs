@@ -23,7 +23,7 @@ require (
 	github.com/xeipuuv/gojsonschema v1.2.0
 )
 
-replace github.com/hashicorp/consul/sdk => github.com/hashicorp/consul/sdk v0.4.1-0.20240117162921-4d20e54273ca
+replace github.com/hashicorp/consul/sdk => github.com/hashicorp/consul/sdk v0.4.1-0.20240205231440-850137de4959
 
 require (
 	github.com/Masterminds/goutils v1.1.1 // indirect

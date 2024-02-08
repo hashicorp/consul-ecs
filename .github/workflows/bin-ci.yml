@@ -54,7 +54,7 @@ jobs:
       matrix:
         consul-version:
         - 1.18.0-rc1
-        - 1.18.0-rc1+ent
+        - 1.17.2+ent
     env:
       TEST_RESULTS_DIR: /tmp/test-results
       GOTESTSUM_VERSION: 1.8.2

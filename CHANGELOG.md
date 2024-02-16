@@ -45,6 +45,16 @@ BUG FIXES
   - Create the `consul-ecs-mesh-gateway-role` ACL role and `consul-ecs-mesh-gateway-policy` ACL policy with the `mesh:write` and `peering:read` permissions.
   - Add a new binding rule specific to Mesh gateway that helps binding the Mesh gateway's ACL token to the preconfigured `consul-ecs-mesh-gateway-role`
 
+## 0.7.3 (Feb 16, 2024)
+
+IMPROVEMENTS
+* Bump Go to `1.21.6`
+
+## 0.6.2 (Feb 16, 2023)
+
+IMPROVEMENTS
+* Bump Go to `1.21.6`
+
 ## 0.7.2 (Jan 25, 2024)
 
 BUG FIXES

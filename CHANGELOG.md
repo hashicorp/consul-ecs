@@ -1,4 +1,4 @@
-## 0.7.3 (Feb 16, 2023)
+## 0.7.3 (Feb 16, 2024)
 
 IMPROVEMENTS
 * Bump Go to `1.21.6`

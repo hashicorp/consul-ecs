@@ -1,4 +1,4 @@
-## Unreleased
+## 0.8.0 (Feb 29, 2024)
 
 BREAKING CHANGES
 * Following are the changes made to the `control-plane` container

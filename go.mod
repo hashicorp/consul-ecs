@@ -10,7 +10,7 @@ require (
 	github.com/hashicorp/consul-awsauth v0.0.0-20220713200329-83146e702996
 	github.com/hashicorp/consul-server-connection-manager v0.1.2
 	github.com/hashicorp/consul/api v1.26.1-rc1
-	github.com/hashicorp/consul/sdk v0.14.3-rc1
+	github.com/hashicorp/consul/sdk v0.16.0
 	github.com/hashicorp/go-hclog v1.5.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-rootcerts v1.0.2
@@ -22,8 +22,6 @@ require (
 	github.com/stretchr/testify v1.8.3
 	github.com/xeipuuv/gojsonschema v1.2.0
 )
-
-replace github.com/hashicorp/consul/sdk => github.com/hashicorp/consul/sdk v0.4.1-0.20240205231440-850137de4959
 
 require (
 	github.com/Masterminds/goutils v1.1.1 // indirect

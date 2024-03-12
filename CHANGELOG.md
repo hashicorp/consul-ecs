@@ -1,3 +1,8 @@
+## Unreleased
+
+BUG FIXES
+* Update `google.golang.org/protobuf` to v1.33.0 and `github.com/golang/protobuf` to v1.5.4 to address [CVE-2024-24786](https://nvd.nist.gov/vuln/detail/CVE-2024-24786).
+
 ## 0.8.0 (Feb 29, 2024)
 
 BREAKING CHANGES

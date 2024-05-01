@@ -3,7 +3,7 @@ SHELL = /usr/bin/env bash -euo pipefail -c
 # ---------- CRT ----------
 BIN_NAME = consul-ecs
 
-ARCH     = $(shell A=$$(uname -m); [ $$A = x86_64 ] && A=amd64; echo $$A)
+ARCH     = $(shell A=$$(uname -m); [ $$A = x86_64 ] && A=amd64; [ $$A = aarch64 ] && A=arm64; echo $$A)
 OS       = $(shell uname | tr [[:upper:]] [[:lower:]])
 PLATFORM = $(OS)/$(ARCH)
 DIST     = dist/$(PLATFORM)
@@ -33,10 +33,6 @@ dev-fips: dist
 .PHONY: dev-fips
 
 # Docker Stuff.
-# TODO: Docker in CircleCI doesn't support buildkit.
-#       So we enable build-kit in the individual targets.
-#       We can set this here one time, once we're off CircleCI.
-# export DOCKER_BUILDKIT=1
 BUILD_ARGS = BIN_NAME=consul-ecs PRODUCT_VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) GIT_DIRTY=$(GIT_DIRTY)
 TAG        = $(BIN_NAME)/$(TARGET):$(VERSION)
 BA_FLAGS   = $(addprefix --build-arg=,$(BUILD_ARGS))

@@ -1,7 +1,8 @@
-name: bin-ci
+name: test
+
 on:
+  workflow_dispatch:
   push:
-    branches: '**'
 
 env:
   CONSUL_LICENSE: ${{ secrets.CONSUL_LICENSE }}
@@ -41,8 +42,8 @@ jobs:
     strategy:
       matrix:
         consul-version:
-        - 1.18.0
-        - 1.18.0+ent
+          - 1.18.1
+          - 1.18.1+ent
     env:
       TEST_RESULTS_DIR: /tmp/test-results
       GOTESTSUM_VERSION: 1.8.2

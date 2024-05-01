@@ -4,6 +4,11 @@ on:
   workflow_dispatch:
   push:
 
+# cancel existing runs of the same workflow on the same ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 env:
   CONSUL_LICENSE: ${{ secrets.CONSUL_LICENSE }}
 
@@ -100,7 +105,7 @@ jobs:
         name: test-results
         path: ${{ env.TEST_RESULTS_DIR }}/${{ matrix.consul-version }}
 
-  # This is job is required for branch protection as a required gihub check
+  # This is job is required for branch protection as a required GitHub check
   # because GitHub actions show up as checks at the job level and not the
   # workflow level.  This is currently a feature request:
   # https://github.com/orgs/community/discussions/12395

@@ -63,6 +63,11 @@ jobs:
     needs:
       - get-go-version
       - get-product-version
+    # Warning: Updating the ubuntu version for this job may cause FIPS builds on arm64 to
+    # have issues running mesh-init, which copies the Cgo dynamically linked binary to a
+    # remote host. Compiling against a secure-but-older GLibC version (by using an older
+    # Ubuntu image) is the easiest way to avoid this issue.
+    # See https://groups.google.com/g/pat-users/c/dawmYvN4DBc
     runs-on: ubuntu-20.04
     strategy:
       matrix:
@@ -93,12 +98,13 @@ jobs:
 
       - name: Build
         env:
+          # Env may be overridden by matrix values, e.g. CGO_ENABLED for FIPS builds.
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           LDFLAGS: ${{ needs.get-product-version.outputs.ldflags }}
           CGO_ENABLED: "0"
         run: |
-          go env
+          ${{ matrix.env }} go env
           mkdir dist out
           ${{ matrix.env }} go build -tags=${{ matrix.gotags }} -ldflags="$LDFLAGS" -o dist/ .
           zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/

@@ -1,5 +1,5 @@
 # default PR reviews to the team
-* @hashicorp/consul-ecs
+* @hashicorp/consul
 
 # release configuration
 /.release/                              @hashicorp/release-engineering

@@ -7,21 +7,14 @@ on:
 env:
   PKG_NAME: "consul-ecs"
 
+# cancel existing runs of the same workflow on the same ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   get-go-version:
-    name: "Determine Go toolchain version"
-    runs-on: ubuntu-latest
-    outputs:
-      go-version: ${{ steps.get-go-version.outputs.go-version }}
-    steps:
-      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
-      - name: Determine Go version
-        id: get-go-version
-        # We use .go-version as our source of truth for current Go
-        # version, because "goenv" can react to it automatically.
-        run: |
-          echo "Building with Go $(cat .go-version)"
-          echo "go-version=$(cat .go-version)" >> $GITHUB_OUTPUT
+    uses: ./.github/workflows/reusable-get-go-version.yml
 
   get-product-version:
     runs-on: ubuntu-latest
@@ -63,6 +56,11 @@ jobs:
     needs:
       - get-go-version
       - get-product-version
+    # Warning: Updating the ubuntu version for this job may cause FIPS builds on arm64 to
+    # have issues running mesh-init, which copies the Cgo dynamically linked binary to a
+    # remote host. Compiling against a secure-but-older GLibC version (by using an older
+    # Ubuntu image) is the easiest way to avoid this issue.
+    # See https://groups.google.com/g/pat-users/c/dawmYvN4DBc
     runs-on: ubuntu-20.04
     strategy:
       matrix:
@@ -93,12 +91,13 @@ jobs:
 
       - name: Build
         env:
+          # Env may be overridden by matrix values, e.g. CGO_ENABLED for FIPS builds.
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           LDFLAGS: ${{ needs.get-product-version.outputs.ldflags }}
           CGO_ENABLED: "0"
         run: |
-          go env
+          ${{ matrix.env }} go env
           mkdir dist out
           ${{ matrix.env }} go build -tags=${{ matrix.gotags }} -ldflags="$LDFLAGS" -o dist/ .
           zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/
@@ -232,3 +231,34 @@ jobs:
 
           echo "==> Push docker image $TAG"
           docker push "$TAG"
+
+  # This is job is required for branch protection as a required GitHub check
+  # because GitHub actions show up as checks at the job level and not the
+  # workflow level.  This is currently a feature request:
+  # https://github.com/orgs/community/discussions/12395
+  #
+  # This job must:
+  # - be placed after the fanout of a workflow so that everything fans back in
+  #   to this job.
+  # - "need" any job that is part of the fan out / fan in
+  # - include if: always() logic because we may have conditional jobs that this job
+  #   needs, and this would potentially get skipped if a previous job got skipped.
+  #   The if clause ensures it does not get skipped.
+  build-success:
+    needs:
+      - generate-metadata-file
+      - build-linux
+      - build-docker-default
+      - build-docker-fips
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: evaluate upstream job results
+        run: |
+          # exit 1 if failure or cancelled result for any upstream job
+          # this ensures that we fail the PR check regardless of cancellation, rather than skip-passing it
+          # see https://docs.github.com/en/actions/using-jobs/using-conditions-to-control-job-execution#overview
+          if printf '${{ toJSON(needs) }}' | grep -E -i '\"result\": \"(failure|cancelled)\"'; then
+            printf "Tests failed or workflow cancelled:\n\n${{ toJSON(needs) }}"
+            exit 1
+          fi

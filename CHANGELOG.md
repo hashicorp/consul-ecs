@@ -1,3 +1,13 @@
+## Unreleased
+
+BUG FIXES
+* Update `google.golang.org/protobuf` to v1.33.0 and `github.com/golang/protobuf` to v1.5.4 to address [CVE-2024-24786](https://nvd.nist.gov/vuln/detail/CVE-2024-24786). [[GH-240](https://github.com/hashicorp/consul-ecs/pull/240)]
+* Fix `mesh-init` local executable copying in dynamically-linked execution contexts [[GH-242](https://github.com/hashicorp/consul-ecs/pull/242)]
+
+IMPROVEMENTS
+* Bump Go version to `1.21.9`
+* Bump `x/net` to `0.23.0`
+
 ## 0.8.0 (Feb 29, 2024)
 
 BREAKING CHANGES
@@ -19,7 +29,7 @@ BREAKING CHANGES
     - Marks all service and proxy checks as critical upon receiving SIGTERM.
     - Listens to changes to the Consul servers and reconfigures the Consul client if at all the server details change.
     - Gracefully shuts down(upon receiving SIGTERM) making sure that the Consul Dataplane has terminated properly and then proceeds with deregistering the service and proxy and performs a Consul logout to invalidate the ACL token.
-* The `transparentProxy.enabled` field defaults to `true` if not specified. Transparent proxy is not yet supported for FARGATE based launch types. When performing upgrades from previous versions of Consul ECS, care must be taken to always pass `false` for the `transparentProxy.enabled` field for FARGET launch types to ensure that `mesh-init` process doesn't fail due to insufficient privileges when applying traffic redirection rules
+* The `transparentProxy.enabled` field defaults to `true` if not specified. Transparent proxy is not yet supported for FARGATE based launch types. When performing upgrades from previous versions of Consul ECS, care must be taken to always pass `false` for the `transparentProxy.enabled` field for FARGATE launch types to ensure that `mesh-init` process doesn't fail due to insufficient privileges when applying traffic redirection rules
 
 FEATURES
 * Transparent proxy support for ECS EC2 launch type [[GH-212](https://github.com/hashicorp/consul-ecs/pull/212)]

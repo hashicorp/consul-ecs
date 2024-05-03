@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -51,12 +54,12 @@ func (c *Command) Run(args []string) int {
 		return 1
 	}
 
-	config, err := config.FromEnv()
+	configEnv, err := config.FromEnv()
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("invalid config: %s", err))
 		return 1
 	}
-	c.config = config
+	c.config = configEnv
 
 	c.log = logging.FromConfig(c.config).Logger()
 
@@ -375,6 +378,28 @@ func (c *Command) copyECSBinaryToSharedVolume() error {
 	if err != nil {
 		return err
 	}
+
+	// Dynamic linking (e.g. Cgo) can interfere with reading the executable path
+	// due to the dynamic linker being used to launch the `consul-ecs` binary.
+	// If detected, fall back to searching for the current executable via os.Args and PATH.
+	// c.f. https://go.dev/src/os/executable_path.go
+	if ok, _ := regexp.MatchString("ld-[^.]+\\.so\\.[0-9]+", ex); ok {
+		c.log.Debug("got dynamic linker from os.Executable(), falling back to path search", "found", ex)
+		pathEx, err := exec.LookPath(os.Args[0])
+		if err != nil {
+			return err
+		}
+		pathEx, err = filepath.EvalSymlinks(pathEx)
+		if err != nil {
+			return err
+		}
+		pathEx, err = filepath.Abs(pathEx)
+		if err != nil {
+			return err
+		}
+		ex = pathEx
+	}
+
 	data, err := os.ReadFile(ex)
 	if err != nil {
 		return err
@@ -385,7 +410,7 @@ func (c *Command) copyECSBinaryToSharedVolume() error {
 	if err != nil {
 		return err
 	}
-	c.log.Info("copied binary", "file", copyConsulECSBinary)
+	c.log.Info("copied binary", "source", ex, "destination", copyConsulECSBinary)
 	return nil
 }
 

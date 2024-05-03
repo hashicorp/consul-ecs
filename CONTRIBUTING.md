@@ -22,6 +22,22 @@ If you're reporting what you think is a bug (i.e., something isn't right with an
 * Any modifications you've made relevant to the bug
 * Anything unusual about your environment or deployment
 
+## Running Tests
+
+Tests will run using the locally installed `consul` binary.
+
+Running the Enterprise tests requires a local Consul Enterprise binary, passing the `-enterprise` flag as an argument to `go test`, and a valid Consul Enterprise license (configure by [setting `CONSUL_LICENSE` or `CONSUL_LICENSE_PATH` in your environment](https://developer.hashicorp.com/consul/docs/enterprise/license/overview#applying-a-license)).
+```shell
+export CONSUL_LICENSE_PATH=...
+go test -v ./... -- -enterprise
+```
+
+To run the CE tests, omit the `-enterprise` flag and ensure your local binary is Consul CE.
+```shell
+go test -v ./...
+```
+
+Note that the CE tests cannot be run with a Consul Enterprise binary due to defaulting of tenancy fields.
 
 ## Licensing
 

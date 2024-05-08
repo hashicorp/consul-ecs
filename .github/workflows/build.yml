@@ -99,6 +99,7 @@ jobs:
         run: |
           ${{ matrix.env }} go env
           mkdir dist out
+          cp $GITHUB_WORKSPACE/LICENSE dist/LICENSE.txt
           ${{ matrix.env }} go build -tags=${{ matrix.gotags }} -ldflags="$LDFLAGS" -o dist/ .
           zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/
           if [ "${{ matrix.goarch }}" = "amd64" ]; then

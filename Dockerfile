@@ -20,6 +20,7 @@ ARG TARGETOS TARGETARCH
 # Export BIN_NAME for the CMD below, it can't see ARGs directly.
 ENV BIN_NAME=$BIN_NAME
 ENV VERSION=$PRODUCT_VERSION
+ENV PRODUCT_NAME=$BIN_NAME
 
 LABEL description="consul-ecs provides first-class integration between Consul and AWS ECS." \
       maintainer="Consul Team <consul@hashicorp.com>" \
@@ -35,6 +36,7 @@ LABEL description="consul-ecs provides first-class integration between Consul an
       org.opencontainers.image.title=$BIN_NAME \
       org.opencontainers.image.url="https://www.consul.io/" \
       org.opencontainers.image.vendor="HashiCorp" \
+      org.opencontainers.image.licenses="MPL-2.0" \
       org.opencontainers.image.version=$PRODUCT_VERSION
 
 # Create a non-root user to run the software.
@@ -63,6 +65,7 @@ RUN ln -s /lib/libc.so.6 /usr/lib/libresolv.so.2
 USER $BIN_NAME
 ENTRYPOINT ["/bin/consul-ecs"]
 COPY dist/$TARGETOS/$TARGETARCH/$BIN_NAME /bin/
+COPY LICENSE /usr/share/doc/$PRODUCT_NAME/LICENSE.txt
 COPY --from=go-discover /go/bin/discover /bin/
 
 # Separate FIPS target to accomodate CRT label assumptions

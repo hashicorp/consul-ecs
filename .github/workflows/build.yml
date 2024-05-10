@@ -157,11 +157,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - { arch: "arm64" }
+          # - { arch: "arm64" }
           - { arch: "amd64" }
     env:
       repo: ${{ github.event.repository.name }}
       version: ${{ needs.get-product-version.outputs.product-version }}+fips1402
+      simple-version: ${{ needs.get-product-version.outputs.product-version }}
 
     steps:
       - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
@@ -181,14 +182,15 @@ jobs:
           target: release-fips-default
           arch: ${{ matrix.arch }}
           tags: |
-            docker.io/hashicorp/${{ env.repo }}-fips:${{ env.version }}
-            public.ecr.aws/hashicorp/${{ env.repo }}-fips:${{ env.version }}
+            docker.io/hashicorp/${{ env.repo }}-fips:${{ env.simple-version }}
+            public.ecr.aws/hashicorp/${{ env.repo }}-fips:${{ env.simple-version }}
           dev_tags: |
-            hashicorppreview/${{ env.repo }}-fips:${{ env.version }}
-            docker.io/hashicorppreview/${{ env.repo }}-fips:${{ env.version }}-${{ github.sha }}
+            hashicorppreview/${{ env.repo }}-fips:${{ env.simple-version }}
+            docker.io/hashicorppreview/${{ env.repo }}-fips:${{ env.simple-version }}-${{ github.sha }}
 
   upload-dev-docker:
-    name: Upload dev image (hashicorpdev/consul-ecs:<commit>)
+    name: Upload dev image (hashicorppreview/consul-ecs:<commit>)
+    # if: ${{ github.ref_name == 'main' || startsWith(github.ref_name, 'release/' }}
     environment: dockerhub/hashicorpdev
     needs:
       - get-product-version
@@ -210,7 +212,7 @@ jobs:
       - name: docker push
         shell: bash
         run: |
-          TAG=hashicorpdev/${{ env.repo }}:${{ env.git-short-sha }}
+          TAG=hashicorppreview/${{ env.repo }}:${{ env.git-short-sha }}
           echo "==> Load docker image from tar archive"
           docker load -i "${{ env.repo }}_${{ env.target }}_linux_${{ matrix.arch }}_${{ env.version }}_${{ github.sha }}.docker.dev.tar"
           echo "==> Tag docker image $TAG"
@@ -225,9 +227,56 @@ jobs:
         shell: bash
         if: ${{ github.ref == 'refs/heads/main' }}
         run: |
-          TAG=hashicorpdev/${{ env.repo }}:latest
+          TAG=hashicorppreview/${{ env.repo }}:latest
           echo "==> Tag docker image $TAG as :latest"
-          docker tag "hashicorpdev/${{ env.repo }}:${{ env.git-short-sha }}" "$TAG"
+          docker tag "hashicorppreview/${{ env.repo }}:${{ env.git-short-sha }}" "$TAG"
+
+          echo "==> Push docker image $TAG"
+          docker push "$TAG"
+
+  upload-dev-docker-fips:
+    name: Upload dev image (hashicorppreview/consul-ecs-fips:<commit>)
+    # if: ${{ github.ref_name == 'main' || startsWith(github.ref_name, 'release/' }}
+    environment: dockerhub/hashicorpdev
+    needs:
+      - get-product-version
+      - build-docker-fips
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: ["amd64"]
+    env:
+      repo: ${{ github.event.repository.name }}
+      version: ${{ needs.get-product-version.outputs.product-version }}+fips1402
+      simple-version: ${{ needs.get-product-version.outputs.product-version }}
+      target: release-fips-default
+      git-short-sha: ${{ needs.get-product-version.outputs.git-short-sha }}
+    steps:
+      - name: download image artifact
+        uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a # v3.0.2
+        with:
+          name: ${{ env.repo }}_${{ env.target }}_linux_${{ matrix.arch }}_${{ env.version }}_${{ github.sha }}.docker.dev.tar
+      - name: docker push
+        shell: bash
+        run: |
+          TAG=hashicorppreview/${{ env.repo }}-fips:${{ env.git-short-sha }}
+          echo "==> Load docker image from tar archive"
+          docker load -i "${{ env.repo }}_${{ env.target }}_linux_${{ matrix.arch }}_${{ env.version }}_${{ github.sha }}.docker.dev.tar"
+          echo "==> Tag docker image $TAG"
+          docker tag "hashicorppreview/${{ env.repo }}-fips:${{ env.simple-version }}-${{ github.sha }}" "$TAG"
+          echo "==> Docker login"
+          echo ${{ secrets.DOCKER_PASS }} | docker login -u=${{ secrets.DOCKER_USER }} --password-stdin
+
+          echo "==> Push docker image $TAG"
+          docker push "$TAG"
+
+      - name: docker push (latest)
+        shell: bash
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          TAG=hashicorppreview/${{ env.repo }}-fips:latest
+          echo "==> Tag docker image $TAG as :latest"
+          docker tag "hashicorppreview/${{ env.repo }}-fips:${{ env.git-short-sha }}" "$TAG"
 
           echo "==> Push docker image $TAG"
           docker push "$TAG"

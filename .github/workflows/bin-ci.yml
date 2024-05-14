@@ -108,5 +108,5 @@ jobs:
           -- $PACKAGE_NAMES $TAGS -- $FLAGS
     - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
-        name: test-results
+        name: ${{ matrix.consul-version }}-test-results
         path: ${{ env.TEST_RESULTS_DIR }}/${{ matrix.consul-version }}

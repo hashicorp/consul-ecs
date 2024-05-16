@@ -21,7 +21,7 @@ jobs:
         # version, because "goenv" can react to it automatically.
         run: |
           echo "Building with Go $(cat .go-version)"
-          echo "::set-output name=go-version::$(cat .go-version)"
+          echo "go-version=$(cat .go-version)" >> $GITHUB_OUTPUT
 
   get-product-version:
     runs-on: ubuntu-latest
@@ -35,10 +35,9 @@ jobs:
         id: get-product-version
         run: |
           make version
-          echo "::set-output name=product-version::$(make version)"
-          echo "::set-output name=git-short-sha::$(git rev-parse --short HEAD)"
-          echo "::set-output name=ldflags::-s -w -X github.com/hashicorp/consul-ecs/version.GitCommit=$(git rev-parse --short HEAD)"
-
+          echo "product-version=$(make version)" >> $GITHUB_OUTPUT
+          echo "git-short-sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "ldflags=-s -w -X github.com/hashicorp/consul-ecs/version.GitCommit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
   generate-metadata-file:
     needs: get-product-version
     runs-on: ubuntu-latest

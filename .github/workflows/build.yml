@@ -209,3 +209,34 @@ jobs:
 
           echo "==> Push docker image $TAG"
           docker push "$TAG"
+
+  # This is job is required for branch protection as a required GitHub check
+  # because GitHub actions show up as checks at the job level and not the
+  # workflow level.  This is currently a feature request:
+  # https://github.com/orgs/community/discussions/12395
+  #
+  # This job must:
+  # - be placed after the fanout of a workflow so that everything fans back in
+  #   to this job.
+  # - "need" any job that is part of the fan out / fan in
+  # - include if: always() logic because we may have conditional jobs that this job
+  #   needs, and this would potentially get skipped if a previous job got skipped.
+  #   The if clause ensures it does not get skipped.
+  build-success:
+    needs:
+      - generate-metadata-file
+      - build-linux
+      - build-docker-default
+      - upload-dev-docker
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: evaluate upstream job results
+        run: |
+          # exit 1 if failure or cancelled result for any upstream job
+          # this ensures that we fail the PR check regardless of cancellation, rather than skip-passing it
+          # see https://docs.github.com/en/actions/using-jobs/using-conditions-to-control-job-execution#overview
+          if printf '${{ toJSON(needs) }}' | grep -E -i '\"result\": \"(failure|cancelled)\"'; then
+            printf "Tests failed or workflow cancelled:\n\n${{ toJSON(needs) }}"
+            exit 1
+          fi

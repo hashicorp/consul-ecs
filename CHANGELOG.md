@@ -1,5 +1,10 @@
 ## Unreleased
 
+IMPROVEMENTS
+* Bump Go version to `1.22.3`
+
+## 0.8.1 (May 10, 2024)
+
 BUG FIXES
 * Update `google.golang.org/protobuf` to v1.33.0 and `github.com/golang/protobuf` to v1.5.4 to address [CVE-2024-24786](https://nvd.nist.gov/vuln/detail/CVE-2024-24786). [[GH-240](https://github.com/hashicorp/consul-ecs/pull/240)]
 * Fix `mesh-init` local executable copying in dynamically-linked execution contexts [[GH-242](https://github.com/hashicorp/consul-ecs/pull/242)]

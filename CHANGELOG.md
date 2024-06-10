@@ -1,6 +1,7 @@
 ## Unreleased
 
 IMPROVEMENTS
+* Bump Go version to `1.22.4`
 * Bump Go version to `1.22.3`
 
 ## 0.8.1 (May 10, 2024)
@@ -10,7 +11,6 @@ BUG FIXES
 * Fix `mesh-init` local executable copying in dynamically-linked execution contexts [[GH-242](https://github.com/hashicorp/consul-ecs/pull/242)]
 
 IMPROVEMENTS
-* Bump Go version to `1.22.4`
 * Bump Go version to `1.21.10`
 * Bump `x/net` to `0.23.0`
 

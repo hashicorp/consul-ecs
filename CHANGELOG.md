@@ -1,6 +1,7 @@
 ## Unreleased
 
 IMPROVEMENTS
+* Bump Go version to `1.22.4`
 * Bump Go version to `1.22.3`
 
 ## 0.8.1 (May 10, 2024)

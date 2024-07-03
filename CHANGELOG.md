@@ -1,8 +1,13 @@
 ## Unreleased
 
 IMPROVEMENTS
+* Bump Go version to `1.22.5`
 * Bump Go version to `1.22.4`
 * Bump Go version to `1.22.3`
+
+SECURITY
+* Upgrade go version to `1.22.5` to address [CVE-2024-24791](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2024-24791)
+* Upgrade go-retryablehttp to address [CVE-2024-6104](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2024-6104)
 
 ## 0.8.1 (May 10, 2024)
 

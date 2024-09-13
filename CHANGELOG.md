@@ -1,6 +1,7 @@
 ## Unreleased
 
 IMPROVEMENTS
+* Bump Go version to `1.22.7`
 * Bump Go version to `1.22.5`
 * Bump Go version to `1.22.4`
 * Bump Go version to `1.22.3`

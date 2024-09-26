@@ -55,6 +55,7 @@ func (c *Controller) reconcile() error {
 	}
 
 	for _, resource := range resources {
+		c.Log.Debug("** reconciling resource", "resource-task-id", resource.ID(), "namespace", resource.Namespace, "present-in-ecs", resource.IsPresent())
 		err = resource.Reconcile()
 		if err != nil {
 			merr = multierror.Append(err, fmt.Errorf("reconciling resource: %w", err))

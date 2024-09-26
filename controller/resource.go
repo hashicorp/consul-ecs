@@ -97,13 +97,19 @@ func (s TaskStateLister) List() ([]Resource, error) {
 
 	buildingResources, err := s.fetchECSTasks()
 	if err != nil {
+		s.Log.Error("** Error fetching ECS tasks", "error", err)
+		s.Log.Debug("** Dumping resources found so far", "buildingResources", buildingResources)
 		return nil, err
 	}
+	s.Log.Debug("** fetched ECS tasks from ECS and mapped info into TaskID -> TaskState adding ", "mapTaskIDToTaskState", buildingResources)
 
 	aclState, err := s.fetchACLState(consulClient)
 	if err != nil {
+		s.Log.Error("** Error fetching ACL state from Consul", "error", err)
+		s.Log.Debug("** Dumping resources found so far", "buildingResources", buildingResources)
 		return resources, err
 	}
+	s.Log.Debug("** fetched ACL tokens from Consul and mapped info into TaskID -> TaskState adding Acl token info", "mapTaskIDToTaskState", aclState)
 
 	for id, state := range aclState {
 		if _, ok := buildingResources[id]; !ok {
@@ -115,8 +121,11 @@ func (s TaskStateLister) List() ([]Resource, error) {
 
 	serviceState, err := s.fetchServiceStateForTasks(consulClient)
 	if err != nil {
+		s.Log.Error("Error fetching Service state from Consul", "error", err)
+		s.Log.Debug("** Dumping resources found so far", "buildingResources", buildingResources)
 		return resources, err
 	}
+	s.Log.Debug("** fetched Service state from Consul and mapped info into TaskID -> TaskState adding service info", "mapTaskIDToTaskState", serviceState)
 
 	for id, state := range serviceState {
 		if _, ok := buildingResources[id]; !ok {
@@ -126,6 +135,7 @@ func (s TaskStateLister) List() ([]Resource, error) {
 		}
 	}
 
+	s.Log.Debug("** All combined task-id -> task-state", "buildingResources", buildingResources)
 	for _, resource := range buildingResources {
 		resources = append(resources, resource)
 	}
@@ -183,6 +193,9 @@ func (s TaskStateLister) fetchECSTasks() (map[TaskID]*TaskState, error) {
 				s.Log.Debug("skipping task in external partition", "partition", state.Partition, "task-arn", *task.TaskArn)
 				continue
 			}
+			if task.TaskArn != nil && task.HealthStatus != nil && task.LastStatus != nil {
+				s.Log.Debug("** fetchECSTasks() fetched ECS task and adding it to map", "task-arn", *task.TaskArn, "task-health", *task.HealthStatus, "task-last-status", *task.LastStatus)
+			}
 
 			resources[state.TaskID] = state
 		}
@@ -230,6 +243,7 @@ func (s TaskStateLister) fetchACLState(consulClient *api.Client) (map[TaskID]*Ta
 				continue
 			}
 			if s.ClusterARN != state.ClusterARN {
+				s.Log.Debug("** ignoring token from different cluster arn", "token", token.AccessorID, "description", token.Description, "clusterARN", state.ClusterARN)
 				continue
 			}
 			if found, ok := aclState[state.TaskID]; ok {
@@ -237,6 +251,7 @@ func (s TaskStateLister) fetchACLState(consulClient *api.Client) (map[TaskID]*Ta
 			} else {
 				aclState[state.TaskID] = state
 			}
+			s.Log.Debug("** added to aclState", "task-id", state.TaskID, "state", state)
 
 		}
 	}
@@ -503,6 +518,7 @@ type TaskState struct {
 // based on the TaskState.
 func (t *TaskState) Reconcile() error {
 	if t.IsPresent() {
+		t.Log.Debug("** skipping reconciliation, task is present")
 		return nil
 	}
 
@@ -526,6 +542,7 @@ func (t *TaskState) Reconcile() error {
 		}
 	}
 
+	t.Log.Debug("** reconcile errors", "err", result)
 	return result
 }
 
@@ -539,6 +556,8 @@ func (t *TaskState) Delete(consulClient *api.Client) error {
 		opts := &api.WriteOptions{Partition: token.Partition, Namespace: token.Namespace}
 		_, err := consulClient.ACL().TokenDelete(token.AccessorID, opts)
 		if err != nil {
+			t.Log.Debug("** Delete() token errors", "err", err, "token", token)
+			t.Log.Debug("** should probably gather the errors here in a multierror")
 			return fmt.Errorf("deleting token: %w", err)
 		}
 		t.Log.Info("token deleted successfully", "token", token.Description)
@@ -561,8 +580,11 @@ func (t *TaskState) DeregisterServices(consulClient *api.Client) error {
 		_, err := consulClient.Catalog().Deregister(deregInput, opts)
 		if err != nil {
 			result = multierror.Append(result, fmt.Errorf("deregistering service with ID %s: %w", svc.ID, err))
+		} else {
+			t.Log.Debug("** successfully deregistered service", "svc.ID", svc.ID, "svc.Namespace", svc.Namespace, "svc.Partition", svc.Partition, "full-svc", svc)
 		}
 	}
+	t.Log.Debug("** DeregisterServices() errors, but returning nil", "err", result)
 	return nil
 }
 

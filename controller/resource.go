@@ -6,6 +6,7 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -98,18 +99,22 @@ func (s TaskStateLister) List() ([]Resource, error) {
 	buildingResources, err := s.fetchECSTasks()
 	if err != nil {
 		s.Log.Error("** Error fetching ECS tasks", "error", err)
-		s.Log.Debug("** Dumping resources found so far", "buildingResources", buildingResources)
+		buildingResourcesString := spew.Sdump(buildingResources)
+		s.Log.Debug("** Dumping resources found so far", "buildingResources", buildingResourcesString)
 		return nil, err
 	}
-	s.Log.Debug("** fetched ECS tasks from ECS and mapped info into TaskID -> TaskState adding ", "mapTaskIDToTaskState", buildingResources)
+	buildingResourcesString := spew.Sdump(buildingResources)
+	s.Log.Debug("** 1. Fetched ECS tasks from ECS and mapped info into TaskID -> TaskState adding ", "mapTaskIDToTaskState", buildingResourcesString)
 
 	aclState, err := s.fetchACLState(consulClient)
 	if err != nil {
 		s.Log.Error("** Error fetching ACL state from Consul", "error", err)
-		s.Log.Debug("** Dumping resources found so far", "buildingResources", buildingResources)
+		buildingResourcesString := spew.Sdump(buildingResources)
+		s.Log.Debug("** Dumping resources found so far", "buildingResources", buildingResourcesString)
 		return resources, err
 	}
-	s.Log.Debug("** fetched ACL tokens from Consul and mapped info into TaskID -> TaskState adding Acl token info", "mapTaskIDToTaskState", aclState)
+	aclStateString := spew.Sdump(aclState)
+	s.Log.Debug("** 2. Fetched ACL tokens from Consul and mapped info into TaskID -> TaskState adding Acl token info", "mapTaskIDToTaskState", aclStateString)
 
 	for id, state := range aclState {
 		if _, ok := buildingResources[id]; !ok {
@@ -122,10 +127,12 @@ func (s TaskStateLister) List() ([]Resource, error) {
 	serviceState, err := s.fetchServiceStateForTasks(consulClient)
 	if err != nil {
 		s.Log.Error("Error fetching Service state from Consul", "error", err)
-		s.Log.Debug("** Dumping resources found so far", "buildingResources", buildingResources)
+		buildingResourcesString := spew.Sdump(buildingResources)
+		s.Log.Debug("** Dumping resources found so far", "buildingResources", buildingResourcesString)
 		return resources, err
 	}
-	s.Log.Debug("** fetched Service state from Consul and mapped info into TaskID -> TaskState adding service info", "mapTaskIDToTaskState", serviceState)
+	serviceStateString := spew.Sdump(serviceState)
+	s.Log.Debug("** 3. Fetched Service state from Consul and mapped info into TaskID -> TaskState adding service info", "mapTaskIDToTaskState", serviceStateString)
 
 	for id, state := range serviceState {
 		if _, ok := buildingResources[id]; !ok {
@@ -135,7 +142,8 @@ func (s TaskStateLister) List() ([]Resource, error) {
 		}
 	}
 
-	s.Log.Debug("** All combined task-id -> task-state", "buildingResources", buildingResources)
+	buildingResourcesString = spew.Sdump(buildingResources)
+	s.Log.Debug("** 4. All combined task-id -> task-state", "buildingResources", buildingResourcesString)
 	for _, resource := range buildingResources {
 		resources = append(resources, resource)
 	}
@@ -251,7 +259,8 @@ func (s TaskStateLister) fetchACLState(consulClient *api.Client) (map[TaskID]*Ta
 			} else {
 				aclState[state.TaskID] = state
 			}
-			s.Log.Debug("** added to aclState", "task-id", state.TaskID, "state", state)
+			stateString := spew.Sdump(state)
+			s.Log.Debug("** added to aclState", "task-id", state.TaskID, "state", stateString)
 
 		}
 	}
@@ -581,10 +590,13 @@ func (t *TaskState) DeregisterServices(consulClient *api.Client) error {
 		if err != nil {
 			result = multierror.Append(result, fmt.Errorf("deregistering service with ID %s: %w", svc.ID, err))
 		} else {
-			t.Log.Debug("** successfully deregistered service", "svc.ID", svc.ID, "svc.Namespace", svc.Namespace, "svc.Partition", svc.Partition, "full-svc", svc)
+			serviceString := spew.Sdump(svc)
+			t.Log.Debug("** Successfully deregistered service", "svc.ID", svc.ID, "svc.Namespace", svc.Namespace, "svc.Partition", svc.Partition, "full-svc", serviceString)
 		}
 	}
-	t.Log.Debug("** DeregisterServices() errors, but returning nil", "err", result)
+	if result != nil {
+		t.Log.Debug("** DeregisterServices() errors, but returning nil", "err", result.Error())
+	}
 	return nil
 }
 

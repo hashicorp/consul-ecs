@@ -2,5 +2,5 @@
 * @hashicorp/consul-selfmanage-maintainers
 
 # release configuration
-/.release/                              @hashicorp/release-engineering
-/.github/workflows/build.yml            @hashicorp/release-engineering
+/.release/                              @hashicorp/team-selfmanaged-releng
+/.github/workflows/build.yml            @hashicorp/team-selfmanaged-releng

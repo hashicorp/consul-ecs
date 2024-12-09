@@ -129,7 +129,8 @@ func TestRun(t *testing.T) {
 					status: ecs.HealthStatusHealthy,
 				},
 				"container-2": {
-					status: ecs.HealthStatusUnhealthy,
+					missing: false,
+					status:  ecs.HealthStatusUnhealthy,
 				},
 			},
 		},

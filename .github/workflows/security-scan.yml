@@ -43,8 +43,7 @@ jobs:
         uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
         with:
           repository: hashicorp/security-scanner
-          # TODO: replace w/ org-level secret once available
-          token: ${{ secrets.PRODSEC_SCANNER_READ_ONLY_CONSUL_ECS_COPY }}
+          token: ${{ secrets.PRODSEC_SCANNER_READ_ONLY }}
           path: security-scanner
           ref: main
 

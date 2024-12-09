@@ -447,6 +447,14 @@ func TestRun(t *testing.T) {
 						if expCheck.CheckID == checkID {
 							expCheck.Status = ecsHealthToConsulHealth(hsc.status)
 							found = true
+							if len(c.healthSyncContainers) > 1 {
+								for containerName := range c.healthSyncContainers {
+									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy {
+										expCheck.Status = api.HealthCritical
+										break
+									}
+								}
+							}
 							break
 						}
 					}
@@ -455,7 +463,7 @@ func TestRun(t *testing.T) {
 						expCheck.Status = api.HealthPassing
 					}
 				}
-				expectedProxyCheck.Status = api.HealthCritical
+				expectedProxyCheck.Status = api.HealthPassing
 				assertHealthChecks(t, consulClient, expectedSvcChecks, expectedProxyCheck)
 			}
 

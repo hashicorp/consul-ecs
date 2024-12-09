@@ -442,7 +442,7 @@ func TestRun(t *testing.T) {
 					}
 
 					if !found {
-						expCheck.Status = api.HealthPassing
+						expCheck.Status = api.HealthCritical
 					}
 				}
 				expectedProxyCheck.Status = api.HealthCritical

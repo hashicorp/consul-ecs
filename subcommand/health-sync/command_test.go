@@ -387,7 +387,7 @@ func TestRun(t *testing.T) {
 					if c.missingDataplaneContainer {
 						expCheck.Status = api.HealthCritical
 					} else {
-						expCheck.Status = api.HealthCritical
+						expCheck.Status = api.HealthPassing
 					}
 				}
 			}
@@ -445,7 +445,7 @@ func TestRun(t *testing.T) {
 						expCheck.Status = api.HealthPassing
 					}
 				}
-				expectedProxyCheck.Status = api.HealthPassing
+				expectedProxyCheck.Status = api.HealthCritical
 				assertHealthChecks(t, consulClient, expectedSvcChecks, expectedProxyCheck)
 			}
 

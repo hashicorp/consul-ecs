@@ -387,7 +387,7 @@ func TestRun(t *testing.T) {
 					if c.missingDataplaneContainer {
 						expCheck.Status = api.HealthCritical
 					} else {
-						expCheck.Status = api.HealthPassing
+						expCheck.Status = api.HealthCritical
 					}
 				}
 			}

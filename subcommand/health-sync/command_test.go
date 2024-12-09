@@ -385,8 +385,7 @@ func TestRun(t *testing.T) {
 							// then the service check should be critical.
 							if len(c.healthSyncContainers) > 1 {
 								for containerName := range c.healthSyncContainers {
-									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy &&
-										c.healthSyncContainers[containerName].missing == false {
+									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy && hsc.missing == false {
 										expCheck.Status = api.HealthCritical
 										break
 									}
@@ -466,7 +465,7 @@ func TestRun(t *testing.T) {
 					}
 
 					if !found {
-						expCheck.Status = api.HealthPassing
+						expCheck.Status = api.HealthCritical
 					}
 				}
 				expectedProxyCheck.Status = api.HealthPassing

@@ -391,7 +391,7 @@ func TestRun(t *testing.T) {
 					}
 				}
 			}
-			expectedProxyCheck.Status = api.HealthPassing
+			expectedProxyCheck.Status = api.HealthCritical
 			if c.missingDataplaneContainer {
 				expectedProxyCheck.Status = api.HealthCritical
 			}

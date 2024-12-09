@@ -381,7 +381,8 @@ func TestRun(t *testing.T) {
 							// then the service check should be critical.
 							if len(c.healthSyncContainers) > 1 {
 								for containerName := range c.healthSyncContainers {
-									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy {
+									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy &&
+										c.healthSyncContainers[containerName].missing == false {
 										expCheck.Status = api.HealthCritical
 										break
 									}
@@ -446,15 +447,16 @@ func TestRun(t *testing.T) {
 						checkID := constructCheckID(makeServiceID(serviceName, taskID), name)
 						if expCheck.CheckID == checkID {
 							expCheck.Status = ecsHealthToConsulHealth(hsc.status)
-							found = true
 							if len(c.healthSyncContainers) > 1 {
 								for containerName := range c.healthSyncContainers {
-									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy {
+									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy &&
+										c.shouldMissingContainersReappear == false {
 										expCheck.Status = api.HealthCritical
 										break
 									}
 								}
 							}
+							found = true
 							break
 						}
 					}

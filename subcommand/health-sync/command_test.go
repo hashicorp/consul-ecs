@@ -126,7 +126,8 @@ func TestRun(t *testing.T) {
 		"one healthy and one unhealthy health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
-					status: ecs.HealthStatusHealthy,
+					missing: false,
+					status:  ecs.HealthStatusHealthy,
 				},
 				"container-2": {
 					missing: false,

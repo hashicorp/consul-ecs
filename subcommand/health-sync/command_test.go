@@ -472,8 +472,8 @@ func TestRun(t *testing.T) {
 			//	assertHealthChecks(t, consulClient, expectedSvcChecks, expectedProxyCheck)
 			//}
 			//
-			//// Send SIGTERM and verify the status of checks
-			//signalSIGTERM(t)
+			// Send SIGTERM and verify the status of checks
+			signalSIGTERM(t)
 			//
 			//for _, expCheck := range expectedSvcChecks {
 			//	expCheck.Status = api.HealthCritical

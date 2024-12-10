@@ -393,7 +393,7 @@ func TestRun(t *testing.T) {
 							// If there are multiple health sync containers and one of them is unhealthy
 							// then the service check should be critical.
 							for containerName := range c.healthSyncContainers {
-								if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy {
+								if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy && c.healthSyncContainers[containerName].missing == false {
 									expCheck.Status = api.HealthCritical
 									log.Printf("Marking the datplane container unhealthy due to :%s \n", containerName)
 									markDataplaneContainerUnhealthy = true

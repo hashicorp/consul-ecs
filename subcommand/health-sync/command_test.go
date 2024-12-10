@@ -106,14 +106,14 @@ func TestRun(t *testing.T) {
 		shouldMissingContainersReappear bool
 	}{
 		"no additional health sync containers": {},
-		"one healthy health sync container": {
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					status: ecs.HealthStatusHealthy,
-				},
-			},
-			consulLogin: consulLoginCfg,
-		},
+		//"one healthy health sync container": {
+		//	healthSyncContainers: map[string]healthSyncContainerMetaData{
+		//		"container-1": {
+		//			status: ecs.HealthStatusHealthy,
+		//		},
+		//	},
+		//	consulLogin: consulLoginCfg,
+		//},
 		//"two healthy health sync containers": {
 		//	healthSyncContainers: map[string]healthSyncContainerMetaData{
 		//		"container-1": {

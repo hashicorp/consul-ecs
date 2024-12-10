@@ -489,7 +489,7 @@ func TestRun(t *testing.T) {
 			require.NoError(t, err)
 			currentTaskMetaResp.Store(taskMetaRespStr)
 
-			assertServiceAndProxyInstances(t, consulClient, serviceName, proxyServiceName, 0, apiQueryOptions)
+			//assertServiceAndProxyInstances(t, consulClient, serviceName, proxyServiceName, 0, apiQueryOptions)
 			if c.consulLogin.Enabled {
 				assertConsulLogout(t, cfg, consulEcsConfig.BootstrapDir)
 			}

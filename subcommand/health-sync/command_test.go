@@ -386,8 +386,7 @@ func TestRun(t *testing.T) {
 							// then the service check should be critical.
 							if len(c.healthSyncContainers) > 1 {
 								for containerName := range c.healthSyncContainers {
-									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy &&
-										containerName != config.ConsulDataplaneContainerName {
+									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy {
 										expCheck.Status = api.HealthCritical
 										break
 									}

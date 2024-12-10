@@ -373,7 +373,10 @@ func TestRun(t *testing.T) {
 
 			// Align the expectations for checks according to the
 			// state of health sync containers
-			log.Printf("Expected Svc Checks: %v \n", expectedSvcChecks)
+			log.Printf("Expected Svc Checks: %+v\n", expectedSvcChecks)
+			for _, check := range expectedSvcChecks {
+				log.Printf("Check Name: %s, Status: %s\n", check.Name, check.Status)
+			}
 			for _, expCheck := range expectedSvcChecks {
 				found := false
 				for name, hsc := range c.healthSyncContainers {

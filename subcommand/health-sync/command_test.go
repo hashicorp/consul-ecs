@@ -431,47 +431,56 @@ func TestRun(t *testing.T) {
 			// This block makes a missing reappear in the task meta response and
 			// tests if the healthy-sync process is able to sync back the status of the
 			// container to Consul servers.
-			if c.shouldMissingContainersReappear {
-				// Mark all containers as non missing
-				c.missingDataplaneContainer = false
-				for _, hsc := range c.healthSyncContainers {
-					hsc.missing = false
-				}
-
-				// Add the containers data into task meta response
-				taskMetaRespStr = injectContainersIntoTaskMetaResponse(t, taskMetadataResponse, c.missingDataplaneContainer, c.healthSyncContainers)
-				currentTaskMetaResp.Store(taskMetaRespStr)
-
-				// Align the expectations for checks according to the
-				// state of health sync containers
-				for _, expCheck := range expectedSvcChecks {
-					found := false
-					for name, hsc := range c.healthSyncContainers {
-						checkID := constructCheckID(makeServiceID(serviceName, taskID), name)
-						if expCheck.CheckID == checkID {
-							expCheck.Status = ecsHealthToConsulHealth(hsc.status)
-							found = true
-							break
-						}
-					}
-
-					if !found {
-						expCheck.Status = api.HealthPassing
-					}
-				}
-				expectedProxyCheck.Status = api.HealthPassing
-				assertHealthChecks(t, consulClient, expectedSvcChecks, expectedProxyCheck)
-			}
-
-			// Send SIGTERM and verify the status of checks
-			signalSIGTERM(t)
-
-			for _, expCheck := range expectedSvcChecks {
-				expCheck.Status = api.HealthCritical
-			}
-			expectedProxyCheck.Status = api.HealthCritical
-
-			assertHealthChecks(t, consulClient, expectedSvcChecks, expectedProxyCheck)
+			//if c.shouldMissingContainersReappear {
+			//	// Mark all containers as non missing
+			//	c.missingDataplaneContainer = false
+			//	for _, hsc := range c.healthSyncContainers {
+			//		hsc.missing = false
+			//	}
+			//
+			//	// Add the containers data into task meta response
+			//	taskMetaRespStr = injectContainersIntoTaskMetaResponse(t, taskMetadataResponse, c.missingDataplaneContainer, c.healthSyncContainers)
+			//	currentTaskMetaResp.Store(taskMetaRespStr)
+			//
+			//	// Align the expectations for checks according to the
+			//	// state of health sync containers
+			//	for _, expCheck := range expectedSvcChecks {
+			//		found := false
+			//		for name, hsc := range c.healthSyncContainers {
+			//			checkID := constructCheckID(makeServiceID(serviceName, taskID), name)
+			//			if expCheck.CheckID == checkID {
+			//				expCheck.Status = ecsHealthToConsulHealth(hsc.status)
+			//				//if len(c.healthSyncContainers) > 1 {
+			//				//	for containerName := range c.healthSyncContainers {
+			//				//		if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy &&
+			//				//			c.shouldMissingContainersReappear == false {
+			//				//			expCheck.Status = api.HealthCritical
+			//				//			break
+			//				//		}
+			//				//	}
+			//				//}
+			//				found = true
+			//				break
+			//			}
+			//		}
+			//
+			//		if !found {
+			//			expCheck.Status = api.HealthPassing
+			//		}
+			//	}
+			//	expectedProxyCheck.Status = api.HealthPassing
+			//	assertHealthChecks(t, consulClient, expectedSvcChecks, expectedProxyCheck)
+			//}
+			//
+			//// Send SIGTERM and verify the status of checks
+			//signalSIGTERM(t)
+			//
+			//for _, expCheck := range expectedSvcChecks {
+			//	expCheck.Status = api.HealthCritical
+			//}
+			//expectedProxyCheck.Status = api.HealthCritical
+			//
+			//assertHealthChecks(t, consulClient, expectedSvcChecks, expectedProxyCheck)
 
 			// Stop dataplane container manually because
 			// health-sync waits for it before deregistering

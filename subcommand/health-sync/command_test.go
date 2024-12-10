@@ -128,12 +128,10 @@ func TestRun(t *testing.T) {
 		"one healthy and one unhealthy health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
-					missing: false,
-					status:  ecs.HealthStatusHealthy,
+					status: ecs.HealthStatusHealthy,
 				},
 				"container-2": {
-					missing: false,
-					status:  ecs.HealthStatusUnhealthy,
+					status: ecs.HealthStatusUnhealthy,
 				},
 			},
 			expectedDataplaneHealthStatus: api.HealthCritical,
@@ -376,27 +374,21 @@ func TestRun(t *testing.T) {
 
 			// Align the expectations for checks according to the
 			// state of health sync containers
-			log.Printf("Expected Svc Checks: %+v\n", expectedSvcChecks)
-			for _, check := range append(expectedSvcChecks, expectedProxyCheck) {
-				log.Printf("Check Name: %s, Status: %s, ServiceName: %s, CheckId: %s\n", check.Name, check.Status, check.ServiceName, check.CheckID)
-			}
 			markDataplaneContainerUnhealthy := false
 			for _, expCheck := range expectedSvcChecks {
 				found := false
 				for name, hsc := range c.healthSyncContainers {
 					checkID := constructCheckID(makeServiceID(serviceName, taskID), name)
-					log.Printf("Checking for container: %s, hsc %s, CheckId: %s\n", name, hsc.status, checkID)
 					if expCheck.CheckID == checkID {
 						if hsc.missing {
 							expCheck.Status = api.HealthCritical
-							//log.Printf("Marking the datplane container unhealthy due to :%s \n", name)
-							//markDataplaneContainerUnhealthy = true
 						} else {
 							expCheck.Status = ecsHealthToConsulHealth(hsc.status)
 							// If there are multiple health sync containers and one of them is unhealthy
 							// then the service check should be critical.
 							for containerName := range c.healthSyncContainers {
-								if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy && c.healthSyncContainers[containerName].missing == false {
+								if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy &&
+									c.healthSyncContainers[containerName].missing == false {
 									expCheck.Status = api.HealthCritical
 									log.Printf("Marking the datplane container unhealthy due to :%s \n", containerName)
 									markDataplaneContainerUnhealthy = true
@@ -409,10 +401,8 @@ func TestRun(t *testing.T) {
 						break
 					}
 				}
-				log.Printf("dataplane container for expCheck: %s, markDataplaneContainerUnhealthy :%t , found: %t\n", expCheck.CheckID, markDataplaneContainerUnhealthy, found)
-				if !found {
-					log.Printf("BEFORE: Updating dataplane container with Status markDataplaneContainerUnhealthy :%t and expCheck.Status %s\n", markDataplaneContainerUnhealthy, expCheck.Status)
 
+				if !found {
 					if c.expectedDataplaneHealthStatus != "" {
 						expCheck.Status = c.expectedDataplaneHealthStatus
 					} else {
@@ -420,10 +410,6 @@ func TestRun(t *testing.T) {
 							expCheck.Status = api.HealthCritical
 						} else if len(c.healthSyncContainers) == 0 || !markDataplaneContainerUnhealthy {
 							expCheck.Status = api.HealthPassing
-						}
-						log.Printf("AFTER: Updating dataplane container with Status markDataplaneContainerUnhealthy :%t and expCheck.Status %s\n", markDataplaneContainerUnhealthy, expCheck.Status)
-						if markDataplaneContainerUnhealthy {
-							log.Printf("Marking expCheck for dataplane container :%s \n", expCheck.Status)
 						}
 					}
 				}
@@ -433,13 +419,11 @@ func TestRun(t *testing.T) {
 			} else {
 				expectedProxyCheck.Status = api.HealthPassing
 			}
-			log.Printf("ExpectedProxyCheck Name: %s and expCheck :%s \n", expectedProxyCheck.Name, expectedProxyCheck.Status)
+
 			if c.missingDataplaneContainer {
-				log.Printf("Dataplane container is missing and marking proxy check Critical\n")
 				expectedProxyCheck.Status = api.HealthCritical
 			}
 
-			log.Printf("Asserting HEalth checks - 1")
 			assertHealthChecks(t, consulClient, expectedSvcChecks, expectedProxyCheck)
 
 			// Test server watch

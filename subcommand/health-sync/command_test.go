@@ -386,6 +386,7 @@ func TestRun(t *testing.T) {
 					if expCheck.CheckID == checkID {
 						if hsc.missing {
 							expCheck.Status = api.HealthCritical
+							markDataplaneContainerUnhealthy = true
 						} else {
 							expCheck.Status = ecsHealthToConsulHealth(hsc.status)
 							// If there are multiple health sync containers and one of them is unhealthy
@@ -407,9 +408,7 @@ func TestRun(t *testing.T) {
 
 				if !found {
 					if c.missingDataplaneContainer || markDataplaneContainerUnhealthy {
-
 						expCheck.Status = api.HealthCritical
-
 					} else {
 						expCheck.Status = api.HealthPassing
 					}

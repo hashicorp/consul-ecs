@@ -464,9 +464,7 @@ func TestRun(t *testing.T) {
 							expCheck.Status = ecsHealthToConsulHealth(hsc.status)
 							if len(c.healthSyncContainers) > 1 {
 								for containerName := range c.healthSyncContainers {
-									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy &&
-										containerName != config.ConsulDataplaneContainerName &&
-										c.shouldMissingContainersReappear == false {
+									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy {
 										expCheck.Status = api.HealthCritical
 										break
 									}
@@ -492,6 +490,7 @@ func TestRun(t *testing.T) {
 				expCheck.Status = api.HealthCritical
 			}
 			expectedProxyCheck.Status = api.HealthCritical
+
 			assertHealthChecks(t, consulClient, expectedSvcChecks, expectedProxyCheck)
 
 			// Stop dataplane container manually because
@@ -857,6 +856,7 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 			filter := fmt.Sprintf("CheckID == `%s`", expCheck.CheckID)
 			checks, _, err := consulClient.Health().Checks(expCheck.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expCheck.Namespace, Partition: expCheck.Partition})
 			require.NoError(r, err)
+
 			for _, check := range checks {
 				require.Equal(r, expCheck.Status, check.Status)
 			}

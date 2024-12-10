@@ -105,7 +105,7 @@ func TestRun(t *testing.T) {
 		missingDataplaneContainer       bool
 		shouldMissingContainersReappear bool
 	}{
-		//"no additional health sync containers": {},
+		"no additional health sync containers": {},
 		//"one healthy health sync container": {
 		//	healthSyncContainers: map[string]healthSyncContainerMetaData{
 		//		"container-1": {
@@ -384,6 +384,7 @@ func TestRun(t *testing.T) {
 					if expCheck.CheckID == checkID {
 						if hsc.missing {
 							expCheck.Status = api.HealthCritical
+							log.Printf("Marking the datplane container unhealthy due to :%s \n", name)
 							markDataplaneContainerUnhealthy = true
 						} else {
 							expCheck.Status = ecsHealthToConsulHealth(hsc.status)
@@ -422,9 +423,11 @@ func TestRun(t *testing.T) {
 			}
 			log.Printf("ExpectedProxyCheck Name: %s and expCheck :%s \n", expectedProxyCheck.Name, expectedProxyCheck.Status)
 			if c.missingDataplaneContainer {
+				log.Printf("Dataplane container is missing and marking proxy check Critical\n")
 				expectedProxyCheck.Status = api.HealthCritical
 			}
 
+			log.Printf("Asserting HEalth checks - 1")
 			assertHealthChecks(t, consulClient, expectedSvcChecks, expectedProxyCheck)
 
 			// Test server watch
@@ -495,7 +498,7 @@ func TestRun(t *testing.T) {
 				expCheck.Status = api.HealthCritical
 			}
 			expectedProxyCheck.Status = api.HealthCritical
-
+			log.Printf("Asserting HEalth checks - 2")
 			assertHealthChecks(t, consulClient, expectedSvcChecks, expectedProxyCheck)
 
 			// Stop dataplane container manually because

@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -390,7 +389,6 @@ func TestRun(t *testing.T) {
 								if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy &&
 									c.healthSyncContainers[containerName].missing == false {
 									expCheck.Status = api.HealthCritical
-									log.Printf("Marking the datplane container unhealthy due to :%s \n", containerName)
 									markDataplaneContainerUnhealthy = true
 									break
 								}
@@ -494,7 +492,6 @@ func TestRun(t *testing.T) {
 				expCheck.Status = api.HealthCritical
 			}
 			expectedProxyCheck.Status = api.HealthCritical
-			log.Printf("Asserting HEalth checks - 2")
 			assertHealthChecks(t, consulClient, expectedSvcChecks, expectedProxyCheck)
 
 			// Stop dataplane container manually because
@@ -839,7 +836,6 @@ func injectContainersIntoTaskMetaResponse(t *testing.T, taskMetadataResponse *aw
 	taskMetadataResponse.Containers = taskMetaContainersResponse
 	taskMetaRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
 	require.NoError(t, err)
-	log.Printf("TaskMetaResponseStr: %s, \n", taskMetaRespStr)
 
 	return taskMetaRespStr
 }
@@ -861,9 +857,7 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 			filter := fmt.Sprintf("CheckID == `%s`", expCheck.CheckID)
 			checks, _, err := consulClient.Health().Checks(expCheck.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expCheck.Namespace, Partition: expCheck.Partition})
 			require.NoError(r, err)
-
 			for _, check := range checks {
-				log.Printf("checkId:%s , expCheck:%s , Actual Status:%s \n", expCheck.CheckID, expCheck.Status, check.Status)
 				require.Equal(r, expCheck.Status, check.Status)
 			}
 		}
@@ -873,7 +867,6 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 		checks, _, err := consulClient.Health().Checks(expectedProxyCheck.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expectedProxyCheck.Namespace, Partition: expectedProxyCheck.Partition})
 		require.NoError(r, err)
 		require.Equal(r, 1, len(checks))
-		log.Printf("ProxyCheckName:%s , expProxyCheck:%s , Actual procy Status:%s \n", expectedProxyCheck.Name, expectedProxyCheck.Status, checks[0].Status)
 		require.Equal(r, expectedProxyCheck.Status, checks[0].Status)
 	})
 }

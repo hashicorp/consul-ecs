@@ -104,6 +104,7 @@ func TestRun(t *testing.T) {
 		healthSyncContainers            map[string]healthSyncContainerMetaData
 		missingDataplaneContainer       bool
 		shouldMissingContainersReappear bool
+		expectedDataplaneHealthStatus   string
 	}{
 		"no additional health sync containers": {},
 		"one healthy health sync container": {
@@ -146,7 +147,8 @@ func TestRun(t *testing.T) {
 					status:  ecs.HealthStatusUnhealthy,
 				},
 			},
-			consulLogin: consulLoginCfg,
+			expectedDataplaneHealthStatus: api.HealthPassing,
+			consulLogin:                   consulLoginCfg,
 		},
 		//"two unhealthy health sync containers": {
 		//	healthSyncContainers: map[string]healthSyncContainerMetaData{
@@ -407,14 +409,19 @@ func TestRun(t *testing.T) {
 				log.Printf("dataplane container for expCheck: %s, markDataplaneContainerUnhealthy :%t , found: %t\n", expCheck.CheckID, markDataplaneContainerUnhealthy, found)
 				if !found {
 					log.Printf("BEFORE: Updating dataplane container with Status markDataplaneContainerUnhealthy :%t and expCheck.Status %s\n", markDataplaneContainerUnhealthy, expCheck.Status)
-					if c.missingDataplaneContainer || markDataplaneContainerUnhealthy {
-						expCheck.Status = api.HealthCritical
-					} else if len(c.healthSyncContainers) == 0 || !markDataplaneContainerUnhealthy {
-						expCheck.Status = api.HealthPassing
-					}
-					log.Printf("AFTER: Updating dataplane container with Status markDataplaneContainerUnhealthy :%t and expCheck.Status %s\n", markDataplaneContainerUnhealthy, expCheck.Status)
-					if markDataplaneContainerUnhealthy {
-						log.Printf("Marking expCheck for dataplane container :%s \n", expCheck.Status)
+
+					if c.expectedDataplaneHealthStatus != "" {
+						expCheck.Status = c.expectedDataplaneHealthStatus
+					} else {
+						if c.missingDataplaneContainer || markDataplaneContainerUnhealthy {
+							expCheck.Status = api.HealthCritical
+						} else if len(c.healthSyncContainers) == 0 || !markDataplaneContainerUnhealthy {
+							expCheck.Status = api.HealthPassing
+						}
+						log.Printf("AFTER: Updating dataplane container with Status markDataplaneContainerUnhealthy :%t and expCheck.Status %s\n", markDataplaneContainerUnhealthy, expCheck.Status)
+						if markDataplaneContainerUnhealthy {
+							log.Printf("Marking expCheck for dataplane container :%s \n", expCheck.Status)
+						}
 					}
 				}
 			}
@@ -869,7 +876,7 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 			require.NoError(r, err)
 
 			for _, check := range checks {
-				log.Printf("checkName:%s , expCheck:%s , Actual Status:%s \n", expCheck.Name, expCheck.Status, check.Status)
+				log.Printf("checkId:%s , expCheck:%s , Actual Status:%s \n", expCheck.CheckID, expCheck.Status, check.Status)
 				require.Equal(r, expCheck.Status, check.Status)
 			}
 		}

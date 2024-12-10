@@ -151,16 +151,16 @@ func TestRun(t *testing.T) {
 			expectedDataplaneHealthStatus: api.HealthPassing,
 			consulLogin:                   consulLoginCfg,
 		},
-		//"two unhealthy health sync containers": {
-		//	healthSyncContainers: map[string]healthSyncContainerMetaData{
-		//		"container-1": {
-		//			status: ecs.HealthStatusUnhealthy,
-		//		},
-		//		"container-2": {
-		//			status: ecs.HealthStatusUnhealthy,
-		//		},
-		//	},
-		//},
+		"two unhealthy health sync containers": {
+			healthSyncContainers: map[string]healthSyncContainerMetaData{
+				"container-1": {
+					status: ecs.HealthStatusUnhealthy,
+				},
+				"container-2": {
+					status: ecs.HealthStatusUnhealthy,
+				},
+			},
+		},
 		"missing dataplane container": {
 			missingDataplaneContainer: true,
 		},

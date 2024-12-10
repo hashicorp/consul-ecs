@@ -115,16 +115,16 @@ func TestRun(t *testing.T) {
 			},
 			consulLogin: consulLoginCfg,
 		},
-		//"two healthy health sync containers": {
-		//	healthSyncContainers: map[string]healthSyncContainerMetaData{
-		//		"container-1": {
-		//			status: ecs.HealthStatusHealthy,
-		//		},
-		//		"container-2": {
-		//			status: ecs.HealthStatusHealthy,
-		//		},
-		//	},
-		//},
+		"two healthy health sync containers": {
+			healthSyncContainers: map[string]healthSyncContainerMetaData{
+				"container-1": {
+					status: ecs.HealthStatusHealthy,
+				},
+				"container-2": {
+					status: ecs.HealthStatusHealthy,
+				},
+			},
+		},
 		"one healthy and one unhealthy health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {

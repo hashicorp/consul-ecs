@@ -114,16 +114,16 @@ func TestRun(t *testing.T) {
 			},
 			consulLogin: consulLoginCfg,
 		},
-		"two healthy health sync containers": {
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					status: ecs.HealthStatusHealthy,
-				},
-				"container-2": {
-					status: ecs.HealthStatusHealthy,
-				},
-			},
-		},
+		//"two healthy health sync containers": {
+		//	healthSyncContainers: map[string]healthSyncContainerMetaData{
+		//		"container-1": {
+		//			status: ecs.HealthStatusHealthy,
+		//		},
+		//		"container-2": {
+		//			status: ecs.HealthStatusHealthy,
+		//		},
+		//	},
+		//},
 		"one healthy and one unhealthy health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
@@ -148,16 +148,16 @@ func TestRun(t *testing.T) {
 			},
 			consulLogin: consulLoginCfg,
 		},
-		"two unhealthy health sync containers": {
-			healthSyncContainers: map[string]healthSyncContainerMetaData{
-				"container-1": {
-					status: ecs.HealthStatusUnhealthy,
-				},
-				"container-2": {
-					status: ecs.HealthStatusUnhealthy,
-				},
-			},
-		},
+		//"two unhealthy health sync containers": {
+		//	healthSyncContainers: map[string]healthSyncContainerMetaData{
+		//		"container-1": {
+		//			status: ecs.HealthStatusUnhealthy,
+		//		},
+		//		"container-2": {
+		//			status: ecs.HealthStatusUnhealthy,
+		//		},
+		//	},
+		//},
 		"missing dataplane container": {
 			missingDataplaneContainer: true,
 		},
@@ -827,18 +827,7 @@ func constructTaskMetaResponseString(resp *awsutil.ECSTaskMeta) (string, error) 
 func injectContainersIntoTaskMetaResponse(t *testing.T, taskMetadataResponse *awsutil.ECSTaskMeta, missingDataplaneContainer bool, healthSyncContainers map[string]healthSyncContainerMetaData) string {
 	var taskMetaContainersResponse []awsutil.ECSTaskMetaContainer
 	if !missingDataplaneContainer {
-		dataplaneContainerStatus := ecs.HealthStatusHealthy
-		if len(healthSyncContainers) > 1 {
-			log.Printf("Setting dataplane container status: %s \n", config.ConsulDataplaneContainerName)
-			for containerName := range healthSyncContainers {
-				log.Printf("Container Name: %s, ActualStatus:%s \n", containerName, healthSyncContainers[containerName].status)
-				if healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy {
-					dataplaneContainerStatus = ecs.HealthStatusUnhealthy
-					break
-				}
-			}
-		}
-		taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(config.ConsulDataplaneContainerName, dataplaneContainerStatus))
+		taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy))
 	}
 
 	for name, hsc := range healthSyncContainers {

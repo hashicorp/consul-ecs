@@ -375,12 +375,14 @@ func TestRun(t *testing.T) {
 			// state of health sync containers
 			log.Printf("Expected Svc Checks: %+v\n", expectedSvcChecks)
 			for _, check := range expectedSvcChecks {
-				log.Printf("Check Name: %s, Status: %s\n", check.Name, check.Status)
+				log.Printf("Check Name: %s, Status: %s, ServiceName: %s, CheckId: %s\n", check.Name, check.Status, check.ServiceName, check.CheckID)
 			}
 			for _, expCheck := range expectedSvcChecks {
 				found := false
 				for name, hsc := range c.healthSyncContainers {
+
 					checkID := constructCheckID(makeServiceID(serviceName, taskID), name)
+					log.Printf("Checking for container: %s, hsc %s, CheckId: %s\n", name, hsc, checkID)
 					if expCheck.CheckID == checkID {
 						if hsc.missing {
 							expCheck.Status = api.HealthCritical
@@ -389,7 +391,6 @@ func TestRun(t *testing.T) {
 							// If there are multiple health sync containers and one of them is unhealthy
 							// then the service check should be critical.
 							if len(c.healthSyncContainers) > 1 {
-								log.Printf("Checking for unhealthy containers: %s \n", name)
 								for containerName := range c.healthSyncContainers {
 									log.Printf("Container Name: %s, ActualStatus:%s \n", containerName, c.healthSyncContainers[containerName].status)
 									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy {

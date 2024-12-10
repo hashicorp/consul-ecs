@@ -372,7 +372,7 @@ func TestRun(t *testing.T) {
 			// Align the expectations for checks according to the
 			// state of health sync containers
 			log.Printf("Expected Svc Checks: %+v\n", expectedSvcChecks)
-			for _, check := range expectedSvcChecks {
+			for _, check := range append(expectedSvcChecks, expectedProxyCheck) {
 				log.Printf("Check Name: %s, Status: %s, ServiceName: %s, CheckId: %s\n", check.Name, check.Status, check.ServiceName, check.CheckID)
 			}
 			markDataplaneContainerUnhealthy := false
@@ -409,6 +409,8 @@ func TestRun(t *testing.T) {
 					log.Printf("BEFORE: Updating dataplane container with Status markDataplaneContainerUnhealthy :%t and expCheck.Status %s\n", markDataplaneContainerUnhealthy, expCheck.Status)
 					if c.missingDataplaneContainer || markDataplaneContainerUnhealthy {
 						expCheck.Status = api.HealthCritical
+					} else if len(c.healthSyncContainers) == 0 {
+						expCheck.Status = api.HealthPassing
 					}
 					log.Printf("AFTER: Updating dataplane container with Status markDataplaneContainerUnhealthy :%t and expCheck.Status %s\n", markDataplaneContainerUnhealthy, expCheck.Status)
 					if markDataplaneContainerUnhealthy {

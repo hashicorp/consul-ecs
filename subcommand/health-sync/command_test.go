@@ -390,16 +390,15 @@ func TestRun(t *testing.T) {
 							expCheck.Status = ecsHealthToConsulHealth(hsc.status)
 							// If there are multiple health sync containers and one of them is unhealthy
 							// then the service check should be critical.
-							if len(c.healthSyncContainers) > 1 {
-								for containerName := range c.healthSyncContainers {
-									log.Printf("Container Name: %s, ActualStatus:%s \n", containerName, c.healthSyncContainers[containerName].status)
-									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy {
-										expCheck.Status = api.HealthCritical
-										markDataplaneContainerUnhealthy = true
-										break
-									}
+							for containerName := range c.healthSyncContainers {
+								log.Printf("Container Name: %s, ActualStatus:%s \n", containerName, c.healthSyncContainers[containerName].status)
+								if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy {
+									expCheck.Status = api.HealthCritical
+									markDataplaneContainerUnhealthy = true
+									break
 								}
 							}
+
 						}
 						found = true
 						break

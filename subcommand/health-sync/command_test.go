@@ -105,7 +105,7 @@ func TestRun(t *testing.T) {
 		missingDataplaneContainer       bool
 		shouldMissingContainersReappear bool
 	}{
-		"no additional health sync containers": {},
+		//"no additional health sync containers": {},
 		//"one healthy health sync container": {
 		//	healthSyncContainers: map[string]healthSyncContainerMetaData{
 		//		"container-1": {

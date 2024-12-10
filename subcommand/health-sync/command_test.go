@@ -151,12 +151,10 @@ func TestRun(t *testing.T) {
 		"two unhealthy health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
-					missing: false,
-					status:  ecs.HealthStatusUnhealthy,
+					status: ecs.HealthStatusUnhealthy,
 				},
 				"container-2": {
-					missing: false,
-					status:  ecs.HealthStatusUnhealthy,
+					status: ecs.HealthStatusUnhealthy,
 				},
 			},
 		},
@@ -407,11 +405,13 @@ func TestRun(t *testing.T) {
 				}
 
 				if !found {
+					log.Printf("BEFORE: Updating dataplane container with Status markDataplaneContainerUnhealthy :%s and expCheck.Status %s\n", markDataplaneContainerUnhealthy, expCheck.Status)
 					if c.missingDataplaneContainer || markDataplaneContainerUnhealthy {
 						expCheck.Status = api.HealthCritical
 					} else {
 						expCheck.Status = api.HealthPassing
 					}
+					log.Printf("AFTER: Updating dataplane container with Status markDataplaneContainerUnhealthy :%s and expCheck.Status %s\n", markDataplaneContainerUnhealthy, expCheck.Status)
 					if markDataplaneContainerUnhealthy {
 						log.Printf("Marking expCheck for dataplane container :%s \n", expCheck.Status)
 					}

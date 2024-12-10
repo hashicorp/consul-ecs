@@ -377,10 +377,10 @@ func TestRun(t *testing.T) {
 			for _, check := range expectedSvcChecks {
 				log.Printf("Check Name: %s, Status: %s, ServiceName: %s, CheckId: %s\n", check.Name, check.Status, check.ServiceName, check.CheckID)
 			}
+			markDataplaneContainerUnhealthy := false
 			for _, expCheck := range expectedSvcChecks {
 				found := false
 				for name, hsc := range c.healthSyncContainers {
-
 					checkID := constructCheckID(makeServiceID(serviceName, taskID), name)
 					log.Printf("Checking for container: %s, hsc %s, CheckId: %s\n", name, hsc.status, checkID)
 					if expCheck.CheckID == checkID {
@@ -395,6 +395,7 @@ func TestRun(t *testing.T) {
 									log.Printf("Container Name: %s, ActualStatus:%s \n", containerName, c.healthSyncContainers[containerName].status)
 									if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy {
 										expCheck.Status = api.HealthCritical
+										markDataplaneContainerUnhealthy = true
 										break
 									}
 								}
@@ -406,7 +407,7 @@ func TestRun(t *testing.T) {
 				}
 
 				if !found {
-					if c.missingDataplaneContainer {
+					if c.missingDataplaneContainer || markDataplaneContainerUnhealthy {
 						expCheck.Status = api.HealthCritical
 					} else {
 						expCheck.Status = api.HealthPassing

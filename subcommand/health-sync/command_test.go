@@ -206,6 +206,7 @@ func TestRun(t *testing.T) {
 					status:  ecs.HealthStatusUnhealthy,
 				},
 			},
+			expectedDataplaneHealthStatus:   api.HealthPassing,
 			shouldMissingContainersReappear: true,
 			consulLogin:                     consulLoginCfg,
 		},

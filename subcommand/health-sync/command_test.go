@@ -373,6 +373,7 @@ func TestRun(t *testing.T) {
 
 			// Align the expectations for checks according to the
 			// state of health sync containers
+			log.Printf("Expected Svc Checks: %v \n", expectedSvcChecks)
 			for _, expCheck := range expectedSvcChecks {
 				found := false
 				for name, hsc := range c.healthSyncContainers {
@@ -839,6 +840,7 @@ func injectContainersIntoTaskMetaResponse(t *testing.T, taskMetadataResponse *aw
 	taskMetadataResponse.Containers = taskMetaContainersResponse
 	taskMetaRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
 	require.NoError(t, err)
+	log.Printf("TaskMetaResponseStr: %s, \n", taskMetaRespStr)
 
 	return taskMetaRespStr
 }

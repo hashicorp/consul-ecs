@@ -382,7 +382,7 @@ func TestRun(t *testing.T) {
 				for name, hsc := range c.healthSyncContainers {
 
 					checkID := constructCheckID(makeServiceID(serviceName, taskID), name)
-					log.Printf("Checking for container: %s, hsc %s, CheckId: %s\n", name, hsc, checkID)
+					log.Printf("Checking for container: %s, hsc %s, CheckId: %s\n", name, hsc.status, checkID)
 					if expCheck.CheckID == checkID {
 						if hsc.missing {
 							expCheck.Status = api.HealthCritical

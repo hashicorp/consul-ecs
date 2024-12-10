@@ -136,6 +136,7 @@ func TestRun(t *testing.T) {
 					status:  ecs.HealthStatusUnhealthy,
 				},
 			},
+			expectedDataplaneHealthStatus: api.HealthCritical,
 		},
 		"one healthy and one missing health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{

@@ -160,6 +160,7 @@ func TestRun(t *testing.T) {
 					status: ecs.HealthStatusUnhealthy,
 				},
 			},
+			expectedDataplaneHealthStatus: api.HealthCritical,
 		},
 		"missing dataplane container": {
 			missingDataplaneContainer: true,

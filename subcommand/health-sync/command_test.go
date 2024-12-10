@@ -418,7 +418,11 @@ func TestRun(t *testing.T) {
 					}
 				}
 			}
-			expectedProxyCheck.Status = api.HealthPassing
+			if markDataplaneContainerUnhealthy {
+				expectedProxyCheck.Status = api.HealthCritical
+			} else {
+				expectedProxyCheck.Status = api.HealthPassing
+			}
 			log.Printf("ExpectedProxyCheck Name: %s and expCheck :%s \n", expectedProxyCheck.Name, expectedProxyCheck.Status)
 			if c.missingDataplaneContainer {
 				expectedProxyCheck.Status = api.HealthCritical
@@ -884,6 +888,7 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 		checks, _, err := consulClient.Health().Checks(expectedProxyCheck.ServiceName, &api.QueryOptions{Filter: filter, Namespace: expectedProxyCheck.Namespace, Partition: expectedProxyCheck.Partition})
 		require.NoError(r, err)
 		require.Equal(r, 1, len(checks))
+		log.Printf("ProxyCheckName:%s , expProxyCheck:%s , Actual procy Status:%s \n", expectedProxyCheck.Name, expectedProxyCheck.Status, checks[0].Status)
 		require.Equal(r, expectedProxyCheck.Status, checks[0].Status)
 	})
 }

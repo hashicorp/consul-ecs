@@ -815,7 +815,18 @@ func constructTaskMetaResponseString(resp *awsutil.ECSTaskMeta) (string, error) 
 func injectContainersIntoTaskMetaResponse(t *testing.T, taskMetadataResponse *awsutil.ECSTaskMeta, missingDataplaneContainer bool, healthSyncContainers map[string]healthSyncContainerMetaData) string {
 	var taskMetaContainersResponse []awsutil.ECSTaskMetaContainer
 	if !missingDataplaneContainer {
-		taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy))
+		dataplaneContainerStatus := ecs.HealthStatusHealthy
+		if len(healthSyncContainers) > 1 {
+			log.Printf("Setting dataplane container status: %s \n", config.ConsulDataplaneContainerName)
+			for containerName := range healthSyncContainers {
+				log.Printf("Container Name: %s, ActualStatus:%s \n", containerName, healthSyncContainers[containerName].status)
+				if healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy {
+					dataplaneContainerStatus = ecs.HealthStatusUnhealthy
+					break
+				}
+			}
+		}
+		taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(config.ConsulDataplaneContainerName, dataplaneContainerStatus))
 	}
 
 	for name, hsc := range healthSyncContainers {

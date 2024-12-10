@@ -103,6 +103,7 @@ func TestRun(t *testing.T) {
 		healthSyncContainers            map[string]healthSyncContainerMetaData
 		missingDataplaneContainer       bool
 		shouldMissingContainersReappear bool
+		expectedDataplaneHealthStatus   string
 	}{
 		"no additional health sync containers": {},
 		"one healthy health sync container": {
@@ -132,6 +133,7 @@ func TestRun(t *testing.T) {
 					status: ecs.HealthStatusUnhealthy,
 				},
 			},
+			expectedDataplaneHealthStatus: api.HealthCritical,
 		},
 		"one healthy and one missing health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
@@ -143,7 +145,8 @@ func TestRun(t *testing.T) {
 					status:  ecs.HealthStatusUnhealthy,
 				},
 			},
-			consulLogin: consulLoginCfg,
+			expectedDataplaneHealthStatus: api.HealthPassing,
+			consulLogin:                   consulLoginCfg,
 		},
 		"two unhealthy health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
@@ -154,6 +157,7 @@ func TestRun(t *testing.T) {
 					status: ecs.HealthStatusUnhealthy,
 				},
 			},
+			expectedDataplaneHealthStatus: api.HealthCritical,
 		},
 		"missing dataplane container": {
 			missingDataplaneContainer: true,
@@ -200,6 +204,7 @@ func TestRun(t *testing.T) {
 					status:  ecs.HealthStatusUnhealthy,
 				},
 			},
+			expectedDataplaneHealthStatus:   api.HealthPassing,
 			shouldMissingContainersReappear: true,
 			consulLogin:                     consulLoginCfg,
 		},
@@ -368,6 +373,7 @@ func TestRun(t *testing.T) {
 
 			// Align the expectations for checks according to the
 			// state of health sync containers
+			markDataplaneContainerUnhealthy := false
 			for _, expCheck := range expectedSvcChecks {
 				found := false
 				for name, hsc := range c.healthSyncContainers {
@@ -377,6 +383,17 @@ func TestRun(t *testing.T) {
 							expCheck.Status = api.HealthCritical
 						} else {
 							expCheck.Status = ecsHealthToConsulHealth(hsc.status)
+							// If there are multiple health sync containers and one of them is unhealthy
+							// then the service check should be critical.
+							for containerName := range c.healthSyncContainers {
+								if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy &&
+									c.healthSyncContainers[containerName].missing == false {
+									expCheck.Status = api.HealthCritical
+									markDataplaneContainerUnhealthy = true
+									break
+								}
+							}
+
 						}
 						found = true
 						break
@@ -384,14 +401,23 @@ func TestRun(t *testing.T) {
 				}
 
 				if !found {
-					if c.missingDataplaneContainer {
-						expCheck.Status = api.HealthCritical
+					if c.expectedDataplaneHealthStatus != "" {
+						expCheck.Status = c.expectedDataplaneHealthStatus
 					} else {
-						expCheck.Status = api.HealthPassing
+						if c.missingDataplaneContainer || markDataplaneContainerUnhealthy {
+							expCheck.Status = api.HealthCritical
+						} else if len(c.healthSyncContainers) == 0 || !markDataplaneContainerUnhealthy {
+							expCheck.Status = api.HealthPassing
+						}
 					}
 				}
 			}
-			expectedProxyCheck.Status = api.HealthPassing
+			if markDataplaneContainerUnhealthy {
+				expectedProxyCheck.Status = api.HealthCritical
+			} else {
+				expectedProxyCheck.Status = api.HealthPassing
+			}
+
 			if c.missingDataplaneContainer {
 				expectedProxyCheck.Status = api.HealthCritical
 			}

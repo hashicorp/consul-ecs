@@ -1,4 +1,6 @@
 ## Unreleased
+BUG FIXES
+* Fix the issue where the service was accepting traffic even though it wasn't healthy. This fix updates the health check status for `consul-dataplane` container and takes into account the health of the service container as well.
 
 IMPROVEMENTS
 * Bump Go version to `1.22.7`

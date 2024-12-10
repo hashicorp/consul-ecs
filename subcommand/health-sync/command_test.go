@@ -403,7 +403,7 @@ func TestRun(t *testing.T) {
 						break
 					}
 				}
-
+				log.Printf("dataplane container for expCheck: %s, markDataplaneContainerUnhealthy :%t , found: %t\n", expCheck.CheckID, markDataplaneContainerUnhealthy, found)
 				if !found {
 					log.Printf("BEFORE: Updating dataplane container with Status markDataplaneContainerUnhealthy :%t and expCheck.Status %s\n", markDataplaneContainerUnhealthy, expCheck.Status)
 					if c.missingDataplaneContainer || markDataplaneContainerUnhealthy {

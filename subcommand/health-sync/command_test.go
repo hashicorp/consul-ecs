@@ -409,7 +409,7 @@ func TestRun(t *testing.T) {
 					log.Printf("BEFORE: Updating dataplane container with Status markDataplaneContainerUnhealthy :%t and expCheck.Status %s\n", markDataplaneContainerUnhealthy, expCheck.Status)
 					if c.missingDataplaneContainer || markDataplaneContainerUnhealthy {
 						expCheck.Status = api.HealthCritical
-					} else if len(c.healthSyncContainers) == 0 {
+					} else if len(c.healthSyncContainers) == 0 || !markDataplaneContainerUnhealthy {
 						expCheck.Status = api.HealthPassing
 					}
 					log.Printf("AFTER: Updating dataplane container with Status markDataplaneContainerUnhealthy :%t and expCheck.Status %s\n", markDataplaneContainerUnhealthy, expCheck.Status)

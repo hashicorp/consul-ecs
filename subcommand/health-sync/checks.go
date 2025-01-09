@@ -130,6 +130,7 @@ func (c *Command) syncChecks(consulClient *api.Client,
 		}
 	}
 
+	overallDataplaneHealth := 0
 	parsedContainers := make(map[string]string)
 	// iterate over parse
 	for _, container := range containersToSync {
@@ -160,15 +161,26 @@ func (c *Command) syncChecks(consulClient *api.Client,
 				currentStatuses[container.Name] = container.Health.Status
 			}
 		}
-
+		if container.Name == config.ConsulDataplaneContainerName {
+			if container.Health.Status == ecs.HealthStatusHealthy {
+				overallDataplaneHealth = 1
+			}
+		}
 	}
 
-	overallDataplaneHealthStatus := ecs.HealthStatusHealthy
-	for _, healthStatus := range parsedContainers {
-		if healthStatus != ecs.HealthStatusHealthy {
-			overallDataplaneHealthStatus = ecs.HealthStatusUnhealthy
-			break
+	for containerName, healthStatus := range parsedContainers {
+
+		if containerName != config.ConsulDataplaneContainerName {
+			currentContainerHealth := 0
+			if healthStatus == ecs.HealthStatusHealthy {
+				currentContainerHealth = 1
+			}
+			overallDataplaneHealth = overallDataplaneHealth & currentContainerHealth
 		}
+	}
+	overallDataplaneHealthStatus := ecs.HealthStatusUnhealthy
+	if overallDataplaneHealth == 1 {
+		overallDataplaneHealthStatus = ecs.HealthStatusHealthy
 	}
 
 	err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, config.ConsulDataplaneContainerName, overallDataplaneHealthStatus)

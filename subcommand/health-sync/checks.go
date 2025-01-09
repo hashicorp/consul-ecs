@@ -130,7 +130,6 @@ func (c *Command) syncChecks(consulClient *api.Client,
 		}
 	}
 
-	overallDataplaneHealth := 0
 	parsedContainers := make(map[string]string)
 	// iterate over parse
 	for _, container := range containersToSync {
@@ -161,26 +160,22 @@ func (c *Command) syncChecks(consulClient *api.Client,
 				currentStatuses[container.Name] = container.Health.Status
 			}
 		}
-		if container.Name == config.ConsulDataplaneContainerName {
-			if container.Health.Status == ecs.HealthStatusHealthy {
-				overallDataplaneHealth = 1
+
+	}
+	overallDataplaneHealthStatus, ok := parsedContainers[config.ConsulDataplaneContainerName]
+	// if dataplane container exist and healthy then proceed to checking the other containers health
+	if ok && overallDataplaneHealthStatus == ecs.HealthStatusHealthy {
+		//
+		for name, healthStatus := range parsedContainers {
+			// as soon as we find any unhealthy container, we can set the dataplane health to unhealthy
+			if healthStatus != ecs.HealthStatusHealthy && name != config.ConsulDataplaneContainerName {
+				overallDataplaneHealthStatus = ecs.HealthStatusUnhealthy
+				break
 			}
 		}
-	}
-
-	for containerName, healthStatus := range parsedContainers {
-
-		if containerName != config.ConsulDataplaneContainerName {
-			currentContainerHealth := 0
-			if healthStatus == ecs.HealthStatusHealthy {
-				currentContainerHealth = 1
-			}
-			overallDataplaneHealth = overallDataplaneHealth & currentContainerHealth
-		}
-	}
-	overallDataplaneHealthStatus := ecs.HealthStatusUnhealthy
-	if overallDataplaneHealth == 1 {
-		overallDataplaneHealthStatus = ecs.HealthStatusHealthy
+	} else {
+		// If no dataplane container or dataplane container is not healthy set overall health to healthy
+		overallDataplaneHealthStatus = ecs.HealthStatusUnhealthy
 	}
 
 	err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, config.ConsulDataplaneContainerName, overallDataplaneHealthStatus)

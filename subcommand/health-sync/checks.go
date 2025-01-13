@@ -166,15 +166,15 @@ func (c *Command) syncChecks(consulClient *api.Client,
 	// if dataplane container exist and healthy then proceed to checking the other containers health
 	if ok && overallDataplaneHealthStatus == ecs.HealthStatusHealthy {
 		//
-		for name, healthStatus := range parsedContainers {
+		for _, healthStatus := range parsedContainers {
 			// as soon as we find any unhealthy container, we can set the dataplane health to unhealthy
-			if healthStatus != ecs.HealthStatusHealthy && name != config.ConsulDataplaneContainerName {
+			if healthStatus != ecs.HealthStatusHealthy {
 				overallDataplaneHealthStatus = ecs.HealthStatusUnhealthy
 				break
 			}
 		}
 	} else {
-		// If no dataplane container or dataplane container is not healthy set overall health to healthy
+		// If no dataplane container or dataplane container is not healthy set overall health to unhealthy
 		overallDataplaneHealthStatus = ecs.HealthStatusUnhealthy
 	}
 

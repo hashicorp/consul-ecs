@@ -108,7 +108,6 @@ func (c *Command) syncChecks(consulClient *api.Client,
 	}
 
 	serviceName := c.constructServiceName(taskMeta.Family)
-
 	containersToSync, missingContainers := findContainersToSync(parsedContainerNames, taskMeta)
 
 	// Mark the Consul health status as critical for missing containers
@@ -131,6 +130,8 @@ func (c *Command) syncChecks(consulClient *api.Client,
 		}
 	}
 
+	parsedContainers := make(map[string]string)
+	// iterate over parse
 	for _, container := range containersToSync {
 		c.log.Debug("updating Consul check from ECS container health",
 			"name", container.Name,
@@ -138,13 +139,11 @@ func (c *Command) syncChecks(consulClient *api.Client,
 			"statusSince", container.Health.StatusSince,
 			"exitCode", container.Health.ExitCode,
 		)
-
+		parsedContainers[container.Name] = container.Health.Status
 		previousStatus := currentStatuses[container.Name]
 		if container.Health.Status != previousStatus {
 			var err error
-			if container.Name == config.ConsulDataplaneContainerName {
-				err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, container.Name, container.Health.Status)
-			} else {
+			if container.Name != config.ConsulDataplaneContainerName {
 				checkID := constructCheckID(makeServiceID(serviceName, taskMeta.TaskID()), container.Name)
 				err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, container.Health.Status)
 			}
@@ -161,8 +160,33 @@ func (c *Command) syncChecks(consulClient *api.Client,
 				currentStatuses[container.Name] = container.Health.Status
 			}
 		}
+
+	}
+	overallDataplaneHealthStatus, ok := parsedContainers[config.ConsulDataplaneContainerName]
+	// if dataplane container exist and healthy then proceed to checking the other containers health
+	if ok && overallDataplaneHealthStatus == ecs.HealthStatusHealthy {
+		//
+		for _, healthStatus := range parsedContainers {
+			// as soon as we find any unhealthy container, we can set the dataplane health to unhealthy
+			if healthStatus != ecs.HealthStatusHealthy {
+				overallDataplaneHealthStatus = ecs.HealthStatusUnhealthy
+				break
+			}
+		}
+	} else {
+		// If no dataplane container or dataplane container is not healthy set overall health to unhealthy
+		overallDataplaneHealthStatus = ecs.HealthStatusUnhealthy
 	}
 
+	err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, config.ConsulDataplaneContainerName, overallDataplaneHealthStatus)
+	if err != nil {
+		c.log.Warn("failed to update Consul health status", "err", err)
+	} else {
+		c.log.Info("container health check updated in Consul",
+			"name", config.ConsulDataplaneContainerName,
+			"status", overallDataplaneHealthStatus,
+		)
+	}
 	return currentStatuses
 }
 

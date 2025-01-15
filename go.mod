@@ -3,7 +3,7 @@ module github.com/hashicorp/consul-ecs
 go 1.22
 
 require (
-	github.com/aws/aws-sdk-go v1.42.34
+	github.com/aws/aws-sdk-go v1.55.5
 	github.com/cenkalti/backoff/v4 v4.1.3
 	github.com/deckarep/golang-set v1.7.1
 	github.com/google/go-cmp v0.5.9

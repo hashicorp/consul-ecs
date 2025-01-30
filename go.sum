@@ -82,8 +82,8 @@ github.com/google/uuid v1.1.1/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+
 github.com/google/uuid v1.1.2/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/google/uuid v1.3.0 h1:t6JiXgmwXMjEs8VusXIJk2BXHsn+wx8BZdTaoZ5fu7I=
 github.com/google/uuid v1.3.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/hashicorp/consul-awsauth v0.0.0-20220713200329-83146e702996 h1:jEvXx7Hll5Lgl+n51qu3wiOCwh0JUV5HVsvJllhzr/k=
-github.com/hashicorp/consul-awsauth v0.0.0-20220713200329-83146e702996/go.mod h1:1Cs8FlmD1BfSQXJGcFLSV5FuIx1AbJP+EJGdxosoS2g=
+github.com/hashicorp/consul-awsauth v0.0.0-20250130185352-0a5f57fe920a h1:PlTwRwGofi9cjXO57+1E6WnNLy2qvClT4y5jg3M5r8M=
+github.com/hashicorp/consul-awsauth v0.0.0-20250130185352-0a5f57fe920a/go.mod h1:kmtdeOrrLwhUY6PoKQf0RRYuOA8xJmalhVJBOcMsyNs=
 github.com/hashicorp/consul-server-connection-manager v0.1.2 h1:tNVQHUPuMbd+cMdD8kd+qkZUYpmLmrHMAV/49f4L53I=
 github.com/hashicorp/consul-server-connection-manager v0.1.2/go.mod h1:NzQoVi1KcxGI2SangsDue8+ZPuXZWs+6BKAKrDNyg+w=
 github.com/hashicorp/consul/api v1.26.1-rc1 h1:eO+53vwWxEV2TMbTVrJbXp2TJjJNv+Nxij8j+xi3yOc=

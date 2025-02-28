@@ -181,12 +181,8 @@ func (c *Command) syncChecks(consulClient *api.Client,
 	err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, config.ConsulDataplaneContainerName, overallDataplaneHealthStatus)
 	if err != nil {
 		c.log.Warn("failed to update Consul health status", "err", err)
-	} else {
-		c.log.Info("container health check updated in Consul",
-			"name", config.ConsulDataplaneContainerName,
-			"status", overallDataplaneHealthStatus,
-		)
 	}
+
 	return currentStatuses
 }
 

@@ -1,7 +1,10 @@
 ## Unreleased
 BUG FIXES
-* Fix the issue where the service was accepting traffic even though it wasn't healthy. This fix updates the health check status for `consul-dataplane` container and takes into account the health of the service container as well.
 * Fix bug where calls to AWS IAM and STS services error out due to URL with multiple trailing slashes.
+
+## 0.9.0 (Jan 15, 2025)
+BUG FIXES
+* Fix the issue where the service was accepting traffic even though it wasn't healthy. This fix updates the health check status for `consul-dataplane` container and takes into account the health of the service container as well.
 
 IMPROVEMENTS
 * Bump Go version to `1.22.7`

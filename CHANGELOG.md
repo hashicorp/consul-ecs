@@ -5,6 +5,9 @@ BUG FIXES
 SECURITY
 * Upgrade go version to `1.23.6` and crypto to `0.35.0` to address [CVE-2025-22869](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-22869)
 
+IMPROVEMENTS
+* Remove info logs from health sync checks  
+
 ## 0.9.0 (Jan 15, 2025)
 BUG FIXES
 * Fix the issue where the service was accepting traffic even though it wasn't healthy. This fix updates the health check status for `consul-dataplane` container and takes into account the health of the service container as well.

@@ -2,6 +2,9 @@
 BUG FIXES
 * Fix bug where calls to AWS IAM and STS services error out due to URL with multiple trailing slashes.
 
+SECURITY
+* Upgrade go version to `1.23.6` and crypto to `0.35.0` to address [CVE-2025-22869](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-22869)
+
 IMPROVEMENTS
 * Remove info logs from health sync checks  
 

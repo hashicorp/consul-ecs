@@ -7,7 +7,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.1.3
 	github.com/deckarep/golang-set v1.7.1
 	github.com/google/go-cmp v0.5.9
-	github.com/hashicorp/consul-awsauth v0.0.0-20220713200329-83146e702996
+	github.com/hashicorp/consul-awsauth v0.0.0-20250130185352-0a5f57fe920a
 	github.com/hashicorp/consul-server-connection-manager v0.1.2
 	github.com/hashicorp/consul/api v1.26.1-rc1
 	github.com/hashicorp/consul/sdk v0.16.0

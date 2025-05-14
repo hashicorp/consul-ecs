@@ -713,6 +713,13 @@ func TestRunGateways(t *testing.T) {
 
 			assertHealthChecks(t, consulClient, nil, expectedProxyCheck)
 
+			if !c.missingDataplaneContainer {
+                // wait X seconds and assert if the status is still critical
+                time.Sleep(5 * time.Second)
+
+                assertHealthChecks(t, consulClient, nil, expectedProxyCheck)
+            }
+
 			// Stop dataplane container manually because
 			// health-sync waits for it before deregistering
 			// the service and the proxy.

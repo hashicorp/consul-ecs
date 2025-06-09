@@ -56,37 +56,30 @@ jobs:
     needs:
       - get-go-version
       - get-product-version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
+      fail-fast: true
       matrix:
         include:
           - {goos: "linux", goarch: "arm"}
           - {goos: "linux", goarch: "arm64"}
           - {goos: "linux", goarch: "386"}
           - {goos: "linux", goarch: "amd64"}
-          - {goos: "linux", goarch: "arm64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc", fips: "+fips1402" }
+          - {goos: "linux", goarch: "arm64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc", fips: "+fips1402"}
           - {goos: "linux", goarch: "amd64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto", fips: "+fips1402"}
-
-      fail-fast: true
 
     name: Go ${{ needs.get-go-version.outputs.go-version }} ${{ matrix.goos }} ${{ matrix.goarch }} ${{ matrix.fips }} build
 
     steps:
       - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
-
       - name: Setup go
+        if: ${{ !(matrix.gotags == 'fips' && matrix.goarch == 'arm64') }}
         uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
           go-version: ${{ needs.get-go-version.outputs.go-version }}
-
-      - name: CGO Dependencies
-        if: ${{ matrix.fips }} == "+fips1402" && ${{ matrix.goarch }} == "arm64"
-        run: |
-          sudo apt-get update --allow-releaseinfo-change-suite --allow-releaseinfo-change-version && sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Build
+      - name: Build (runner)
+        if: ${{ !(matrix.gotags == 'fips' && matrix.goarch == 'arm64') }}
         env:
-          # Env may be overridden by matrix values, e.g. CGO_ENABLED for FIPS builds.
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           LDFLAGS: ${{ needs.get-product-version.outputs.ldflags }}
@@ -101,11 +94,37 @@ jobs:
             bin=$(find dist -name consul-ecs)
             $bin version
           fi
-
-      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+      - name: Build FIPS arm64 (Docker)
+        if: ${{ matrix.gotags == 'fips' && matrix.goarch == 'arm64' }}
+        run: |
+          docker build \
+            --build-arg GOOS=${{ matrix.goos }} \
+            --build-arg GOARCH=${{ matrix.goarch }} \
+            --build-arg FIPS=${{ matrix.fips }} \
+            --build-arg CGO_ENABLED=1 \
+            --build-arg GOEXPERIMENT=boringcrypto \
+            --build-arg CC=aarch64-linux-gnu-gcc \
+            --target release-fips-default \
+            -t consul-ecs-fips-arm64:build .
+          id=$(docker create consul-ecs-fips-arm64:build)
+          docker cp $id:/app/dist/consul-ecs ./consul-ecs
+          docker rm $id
+          mkdir -p dist out
+          mv consul-ecs dist/consul-ecs
+          cp LICENSE dist/LICENSE.txt
+          zip -j out/consul-ecs_${{ needs.get-product-version.outputs.product-version }}+fips1402_linux_arm64.zip dist/consul-ecs dist/LICENSE.txt
+      - name: Upload artifact (runner)
+        if: ${{ !(matrix.gotags == 'fips' && matrix.goarch == 'arm64') }}
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: ${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip
           path: out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip
+      - name: Upload artifact (docker)
+        if: ${{ matrix.gotags == 'fips' && matrix.goarch == 'arm64' }}
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        with:
+          name: consul-ecs_${{ needs.get-product-version.outputs.product-version }}+fips1402_linux_arm64.zip
+          path: out/consul-ecs_${{ needs.get-product-version.outputs.product-version }}+fips1402_linux_arm64.zip
 
   build-docker-default:
     name: Docker ${{ matrix.arch }} default release build

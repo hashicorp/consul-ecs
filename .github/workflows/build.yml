@@ -107,7 +107,7 @@ jobs:
             --target release-fips-default \
             -t consul-ecs-fips-arm64:build .
           id=$(docker create consul-ecs-fips-arm64:build)
-          docker cp $id:/app/dist/consul-ecs ./consul-ecs
+          docker cp $id:/app/dist/linux/arm64/consul-ecs ./consul-ecs
           docker rm $id
           mkdir -p dist out
           mv consul-ecs dist/consul-ecs

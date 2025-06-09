@@ -56,12 +56,7 @@ jobs:
     needs:
       - get-go-version
       - get-product-version
-    # Warning: Updating the ubuntu version for this job may cause FIPS builds on arm64 to
-    # have issues running mesh-init, which copies the Cgo dynamically linked binary to a
-    # remote host. Compiling against a secure-but-older GLibC version (by using an older
-    # Ubuntu image) is the easiest way to avoid this issue.
-    # See https://groups.google.com/g/pat-users/c/dawmYvN4DBc
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:

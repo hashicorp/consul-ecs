@@ -86,12 +86,16 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           ${{ matrix.env }} go env
-          mkdir dist out
+          mkdir -p dist out
           cp $GITHUB_WORKSPACE/LICENSE dist/LICENSE.txt
-          ${{ matrix.env }} go build -tags=${{ matrix.gotags }} -ldflags="$LDFLAGS" -o dist/ .
-          zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/
+          ${{ matrix.env }} go build -tags=${{ matrix.gotags }} -ldflags="$LDFLAGS" -o dist/consul-ecs .
+          # Move binary to Dockerfile-expected path
+          mkdir -p dist/linux/${{ matrix.goarch }}
+          mv dist/consul-ecs dist/linux/${{ matrix.goarch }}/consul-ecs
+          cp dist/LICENSE.txt dist/linux/${{ matrix.goarch }}/LICENSE.txt
+          zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/linux/${{ matrix.goarch }}/
           if [ "${{ matrix.goarch }}" = "amd64" ]; then
-            bin=$(find dist -name consul-ecs)
+            bin=$(find dist/linux/${{ matrix.goarch }} -name consul-ecs)
             $bin version
           fi
       - name: Build FIPS arm64 (Docker)

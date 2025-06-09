@@ -105,8 +105,8 @@ jobs:
           CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc GOOS=linux GOARCH=arm64 go build -tags=fips -o dist/linux/arm64/consul-ecs .
           # Confirm the binary exists for Docker context
           ls -lh dist/linux/arm64/consul-ecs
-          # Build the Docker image (release-fips-default target) with platform
-          docker build \
+          # Build the Docker image (release-fips-default target)
+          docker buildx build \
             --platform linux/arm64 \
             --build-arg GOOS=${{ matrix.goos }} \
             --build-arg GOARCH=${{ matrix.goarch }} \

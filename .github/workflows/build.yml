@@ -77,6 +77,8 @@ jobs:
         uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
           go-version: ${{ needs.get-go-version.outputs.go-version }}
+      - name: Set up QEMU for cross-arch builds
+        uses: docker/setup-qemu-action@v3
       - name: Build (runner)
         if: ${{ !(matrix.gotags == 'fips' && matrix.goarch == 'arm64') }}
         env:
@@ -116,21 +118,15 @@ jobs:
             --build-arg CC=aarch64-linux-gnu-gcc \
             --target release-fips-default \
             -t consul-ecs-fips-arm64:build .
-          # Optionally extract the binary from the image for packaging
+          # Extract the binary from the image for packaging
           id=$(docker create consul-ecs-fips-arm64:build)
           docker cp $id:/app/dist/linux/arm64/consul-ecs ./consul-ecs
           docker rm $id
-          mv consul-ecs dist/consul-ecs
+          mkdir -p dist/linux/arm64
+          mv consul-ecs dist/linux/arm64/consul-ecs
           cp LICENSE dist/LICENSE.txt
-          zip -j out/consul-ecs_${{ needs.get-product-version.outputs.product-version }}+fips1402_linux_arm64.zip dist/consul-ecs dist/LICENSE.txt
-      - name: Upload artifact (docker)
-        if: ${{ matrix.gotags == 'fips' && matrix.goarch == 'arm64' }}
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
-        with:
-          name: consul-ecs_${{ needs.get-product-version.outputs.product-version }}+fips1402_linux_arm64.zip
-          path: out/consul-ecs_${{ needs.get-product-version.outputs.product-version }}+fips1402_linux_arm64.zip
-      - name: Upload artifact (runner)
-        if: ${{ !(matrix.gotags == 'fips' && matrix.goarch == 'arm64') }}
+          zip -j out/consul-ecs_${{ needs.get-product-version.outputs.product-version }}+fips1402_linux_arm64.zip dist/linux/arm64/consul-ecs dist/LICENSE.txt
+      - name: Upload artifact (binary)
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: ${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip

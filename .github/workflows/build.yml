@@ -97,6 +97,8 @@ jobs:
       - name: Build FIPS arm64 (Docker)
         if: ${{ matrix.gotags == 'fips' && matrix.goarch == 'arm64' }}
         run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
           mkdir -p dist/linux/arm64
           CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc GOOS=linux GOARCH=arm64 go build -tags=fips -o dist/linux/arm64/consul-ecs .
           docker build \

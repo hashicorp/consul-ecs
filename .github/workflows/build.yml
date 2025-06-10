@@ -78,7 +78,7 @@ jobs:
         with:
           go-version: ${{ needs.get-go-version.outputs.go-version }}
       - name: Set up QEMU for cross-arch builds (only for Docker)
-        if: ${{ matrix.gotags == 'fips' && matrix.goarch == 'arm64' }}
+        if: ${{ matrix.gotags == 'fips' }}
         uses: docker/setup-qemu-action@v3
       - name: Build (runner)
         if: ${{ !(matrix.gotags == 'fips') }}

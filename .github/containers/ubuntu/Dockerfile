@@ -37,10 +37,6 @@ ARG GO_TAGS="fips"
 ARG LDFLAGS=""
 ARG BIN_NAME="consul-ecs"
 
-# Set up environment for FIPS build
-ENV CGO_ENABLED=1 \
-    GOEXPERIMENT=boringcrypto
-
 WORKDIR /build
 
 # Copy source code into container
@@ -51,7 +47,7 @@ RUN cd /build && \
     /opt/go/bin/go version && \
     /opt/go/bin/go env && \
     if [ "$GOARCH" = "arm64" ]; then \
-      env GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
+      env GOOS=linux GOARCH=arm64 CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
     else \
-      env GOOS=linux GOARCH=amd64 CGO_ENABLED=1 /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
+      env GOOS=linux GOARCH=amd64 CGO_ENABLED=1 GOEXPERIMENT=boringcrypto /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
     fi

@@ -6,17 +6,23 @@ ENV DEBIAN_FRONTEND=noninteractive
 ARG GO_VERSION
 ARG GOARCH
 
+# Install base build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     build-essential \
     ca-certificates \
-    crossbuild-essential-arm64 \
     curl \
     libc-bin \
     binutils \
     git \
     xz-utils \
     zip
+
+# Conditionally install cross-compiler for arm64 only
+RUN if [ "$GOARCH" = "arm64" ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends crossbuild-essential-arm64 gcc-aarch64-linux-gnu; \
+    fi
 
 # Install Go
 RUN curl -L https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C /opt -zxv
@@ -30,11 +36,6 @@ ARG FIPS_MODE=1
 ARG GO_TAGS="fips"
 ARG LDFLAGS=""
 ARG BIN_NAME="consul-ecs"
-
-# Conditionally install cross-compiler for arm64 only
-RUN if [ "$GOARCH" = "arm64" ]; then \
-      apt-get update && apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu; \
-    fi
 
 # Set up environment for FIPS build
 ENV CGO_ENABLED=1 \

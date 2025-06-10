@@ -98,6 +98,10 @@ jobs:
             $bin version
           fi
       - name: Build FIPS (Docker)
+        # NOTE: We use an older Ubuntu image for FIPS builds to ensure the resulting CGO-linked binary
+        # is compatible with a wide range of Linux hosts, especially for arm64. Newer Ubuntu versions
+        # may use a newer glibc, which can break mesh-init or remote execution scenarios where the binary
+        # is copied to a host with an older glibc. See: https://groups.google.com/g/pat-users/c/dawmYvN4DBc
         if: ${{ matrix.gotags == 'fips' }}
         run: |
           set -e
@@ -111,7 +115,7 @@ jobs:
             --build-arg LDFLAGS="${{ needs.get-product-version.outputs.ldflags }}" \
             --build-arg BIN_NAME=consul-ecs \
             --build-arg GOARCH=${{ matrix.goarch }} \
-            -f .github/containers/ubuntu/build-filps-Dockerfile \
+            -f .github/containers/ubuntu/build-fips-Dockerfile \
             -t consul-ecs-fips-${{ matrix.goarch }}:build .
           # Extract the binary from the image for packaging (match Dockerfile path)
           id=$(docker create consul-ecs-fips-${{ matrix.goarch }}:build)

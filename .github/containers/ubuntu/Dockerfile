@@ -4,6 +4,7 @@ FROM ubuntu:focal
 ENV DEBIAN_FRONTEND=noninteractive
 
 ARG GO_VERSION
+ARG GOARCH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
@@ -13,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libc-bin \
     binutils \
-    gcc-aarch64-linux-gnu \
     git \
     xz-utils \
     zip
@@ -31,18 +31,27 @@ ARG GO_TAGS="fips"
 ARG LDFLAGS=""
 ARG BIN_NAME="consul-ecs"
 
+# Conditionally install cross-compiler for arm64 only
+RUN if [ "$GOARCH" = "arm64" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu; \
+    fi
+
 # Set up environment for FIPS build
 ENV CGO_ENABLED=1 \
-    GOEXPERIMENT=boringcrypto \
-    CC=aarch64-linux-gnu-gcc
+    GOEXPERIMENT=boringcrypto
 
 WORKDIR /build
 
 # Copy source code into container
 COPY . /build
 
-# Build the FIPS-enabled binary for arm64
-RUN cd /build && \
+# Build the FIPS-enabled binary for the target arch
+RUN if [ "$GOARCH" = "arm64" ]; then \
+      export CC=aarch64-linux-gnu-gcc; \
+    else \
+      unset CC; \
+    fi && \
+    cd /build && \
     /opt/go/bin/go version && \
     /opt/go/bin/go env && \
     /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .

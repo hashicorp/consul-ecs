@@ -46,6 +46,8 @@ COPY . /build
 RUN cd /build && \
     /opt/go/bin/go version && \
     /opt/go/bin/go env && \
-    env GOOS=linux GOARCH=$GOARCH CGO_ENABLED=1 GOEXPERIMENT=boringcrypto \
-      ${GOARCH:+CC=aarch64-linux-gnu-gcc} \
-      /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .
+    if [ "$GOARCH" = "arm64" ]; then \
+      env GOOS=linux GOARCH=arm64 CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
+    else \
+      env GOOS=linux GOARCH=amd64 CGO_ENABLED=1 GOEXPERIMENT=boringcrypto /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
+    fi

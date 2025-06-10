@@ -73,7 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
       - name: Setup go
-        if: ${{ !(matrix.gotags == 'fips' && matrix.goarch == 'arm64') }}
+        if: ${{ !(matrix.gotags == 'fips') }}
         uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
           go-version: ${{ needs.get-go-version.outputs.go-version }}
@@ -81,7 +81,7 @@ jobs:
         if: ${{ matrix.gotags == 'fips' && matrix.goarch == 'arm64' }}
         uses: docker/setup-qemu-action@v3
       - name: Build (runner)
-        if: ${{ !(matrix.gotags == 'fips' && matrix.goarch == 'arm64') }}
+        if: ${{ !(matrix.gotags == 'fips') }}
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -97,36 +97,32 @@ jobs:
             bin=$(find dist -name consul-ecs)
             $bin version
           fi
-      - name: Build FIPS arm64 (Docker)
-        if: ${{ matrix.gotags == 'fips' && matrix.goarch == 'arm64' }}
+      - name: Build FIPS (Docker)
+        if: ${{ matrix.gotags == 'fips' }}
         run: |
           set -e
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-          mkdir -p dist/linux/arm64 out
-          # Build the FIPS binary to the path expected by the Dockerfile
-          CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc GOOS=linux GOARCH=arm64 go build -tags=fips -o dist/linux/arm64/consul-ecs .
-          # Confirm the binary exists for Docker context
-          ls -lh dist/linux/arm64/consul-ecs
-          # Build the Docker image (release-fips-default target)
+          if [ "${{ matrix.goarch }}" = "arm64" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+          fi
+          mkdir -p dist/linux/${{ matrix.goarch }} out
+          # Build the FIPS binary using Ubuntu-based Dockerfile for glibc compatibility
           docker buildx build \
-            --platform linux/arm64 \
-            --build-arg GOOS=${{ matrix.goos }} \
-            --build-arg GOARCH=${{ matrix.goarch }} \
-            --build-arg FIPS=${{ matrix.fips }} \
-            --build-arg CGO_ENABLED=1 \
-            --build-arg GOEXPERIMENT=boringcrypto \
-            --build-arg CC=aarch64-linux-gnu-gcc \
-            --target release-fips-default \
-            -t consul-ecs-fips-arm64:build .
+            --platform linux/${{ matrix.goarch }} \
+            --build-arg GO_VERSION=${{ needs.get-go-version.outputs.go-version }} \
+            --build-arg GO_TAGS=fips \
+            --build-arg LDFLAGS="${{ needs.get-product-version.outputs.ldflags }}" \
+            --build-arg BIN_NAME=consul-ecs \
+            -f .github/containers/ubuntu/Dockerfile \
+            -t consul-ecs-fips-${{ matrix.goarch }}:build .
           # Extract the binary from the image for packaging (match Dockerfile path)
-          id=$(docker create consul-ecs-fips-arm64:build)
+          id=$(docker create consul-ecs-fips-${{ matrix.goarch }}:build)
           docker cp $id:/bin/consul-ecs ./consul-ecs
           docker rm $id
-          mkdir -p dist/linux/arm64
-          mv consul-ecs dist/linux/arm64/consul-ecs
+          mkdir -p dist/linux/${{ matrix.goarch }}
+          mv consul-ecs dist/linux/${{ matrix.goarch }}/consul-ecs
           cp LICENSE dist/LICENSE.txt
-          zip -j out/consul-ecs_${{ needs.get-product-version.outputs.product-version }}+fips1402_linux_arm64.zip dist/linux/arm64/consul-ecs dist/LICENSE.txt
+          zip -j out/consul-ecs_${{ needs.get-product-version.outputs.product-version }}+fips1402_linux_${{ matrix.goarch }}.zip dist/linux/${{ matrix.goarch }}/consul-ecs dist/LICENSE.txt
       - name: Upload artifact (binary)
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:

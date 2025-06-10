@@ -111,7 +111,7 @@ jobs:
             --build-arg LDFLAGS="${{ needs.get-product-version.outputs.ldflags }}" \
             --build-arg BIN_NAME=consul-ecs \
             --build-arg GOARCH=${{ matrix.goarch }} \
-            -f .github/containers/ubuntu/Dockerfile \
+            -f .github/containers/ubuntu/Dockerfile.fips \
             -t consul-ecs-fips-${{ matrix.goarch }}:build .
           # Extract the binary from the image for packaging (match Dockerfile path)
           id=$(docker create consul-ecs-fips-${{ matrix.goarch }}:build)

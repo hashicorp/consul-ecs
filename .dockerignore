@@ -1,4 +1,31 @@
 *
 */*
+# Ignore build/test artifacts and editor files
+out/
+*.log
+*.tmp
+*.swp
+*.swo
+.vscode/
+.idea/
+.DS_Store
+
+# Allow dist and LICENSE for default Dockerfile
 !dist/*
 !LICENSE
+
+# Allow Go source and module files for FIPS Dockerfile
+!go.mod
+!go.sum
+!main.go
+!commands.go
+!version/
+!awsutil/
+!build-scripts/
+!config/
+!controller/
+!entrypoint/
+!internal/
+!logging/
+!subcommand/
+!testutil/

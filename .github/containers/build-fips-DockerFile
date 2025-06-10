@@ -1,0 +1,51 @@
+# Dockerfile for FIPS builds compatible with Ubuntu (glibc)
+FROM ubuntu:focal
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+ARG GO_VERSION
+ARG GOARCH
+
+# Install base build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    build-essential \
+    ca-certificates \
+    curl \
+    libc-bin \
+    binutils \
+    git \
+    xz-utils \
+    zip
+
+# Conditionally install cross-compiler for arm64 only
+RUN if [ "$GOARCH" = "arm64" ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends crossbuild-essential-arm64 gcc-aarch64-linux-gnu; \
+    fi
+
+# Install Go
+RUN curl -L https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C /opt -zxv
+
+ENV PATH="/root/go/bin:/opt/go/bin:$PATH"
+
+RUN git config --global --add safe.directory /build
+
+# Accept FIPS-specific build args
+ARG FIPS_MODE=1
+ARG GO_TAGS="fips"
+ARG LDFLAGS=""
+ARG BIN_NAME="consul-ecs"
+
+WORKDIR /build
+
+# Copy source code into container
+COPY . /build
+
+# Build the FIPS-enabled binary for the target arch
+RUN cd /build && \
+    /opt/go/bin/go version && \
+    /opt/go/bin/go env && \
+    env GOOS=linux GOARCH=$GOARCH CGO_ENABLED=1 GOEXPERIMENT=boringcrypto \
+      ${GOARCH:+CC=aarch64-linux-gnu-gcc} \
+      /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .

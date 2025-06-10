@@ -51,7 +51,7 @@ RUN cd /build && \
     /opt/go/bin/go version && \
     /opt/go/bin/go env && \
     if [ "$GOARCH" = "arm64" ]; then \
-      env GOARCH=arm64 CC=aarch64-linux-gnu-gcc /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
+      env GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
     else \
-      env GOARCH=amd64 /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
+      env GOOS=linux GOARCH=amd64 CGO_ENABLED=1 /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
     fi

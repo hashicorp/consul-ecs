@@ -61,12 +61,12 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - {goos: "linux", goarch: "arm"}
-          - {goos: "linux", goarch: "arm64"}
-          - {goos: "linux", goarch: "386"}
-          - {goos: "linux", goarch: "amd64"}
+         # - {goos: "linux", goarch: "arm"}
+          #- {goos: "linux", goarch: "arm64"}
+          #- {goos: "linux", goarch: "386"}
+          #- {goos: "linux", goarch: "amd64"}
           - {goos: "linux", goarch: "arm64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc", fips: "+fips1402"}
-          - {goos: "linux", goarch: "amd64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto", fips: "+fips1402"}
+          #- {goos: "linux", goarch: "amd64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto", fips: "+fips1402"}
 
     name: Go ${{ needs.get-go-version.outputs.go-version }} ${{ matrix.goos }} ${{ matrix.goarch }} ${{ matrix.fips }} build
 
@@ -101,10 +101,7 @@ jobs:
         if: ${{ matrix.gotags == 'fips' }}
         run: |
           set -e
-          sudo apt-get update
-          if [ "${{ matrix.goarch }}" = "arm64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu
-          fi
+          # No global cross-compiler install here; handled in Dockerfile
           mkdir -p dist/linux/${{ matrix.goarch }} out
           # Build the FIPS binary using Ubuntu-based Dockerfile for glibc compatibility
           docker buildx build \
@@ -113,6 +110,7 @@ jobs:
             --build-arg GO_TAGS=fips \
             --build-arg LDFLAGS="${{ needs.get-product-version.outputs.ldflags }}" \
             --build-arg BIN_NAME=consul-ecs \
+            --build-arg GOARCH=${{ matrix.goarch }} \
             -f .github/containers/ubuntu/Dockerfile \
             -t consul-ecs-fips-${{ matrix.goarch }}:build .
           # Extract the binary from the image for packaging (match Dockerfile path)

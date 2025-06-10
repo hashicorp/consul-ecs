@@ -148,11 +148,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
-      - name: Download dist from build-linux
-        uses: actions/download-artifact@v4
-        with:
-          name: dist-for-docker
-          path: dist/
       - name: Docker Build (Action)
         uses: hashicorp/actions-docker-build@v2
         with:

@@ -46,12 +46,11 @@ WORKDIR /build
 COPY . /build
 
 # Build the FIPS-enabled binary for the target arch
-RUN if [ "$GOARCH" = "arm64" ]; then \
-      export CC=aarch64-linux-gnu-gcc; \
-    else \
-      unset CC; \
-    fi && \
-    cd /build && \
+RUN cd /build && \
     /opt/go/bin/go version && \
     /opt/go/bin/go env && \
-    /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .
+    if [ "$GOARCH" = "arm64" ]; then \
+      CC=aarch64-linux-gnu-gcc /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
+    else \
+      /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
+    fi

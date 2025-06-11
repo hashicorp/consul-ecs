@@ -17,7 +17,7 @@ jobs:
     uses: ./.github/workflows/reusable-get-go-version.yml
 
   get-product-version:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       product-version: ${{ steps.get-product-version.outputs.product-version }}
       ldflags: ${{ steps.get-product-version.outputs.ldflags }}
@@ -34,7 +34,7 @@ jobs:
 
   generate-metadata-file:
     needs: get-product-version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       filepath: ${{ steps.generate-metadata-file.outputs.filepath }}
     steps:
@@ -56,58 +56,77 @@ jobs:
     needs:
       - get-go-version
       - get-product-version
-    # Warning: Updating the ubuntu version for this job may cause FIPS builds on arm64 to
-    # have issues running mesh-init, which copies the Cgo dynamically linked binary to a
-    # remote host. Compiling against a secure-but-older GLibC version (by using an older
-    # Ubuntu image) is the easiest way to avoid this issue.
-    # See https://groups.google.com/g/pat-users/c/dawmYvN4DBc
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
+      fail-fast: true
       matrix:
         include:
           - {goos: "linux", goarch: "arm"}
           - {goos: "linux", goarch: "arm64"}
           - {goos: "linux", goarch: "386"}
           - {goos: "linux", goarch: "amd64"}
-          - {goos: "linux", goarch: "arm64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc", fips: "+fips1402" }
+          - {goos: "linux", goarch: "arm64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc", fips: "+fips1402"}
           - {goos: "linux", goarch: "amd64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto", fips: "+fips1402"}
-
-      fail-fast: true
 
     name: Go ${{ needs.get-go-version.outputs.go-version }} ${{ matrix.goos }} ${{ matrix.goarch }} ${{ matrix.fips }} build
 
     steps:
       - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
-
       - name: Setup go
+        if: ${{ !(matrix.gotags == 'fips') }}
         uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
           go-version: ${{ needs.get-go-version.outputs.go-version }}
-
-      - name: CGO Dependencies
-        if: ${{ matrix.fips }} == "+fips1402" && ${{ matrix.goarch }} == "arm64"
-        run: |
-          sudo apt-get update --allow-releaseinfo-change-suite --allow-releaseinfo-change-version && sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Build
+      - name: Set up QEMU for cross-arch builds (only for Docker)
+        if: ${{ matrix.gotags == 'fips' }}
+        uses: docker/setup-qemu-action@v3
+      - name: Build (runner)
+        if: ${{ !(matrix.gotags == 'fips') }}
         env:
-          # Env may be overridden by matrix values, e.g. CGO_ENABLED for FIPS builds.
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           LDFLAGS: ${{ needs.get-product-version.outputs.ldflags }}
           CGO_ENABLED: "0"
         run: |
           ${{ matrix.env }} go env
-          mkdir dist out
+          mkdir -p dist/linux/${{ matrix.goarch }} out
           cp $GITHUB_WORKSPACE/LICENSE dist/LICENSE.txt
-          ${{ matrix.env }} go build -tags=${{ matrix.gotags }} -ldflags="$LDFLAGS" -o dist/ .
+          ${{ matrix.env }} go build -tags=${{ matrix.gotags }} -ldflags="$LDFLAGS" -o dist/linux/${{ matrix.goarch }}/consul-ecs .
           zip -r -j out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip dist/
           if [ "${{ matrix.goarch }}" = "amd64" ]; then
             bin=$(find dist -name consul-ecs)
             $bin version
           fi
-
-      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+      - name: Build FIPS (Docker)
+        # NOTE: We use an older Ubuntu image for FIPS builds to ensure the resulting CGO-linked binary
+        # is compatible with a wide range of Linux hosts, especially for arm64. Newer Ubuntu versions
+        # may use a newer glibc, which can break mesh-init or remote execution scenarios where the binary
+        # is copied to a host with an older glibc. See: https://groups.google.com/g/pat-users/c/dawmYvN4DBc
+        if: ${{ matrix.gotags == 'fips' }}
+        run: |
+          set -e
+          # No global cross-compiler install here; handled in Dockerfile
+          mkdir -p dist/linux/${{ matrix.goarch }} out
+          # Build the FIPS binary using Ubuntu-based Dockerfile for glibc compatibility
+          docker buildx build \
+            --platform linux/${{ matrix.goarch }} \
+            --build-arg GO_VERSION=${{ needs.get-go-version.outputs.go-version }} \
+            --build-arg GO_TAGS=fips \
+            --build-arg LDFLAGS="${{ needs.get-product-version.outputs.ldflags }}" \
+            --build-arg BIN_NAME=consul-ecs \
+            --build-arg GOARCH=${{ matrix.goarch }} \
+            -f .github/containers/ubuntu/fips-build-Dockerfile \
+            -t consul-ecs-fips-${{ matrix.goarch }}:build .
+          # Extract the binary from the image for packaging (match Dockerfile path)
+          id=$(docker create consul-ecs-fips-${{ matrix.goarch }}:build)
+          docker cp $id:/bin/consul-ecs ./consul-ecs
+          docker rm $id
+          mkdir -p dist/linux/${{ matrix.goarch }}
+          mv consul-ecs dist/linux/${{ matrix.goarch }}/consul-ecs
+          cp LICENSE dist/LICENSE.txt
+          zip -j out/consul-ecs_${{ needs.get-product-version.outputs.product-version }}+fips1402_linux_${{ matrix.goarch }}.zip dist/linux/${{ matrix.goarch }}/consul-ecs dist/LICENSE.txt
+      - name: Upload artifact (binary)
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: ${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip
           path: out/${{ env.PKG_NAME }}_${{ needs.get-product-version.outputs.product-version }}${{ matrix.fips }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip
@@ -117,7 +136,7 @@ jobs:
     needs:
       - get-product-version
       - build-linux
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         arch: ["arm", "arm64", "386", "amd64"]
@@ -154,7 +173,7 @@ jobs:
     needs:
       - get-product-version
       - build-linux
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         include:
@@ -194,7 +213,7 @@ jobs:
     needs:
       - get-product-version
       - build-docker-default
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         arch: ["amd64"]
@@ -251,7 +270,7 @@ jobs:
       - build-linux
       - build-docker-default
       - build-docker-fips
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     if: always()
     steps:
       - name: evaluate upstream job results

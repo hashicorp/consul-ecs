@@ -17,7 +17,7 @@ jobs:
     uses: ./.github/workflows/reusable-get-go-version.yml
 
   get-product-version:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       product-version: ${{ steps.get-product-version.outputs.product-version }}
       ldflags: ${{ steps.get-product-version.outputs.ldflags }}
@@ -34,7 +34,7 @@ jobs:
 
   generate-metadata-file:
     needs: get-product-version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       filepath: ${{ steps.generate-metadata-file.outputs.filepath }}
     steps:
@@ -56,7 +56,7 @@ jobs:
     needs:
       - get-go-version
       - get-product-version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: true
       matrix:
@@ -136,7 +136,7 @@ jobs:
     needs:
       - get-product-version
       - build-linux
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         arch: ["arm", "arm64", "386", "amd64"]
@@ -173,7 +173,7 @@ jobs:
     needs:
       - get-product-version
       - build-linux
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         include:
@@ -213,7 +213,7 @@ jobs:
     needs:
       - get-product-version
       - build-docker-default
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         arch: ["amd64"]
@@ -270,7 +270,7 @@ jobs:
       - build-linux
       - build-docker-default
       - build-docker-fips
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     if: always()
     steps:
       - name: evaluate upstream job results

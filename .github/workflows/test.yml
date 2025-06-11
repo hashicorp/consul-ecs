@@ -3,6 +3,9 @@ name: test
 on:
   workflow_dispatch:
   push:
+  pull_request:
+    branches:
+      - main
 
 # cancel existing runs of the same workflow on the same ref
 concurrency:

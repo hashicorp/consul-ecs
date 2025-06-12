@@ -148,10 +148,15 @@ func (c *Command) realRun() error {
 		<-c.proceedChan
 	}
 
+	// shuttingDown flag to prevent syncChecks after SIGTERM
+	shuttingDown := false
+
 	for {
 		select {
 		case <-time.After(syncChecksInterval):
-			currentHealthStatuses = c.syncChecks(consulClient, currentHealthStatuses, clusterARN, healthSyncContainers)
+			if !shuttingDown {
+				currentHealthStatuses = c.syncChecks(consulClient, currentHealthStatuses, clusterARN, healthSyncContainers)
+			}
 		case watcherState := <-c.watcherCh:
 			c.log.Info("Switching to Consul server", "address", watcherState.Address.String())
 			client, err := c.setupConsulAPIClient(watcherState)
@@ -161,6 +166,7 @@ func (c *Command) realRun() error {
 				consulClient = client
 			}
 		case <-c.sigs:
+			shuttingDown = true
 			c.log.Info("Received SIGTERM. Beginning graceful shutdown by first marking all checks as critical.")
 			err := c.setChecksCritical(consulClient, taskMeta, clusterARN, healthSyncContainers)
 			if err != nil {

@@ -13,7 +13,7 @@ on:
 jobs:
   get-go-version:
     name: "Determine Go toolchain version"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       go-version: ${{ steps.get-go-version.outputs.go-version }}
       go-version-previous: ${{ steps.get-go-version.outputs.go-version-previous }}

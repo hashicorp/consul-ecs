@@ -182,6 +182,7 @@ func (c *Command) syncChecks(consulClient *api.Client,
 	if err != nil {
 		c.log.Warn("failed to update Consul health status", "err", err)
 	}
+
 	return currentStatuses
 }
 

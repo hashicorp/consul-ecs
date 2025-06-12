@@ -3,6 +3,9 @@ name: test
 on:
   workflow_dispatch:
   push:
+  pull_request:
+    branches:
+      - main
 
 # cancel existing runs of the same workflow on the same ref
 concurrency:
@@ -19,7 +22,7 @@ jobs:
   lint:
     needs:
       - get-go-version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
     - name: Checkout
       uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
@@ -29,7 +32,7 @@ jobs:
     - name: golangci-lint
       uses: golangci/golangci-lint-action@a4f60bb28d35aeee14e6880718e0c85ff1882e64 # v6.0.1
       with:
-        version: v1.54.2
+        version: v1.60.1
         args: |
           --verbose
         only-new-issues: false
@@ -46,12 +49,12 @@ jobs:
     strategy:
       matrix:
         consul-version:
-          - 1.18.1
-          - 1.18.1+ent
+          - 1.20.2
+          - 1.20.2+ent
     env:
       TEST_RESULTS_DIR: /tmp/test-results
       GOTESTSUM_VERSION: 1.8.2
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
     - name: Checkout
       uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
@@ -110,7 +113,7 @@ jobs:
     needs:
       - lint
       - test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     if: always()
     steps:
       - name: evaluate upstream job results

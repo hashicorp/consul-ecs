@@ -714,9 +714,13 @@ func TestRunGateways(t *testing.T) {
 			assertHealthChecks(t, consulClient, nil, expectedProxyCheck)
 
 			if !c.missingDataplaneContainer {
-				// wait X seconds and assert if the status is still critical
-				time.Sleep(5 * time.Second)
-				assertHealthChecks(t, consulClient, nil, expectedProxyCheck)
+				// Assert that the proxy check remains in the expected state for the full 5 seconds
+				end := time.Now().Add(5 * time.Second)
+				for time.Now().Before(end) {
+					// This will retry for up to 5 seconds, but we want to fail immediately if the status changes
+					assertHealthChecks(t, consulClient, nil, expectedProxyCheck)
+					time.Sleep(100 * time.Millisecond)
+				}
 			}
 
 			// Stop dataplane container manually because

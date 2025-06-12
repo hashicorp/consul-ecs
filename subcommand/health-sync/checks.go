@@ -133,32 +133,30 @@ func (c *Command) syncChecks(consulClient *api.Client,
 	parsedContainers := make(map[string]string)
 	// iterate over parse
 	for _, container := range containersToSync {
-		c.log.Debug("updating Consul check from ECS container health",
-			"name", container.Name,
-			"status", container.Health.Status,
-			"statusSince", container.Health.StatusSince,
-			"exitCode", container.Health.ExitCode,
-		)
 		parsedContainers[container.Name] = container.Health.Status
 		previousStatus := currentStatuses[container.Name]
 		if container.Health.Status != previousStatus {
-			var err error
 			if container.Name != config.ConsulDataplaneContainerName {
-				checkID := constructCheckID(makeServiceID(serviceName, taskMeta.TaskID()), container.Name)
-				err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, container.Health.Status)
-			}
-
-			if err != nil {
-				c.log.Warn("failed to update Consul health status", "err", err)
-			} else {
-				c.log.Info("container health check updated in Consul",
+				c.log.Debug("updating Consul check from ECS container health",
 					"name", container.Name,
 					"status", container.Health.Status,
 					"statusSince", container.Health.StatusSince,
 					"exitCode", container.Health.ExitCode,
 				)
-				currentStatuses[container.Name] = container.Health.Status
+				checkID := constructCheckID(makeServiceID(serviceName, taskMeta.TaskID()), container.Name)
+				if err := c.updateConsulHealthStatus(consulClient, checkID, clusterARN, container.Health.Status); err != nil {
+					c.log.Warn("failed to update Consul health status", "err", err)
+				} else {
+					c.log.Info("container health check updated in Consul",
+						"name", container.Name,
+						"status", container.Health.Status,
+						"statusSince", container.Health.StatusSince,
+						"exitCode", container.Health.ExitCode,
+					)
+					currentStatuses[container.Name] = container.Health.Status
+				}
 			}
+
 		}
 
 	}
@@ -178,9 +176,14 @@ func (c *Command) syncChecks(consulClient *api.Client,
 		overallDataplaneHealthStatus = ecs.HealthStatusUnhealthy
 	}
 
-	err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, config.ConsulDataplaneContainerName, overallDataplaneHealthStatus)
-	if err != nil {
-		c.log.Warn("failed to update Consul health status", "err", err)
+	// Only update if the status actually changed
+	prevDataplaneStatus := currentStatuses[config.ConsulDataplaneContainerName]
+	if prevDataplaneStatus != overallDataplaneHealthStatus {
+		err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, config.ConsulDataplaneContainerName, overallDataplaneHealthStatus)
+		if err != nil {
+			c.log.Warn("failed to update Consul health status", "err", err)
+		}
+		currentStatuses[config.ConsulDataplaneContainerName] = overallDataplaneHealthStatus
 	}
 
 	return currentStatuses

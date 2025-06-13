@@ -1,3 +1,10 @@
+## 0.9.2 (Jun 13, 2025)
+BUG FIXES
+* Fix bug where health-sync race condition overrides consul-dataplane critical status after a sigterm
+
+IMPROVEMENTS
+Bump `x/net` to `0.38.0`
+
 ## 0.9.1 (Mar 3, 2025)
 BUG FIXES
 * Fix bug where calls to AWS IAM and STS services error out due to URL with multiple trailing slashes.

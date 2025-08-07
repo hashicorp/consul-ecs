@@ -9,7 +9,7 @@
 
 # go-discover builds the discover binary
 FROM golang:1.23.6-alpine as go-discover
-RUN CGO_ENABLED=0 go install github.com/hashicorp/go-discover/cmd/discover@214571b6a5309addf3db7775f4ee8cf4d264fd5f
+RUN CGO_ENABLED=0 go install github.com/hashicorp/go-discover/cmd/discover@v1.1.0
 
 FROM docker.mirror.hashicorp.services/alpine:latest AS release-default
 

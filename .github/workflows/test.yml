@@ -30,9 +30,9 @@ jobs:
       with:
         go-version: ${{ needs.get-go-version.outputs.go-version }}
     - name: golangci-lint
-      uses: golangci/golangci-lint-action@a4f60bb28d35aeee14e6880718e0c85ff1882e64 # v6.0.1
+      uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
       with:
-        version: v1.64.8
+        version: v2.8.0
         args: |
           --verbose
         only-new-issues: false

@@ -45,7 +45,7 @@ func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
 	c.flagSet.DurationVar(&c.shutdownDelay, flagShutdownDelay, 0,
 		`Continue running for this long after receiving SIGTERM. Must be a duration (e.g. "10s").`)
-	logging.Merge(c.flagSet, c.LogOpts.Flags())
+	logging.Merge(c.flagSet, c.Flags())
 
 	c.started = make(chan struct{}, 1)
 	c.sigs = make(chan os.Signal, 1)

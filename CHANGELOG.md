@@ -3,12 +3,11 @@ BUG FIXES
 * Fix bug where calls to AWS IAM and STS services error out due to URL with multiple trailing slashes.
 
 SECURITY
-* Upgrade go version to `1.23.6` and crypto to `0.35.0` to address [CVE-2025-22869](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-22869)
 * Upgrade `golang.org/x/crypto` to `v0.45.0` to address [GO-2025-4134] and [GO-2025-4116]
 
 IMPROVEMENTS
 * Remove info logs from health sync checks
-* Bump Go version to `1.24.0`
+* Bump Go version to `1.25.5`
 * Bump `golang.org/x/net` to `v0.47.0`
 * Bump `golang.org/x/sys` to `v0.38.0`
 * Bump `golang.org/x/text` to `v0.31.0`  

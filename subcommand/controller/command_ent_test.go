@@ -11,16 +11,16 @@ import (
 
 const (
 	expEntAnonTokenPolicy = `
-	partition_prefix "" {
-	namespace_prefix "" {
-		node_prefix "" {
-		policy = "read"
-		}
-		service_prefix "" {
-		policy = "read"
-		}
-	}
-	}`
+partition_prefix "" {
+  namespace_prefix "" {
+    node_prefix "" {
+      policy = "read"
+    }
+    service_prefix "" {
+      policy = "read"
+    }
+  }
+}`
 )
 
 func TestUpsertConsulResourcesEnt(t *testing.T) {

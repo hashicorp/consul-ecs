@@ -11,6 +11,11 @@ linters:
     - ineffassign
     - unparam
 
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
 run:
   concurrency: 2
   timeout: 1m

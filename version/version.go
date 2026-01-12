@@ -16,7 +16,7 @@ var (
 	//
 	// Version must conform to the format expected by
 	// github.com/hashicorp/go-version for tests to work.
-	Version = "0.9.2"
+	Version = "0.9.3"
 
 	// A pre-release marker for the version. If this is "" (empty string)
 	// then it means that it is a final release. Otherwise, this is a pre-release
@@ -42,5 +42,5 @@ func GetHumanVersion() string {
 	}
 
 	// Strip off any single quotes added by the git information.
-	return "v" + strings.Replace(version, "'", "", -1)
+	return "v" + strings.ReplaceAll(version, "'", "")
 }

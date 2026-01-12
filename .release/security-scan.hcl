@@ -25,9 +25,10 @@ binary {
 	osv          = true
 	oss_index    = false
 	nvd          = false
+
 	triage {
 		suppress {
-			vulnerabilites = [
+			vulnerabilities = [
 				"GO-2022-0635", // github.com/aws/aws-sdk-go@v1.55.5
 			]
 		}

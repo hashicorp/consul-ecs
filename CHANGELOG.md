@@ -17,6 +17,20 @@ IMPROVEMENTS
 
 ## 0.9.0 (Jan 15, 2025)
 BUG FIXES
+* Fix bug where calls to AWS IAM and STS services error out due to URL with multiple trailing slashes.
+
+SECURITY
+* Upgrade `golang.org/x/crypto` to `v0.45.0` to address [GO-2025-4134] and [GO-2025-4116]
+
+IMPROVEMENTS
+* Remove info logs from health sync checks
+* Bump Go version to `1.25.5`
+* Bump `golang.org/x/net` to `v0.47.0`
+* Bump `golang.org/x/sys` to `v0.38.0`
+* Bump `golang.org/x/text` to `v0.31.0`  
+
+## 0.9.0 (Jan 15, 2025)
+BUG FIXES
 * Fix the issue where the service was accepting traffic even though it wasn't healthy. This fix updates the health check status for `consul-dataplane` container and takes into account the health of the service container as well.
 
 IMPROVEMENTS

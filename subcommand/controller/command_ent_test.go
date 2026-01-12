@@ -9,6 +9,20 @@ import (
 	"testing"
 )
 
+const (
+	expEntAnonTokenPolicy = `
+	partition_prefix "" {
+	namespace_prefix "" {
+		node_prefix "" {
+		policy = "read"
+		}
+		service_prefix "" {
+		policy = "read"
+		}
+	}
+	}`
+)
+
 func TestUpsertConsulResourcesEnt(t *testing.T) {
 	testUpsertConsulResources(t, map[string]iamAuthTestCase{
 		"recreate the partition": {

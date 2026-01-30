@@ -33,9 +33,15 @@ func TestNetDial(t *testing.T) {
 				require.NoError(t, err)
 				args = append(args, l.Addr().String())
 				if c.code != 0 {
-					l.Close()
+					if err := l.Close(); err != nil {
+						t.Logf("Failed to close listener: %v", err)
+					}
 				} else {
-					t.Cleanup(func() { l.Close() })
+					t.Cleanup(func() {
+						if err := l.Close(); err != nil {
+							t.Logf("Failed to close listener in cleanup: %v", err)
+						}
+					})
 				}
 			}
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
+	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/require"
 )
@@ -19,52 +20,276 @@ func TestEcsHealthToConsulHealth(t *testing.T) {
 	require.Equal(t, api.HealthCritical, ecsHealthToConsulHealth(""))
 }
 
-func TestFindContainersToSync(t *testing.T) {
-	taskMetaContainer1 := awsutil.ECSTaskMetaContainer{
-		Name: "container1",
-	}
-
+func TestGetContainerHealthStatuses(t *testing.T) {
 	cases := map[string]struct {
 		containerNames []string
 		taskMeta       awsutil.ECSTaskMeta
-		missing        []string
-		found          []awsutil.ECSTaskMetaContainer
+		expected       map[string]string
 	}{
-		"A container isn't in the metadata": {
-			containerNames: []string{"container1"},
-			taskMeta:       awsutil.ECSTaskMeta{},
-			missing:        []string{"container1"},
-			found:          nil,
+		"all containers present and healthy": {
+			containerNames: []string{"app", "sidecar"},
+			taskMeta: awsutil.ECSTaskMeta{
+				Containers: []awsutil.ECSTaskMetaContainer{
+					{Name: "app", Health: awsutil.ECSTaskMetaHealth{Status: ecs.HealthStatusHealthy}},
+					{Name: "sidecar", Health: awsutil.ECSTaskMetaHealth{Status: ecs.HealthStatusHealthy}},
+				},
+			},
+			expected: map[string]string{
+				"app":     ecs.HealthStatusHealthy,
+				"sidecar": ecs.HealthStatusHealthy,
+			},
 		},
-		"The metadata has an extra container": {
+		"one container unhealthy": {
+			containerNames: []string{"app", "sidecar"},
+			taskMeta: awsutil.ECSTaskMeta{
+				Containers: []awsutil.ECSTaskMetaContainer{
+					{Name: "app", Health: awsutil.ECSTaskMetaHealth{Status: ecs.HealthStatusHealthy}},
+					{Name: "sidecar", Health: awsutil.ECSTaskMetaHealth{Status: ecs.HealthStatusUnhealthy}},
+				},
+			},
+			expected: map[string]string{
+				"app":     ecs.HealthStatusHealthy,
+				"sidecar": ecs.HealthStatusUnhealthy,
+			},
+		},
+		"container missing from metadata": {
+			containerNames: []string{"app", "sidecar"},
+			taskMeta: awsutil.ECSTaskMeta{
+				Containers: []awsutil.ECSTaskMetaContainer{
+					{Name: "app", Health: awsutil.ECSTaskMetaHealth{Status: ecs.HealthStatusHealthy}},
+				},
+			},
+			expected: map[string]string{
+				"app":     ecs.HealthStatusHealthy,
+				"sidecar": ecs.HealthStatusUnhealthy,
+			},
+		},
+		"all containers missing": {
+			containerNames: []string{"app", "sidecar"},
+			taskMeta:       awsutil.ECSTaskMeta{},
+			expected: map[string]string{
+				"app":     ecs.HealthStatusUnhealthy,
+				"sidecar": ecs.HealthStatusUnhealthy,
+			},
+		},
+		"empty container list": {
 			containerNames: []string{},
 			taskMeta: awsutil.ECSTaskMeta{
 				Containers: []awsutil.ECSTaskMetaContainer{
-					taskMetaContainer1,
+					{Name: "app", Health: awsutil.ECSTaskMetaHealth{Status: ecs.HealthStatusHealthy}},
 				},
 			},
-			missing: nil,
-			found:   nil,
+			expected: map[string]string{},
 		},
-		"some found and some not found": {
-			containerNames: []string{"container1", "container2"},
+		"extra containers in metadata ignored": {
+			containerNames: []string{"app"},
 			taskMeta: awsutil.ECSTaskMeta{
 				Containers: []awsutil.ECSTaskMetaContainer{
-					taskMetaContainer1,
+					{Name: "app", Health: awsutil.ECSTaskMetaHealth{Status: ecs.HealthStatusHealthy}},
+					{Name: "extra", Health: awsutil.ECSTaskMetaHealth{Status: ecs.HealthStatusHealthy}},
 				},
 			},
-			missing: []string{"container2"},
-			found: []awsutil.ECSTaskMetaContainer{
-				taskMetaContainer1,
+			expected: map[string]string{
+				"app": ecs.HealthStatusHealthy,
+			},
+		},
+		"unknown status preserved": {
+			containerNames: []string{"app"},
+			taskMeta: awsutil.ECSTaskMeta{
+				Containers: []awsutil.ECSTaskMetaContainer{
+					{Name: "app", Health: awsutil.ECSTaskMetaHealth{Status: ecs.HealthStatusUnknown}},
+				},
+			},
+			expected: map[string]string{
+				"app": ecs.HealthStatusUnknown,
 			},
 		},
 	}
 
-	for name, testData := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			found, missing := findContainersToSync(testData.containerNames, testData.taskMeta)
-			require.Equal(t, testData.missing, missing)
-			require.Equal(t, testData.found, found)
+			result := getContainerHealthStatuses(tc.containerNames, tc.taskMeta)
+			require.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestComputeOverallDataplaneHealth(t *testing.T) {
+	cases := map[string]struct {
+		containerStatuses map[string]string
+		expected          string
+	}{
+		"all healthy": {
+			containerStatuses: map[string]string{
+				"app":     ecs.HealthStatusHealthy,
+				"sidecar": ecs.HealthStatusHealthy,
+			},
+			expected: ecs.HealthStatusHealthy,
+		},
+		"one unhealthy": {
+			containerStatuses: map[string]string{
+				"app":     ecs.HealthStatusHealthy,
+				"sidecar": ecs.HealthStatusUnhealthy,
+			},
+			expected: ecs.HealthStatusUnhealthy,
+		},
+		"one unknown": {
+			containerStatuses: map[string]string{
+				"app":     ecs.HealthStatusHealthy,
+				"sidecar": ecs.HealthStatusUnknown,
+			},
+			expected: ecs.HealthStatusUnhealthy,
+		},
+		"all unhealthy": {
+			containerStatuses: map[string]string{
+				"app":     ecs.HealthStatusUnhealthy,
+				"sidecar": ecs.HealthStatusUnhealthy,
+			},
+			expected: ecs.HealthStatusUnhealthy,
+		},
+		"empty map treated as unhealthy": {
+			// This should not happen in practice since containerNames always
+			// includes at least the dataplane container. Treated as unhealthy to be safe.
+			containerStatuses: map[string]string{},
+			expected:          ecs.HealthStatusUnhealthy,
+		},
+		"single healthy": {
+			containerStatuses: map[string]string{
+				"app": ecs.HealthStatusHealthy,
+			},
+			expected: ecs.HealthStatusHealthy,
+		},
+		"single unhealthy": {
+			containerStatuses: map[string]string{
+				"app": ecs.HealthStatusUnhealthy,
+			},
+			expected: ecs.HealthStatusUnhealthy,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := computeOverallDataplaneHealth(tc.containerStatuses)
+			require.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestComputeCheckStatuses(t *testing.T) {
+	const (
+		serviceID        = "test-service-12345"
+		dataplaneContainer = config.ConsulDataplaneContainerName
+	)
+
+	// Expected check IDs for non-gateway
+	serviceCheckID := constructCheckID(serviceID, dataplaneContainer)
+	proxySvcID, _ := makeProxySvcIDAndName(serviceID, "")
+	proxyCheckID := constructCheckID(proxySvcID, dataplaneContainer)
+	appCheckID := constructCheckID(serviceID, "app")
+
+	cases := map[string]struct {
+		isGateway         bool
+		containerNames    []string
+		containerStatuses map[string]string
+		expectedChecks    map[string]string
+	}{
+		"non-gateway all healthy": {
+			isGateway:      false,
+			containerNames: []string{"app", dataplaneContainer},
+			containerStatuses: map[string]string{
+				"app":              ecs.HealthStatusHealthy,
+				dataplaneContainer: ecs.HealthStatusHealthy,
+			},
+			expectedChecks: map[string]string{
+				appCheckID:     api.HealthPassing,
+				serviceCheckID: api.HealthPassing,
+				proxyCheckID:   api.HealthPassing,
+			},
+		},
+		"non-gateway app unhealthy affects overall health": {
+			isGateway:      false,
+			containerNames: []string{"app", dataplaneContainer},
+			containerStatuses: map[string]string{
+				"app":              ecs.HealthStatusUnhealthy,
+				dataplaneContainer: ecs.HealthStatusHealthy,
+			},
+			expectedChecks: map[string]string{
+				appCheckID:     api.HealthCritical,
+				serviceCheckID: api.HealthCritical,
+				proxyCheckID:   api.HealthCritical,
+			},
+		},
+		"non-gateway dataplane unhealthy": {
+			isGateway:      false,
+			containerNames: []string{"app", dataplaneContainer},
+			containerStatuses: map[string]string{
+				"app":              ecs.HealthStatusHealthy,
+				dataplaneContainer: ecs.HealthStatusUnhealthy,
+			},
+			expectedChecks: map[string]string{
+				appCheckID:     api.HealthPassing,
+				serviceCheckID: api.HealthCritical,
+				proxyCheckID:   api.HealthCritical,
+			},
+		},
+		"non-gateway dataplane only": {
+			isGateway:      false,
+			containerNames: []string{dataplaneContainer},
+			containerStatuses: map[string]string{
+				dataplaneContainer: ecs.HealthStatusHealthy,
+			},
+			expectedChecks: map[string]string{
+				serviceCheckID: api.HealthPassing,
+				proxyCheckID:   api.HealthPassing,
+			},
+		},
+		"gateway healthy": {
+			isGateway:      true,
+			containerNames: []string{dataplaneContainer},
+			containerStatuses: map[string]string{
+				dataplaneContainer: ecs.HealthStatusHealthy,
+			},
+			expectedChecks: map[string]string{
+				serviceCheckID: api.HealthPassing,
+			},
+		},
+		"gateway unhealthy": {
+			isGateway:      true,
+			containerNames: []string{dataplaneContainer},
+			containerStatuses: map[string]string{
+				dataplaneContainer: ecs.HealthStatusUnhealthy,
+			},
+			expectedChecks: map[string]string{
+				serviceCheckID: api.HealthCritical,
+			},
+		},
+		"gateway no proxy check": {
+			isGateway:      true,
+			containerNames: []string{"app", dataplaneContainer},
+			containerStatuses: map[string]string{
+				"app":              ecs.HealthStatusHealthy,
+				dataplaneContainer: ecs.HealthStatusHealthy,
+			},
+			expectedChecks: map[string]string{
+				appCheckID:     api.HealthPassing,
+				serviceCheckID: api.HealthPassing,
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cmd := &Command{
+				config: &config.Config{},
+			}
+			if tc.isGateway {
+				cmd.config.Gateway = &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+				}
+			}
+
+			result := cmd.computeCheckStatuses(serviceID, tc.containerNames, tc.containerStatuses)
+			require.Equal(t, tc.expectedChecks, result)
 		})
 	}
 }

@@ -13,6 +13,12 @@ import (
 	"github.com/hashicorp/go-multierror"
 )
 
+// checkStatus holds the computed status for a Consul health check.
+type checkStatus struct {
+	consulStatus string // Consul health status (api.HealthPassing or api.HealthCritical)
+	output       string // the message to display in Consul
+}
+
 // fetchHealthChecks fetches the Consul health checks for both the service
 // and proxy registrations
 func (c *Command) fetchHealthChecks(consulClient *api.Client, taskMeta awsutil.ECSTaskMeta) (map[string]*api.HealthCheck, error) {
@@ -80,8 +86,8 @@ func (c *Command) setChecksCritical(consulClient *api.Client, taskMeta awsutil.E
 	checkStatuses := c.computeCheckStatuses(serviceID, containerNames, containerStatuses)
 
 	// Update all checks to critical
-	for checkID := range checkStatuses {
-		err := c.updateConsulHealthStatus(consulClient, checkID, clusterARN, api.HealthCritical)
+	for checkID, status := range checkStatuses {
+		err := c.updateConsulHealthStatus(consulClient, checkID, clusterARN, status)
 		if err != nil {
 			c.log.Warn("failed to set Consul health status to critical", "err", err, "checkID", checkID)
 			result = multierror.Append(result, err)
@@ -112,29 +118,40 @@ func computeOverallDataplaneHealth(containerStatuses map[string]string) string {
 }
 
 // computeCheckStatuses computes the desired Consul health status for each check.
-// Returns a map of checkID -> Consul health status (api.HealthPassing or api.HealthCritical).
-func (c *Command) computeCheckStatuses(serviceID string, containerNames []string, containerStatuses map[string]string) map[string]string {
-	checkStatuses := make(map[string]string)
+// Returns a map of checkID -> checkStatus containing both Consul status and output message.
+func (c *Command) computeCheckStatuses(serviceID string, containerNames []string, containerStatuses map[string]string) map[string]checkStatus {
+	checkStatuses := make(map[string]checkStatus)
 
 	// Overall dataplane health is the aggregate of all container statuses
-	overallHealth := ecsHealthToConsulHealth(computeOverallDataplaneHealth(containerStatuses))
+	overallECSHealth := computeOverallDataplaneHealth(containerStatuses)
+	overallConsulHealth := ecsHealthToConsulHealth(overallECSHealth)
 
 	for _, name := range containerNames {
 		if name == config.ConsulDataplaneContainerName {
 			// Dataplane container maps to overall health on service check
 			serviceCheckID := constructCheckID(serviceID, name)
-			checkStatuses[serviceCheckID] = overallHealth
+			checkStatuses[serviceCheckID] = checkStatus{
+				consulStatus: overallConsulHealth,
+				output:       fmt.Sprintf("ECS health status is %q for container %q", overallECSHealth, serviceCheckID),
+			}
 
 			// Non-gateways also have a proxy check
 			if !c.config.IsGateway() {
 				proxySvcID, _ := makeProxySvcIDAndName(serviceID, "")
 				proxyCheckID := constructCheckID(proxySvcID, name)
-				checkStatuses[proxyCheckID] = overallHealth
+				checkStatuses[proxyCheckID] = checkStatus{
+					consulStatus: overallConsulHealth,
+					output:       fmt.Sprintf("ECS health status is %q for container %q", overallECSHealth, proxyCheckID),
+				}
 			}
 		} else {
 			// Non-dataplane containers map directly to their individual check
 			checkID := constructCheckID(serviceID, name)
-			checkStatuses[checkID] = ecsHealthToConsulHealth(containerStatuses[name])
+			ecsHealth := containerStatuses[name]
+			checkStatuses[checkID] = checkStatus{
+				consulStatus: ecsHealthToConsulHealth(ecsHealth),
+				output:       fmt.Sprintf("ECS health status is %q for container %q", ecsHealth, checkID),
+			}
 		}
 	}
 
@@ -145,9 +162,9 @@ func (c *Command) computeCheckStatuses(serviceID string, containerNames []string
 // for the specified containers. Checks are only updated when their status
 // has changed since the last invocation.
 func (c *Command) syncChecks(consulClient *api.Client,
-	previousStatuses map[string]string,
+	previousStatuses map[string]checkStatus,
 	clusterARN string,
-	containerNames []string) map[string]string {
+	containerNames []string) map[string]checkStatus {
 
 	// Phase 1: Gather current container state
 	taskMeta, err := awsutil.ECSTaskMetadata()
@@ -176,7 +193,7 @@ func (c *Command) syncChecks(consulClient *api.Client,
 			// Keep the previous status on error so we retry next cycle
 			currentStatuses[checkID] = previousStatus
 		} else {
-			c.log.Info("health check updated in Consul", "checkID", checkID, "status", status)
+			c.log.Info("health check updated in Consul", "checkID", checkID, "status", status.consulStatus)
 		}
 	}
 
@@ -184,14 +201,14 @@ func (c *Command) syncChecks(consulClient *api.Client,
 	return currentStatuses
 }
 
-func (c *Command) updateConsulHealthStatus(consulClient *api.Client, checkID string, clusterARN string, consulHealthStatus string) error {
+func (c *Command) updateConsulHealthStatus(consulClient *api.Client, checkID string, clusterARN string, status checkStatus) error {
 	check, ok := c.checks[checkID]
 	if !ok {
 		return fmt.Errorf("unable to find check with ID %s", checkID)
 	}
 
-	check.Status = consulHealthStatus
-	check.Output = fmt.Sprintf("Consul health status is %q for check %q", consulHealthStatus, checkID)
+	check.Status = status.consulStatus
+	check.Output = status.output
 	c.checks[checkID] = check
 
 	updateCheckReq := &api.CatalogRegistration{

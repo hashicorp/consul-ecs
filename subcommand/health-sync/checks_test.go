@@ -4,6 +4,7 @@
 package healthsync
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
@@ -188,10 +189,11 @@ func TestComputeCheckStatuses(t *testing.T) {
 	appCheckID := constructCheckID(serviceID, "app")
 
 	cases := map[string]struct {
-		isGateway         bool
-		containerNames    []string
-		containerStatuses map[string]string
-		expectedChecks    map[string]string
+		isGateway              bool
+		containerNames         []string
+		containerStatuses      map[string]string
+		expectedConsulStatuses map[string]string
+		expectedOutputs        map[string]string // optional, only checked if non-nil
 	}{
 		"non-gateway all healthy": {
 			isGateway:      false,
@@ -200,10 +202,13 @@ func TestComputeCheckStatuses(t *testing.T) {
 				"app":              ecs.HealthStatusHealthy,
 				dataplaneContainer: ecs.HealthStatusHealthy,
 			},
-			expectedChecks: map[string]string{
+			expectedConsulStatuses: map[string]string{
 				appCheckID:     api.HealthPassing,
 				serviceCheckID: api.HealthPassing,
 				proxyCheckID:   api.HealthPassing,
+			},
+			expectedOutputs: map[string]string{
+				appCheckID: fmt.Sprintf("ECS health status is %q for container %q", ecs.HealthStatusHealthy, appCheckID),
 			},
 		},
 		"non-gateway app unhealthy affects overall health": {
@@ -213,10 +218,13 @@ func TestComputeCheckStatuses(t *testing.T) {
 				"app":              ecs.HealthStatusUnhealthy,
 				dataplaneContainer: ecs.HealthStatusHealthy,
 			},
-			expectedChecks: map[string]string{
+			expectedConsulStatuses: map[string]string{
 				appCheckID:     api.HealthCritical,
 				serviceCheckID: api.HealthCritical,
 				proxyCheckID:   api.HealthCritical,
+			},
+			expectedOutputs: map[string]string{
+				appCheckID: fmt.Sprintf("ECS health status is %q for container %q", ecs.HealthStatusUnhealthy, appCheckID),
 			},
 		},
 		"non-gateway dataplane unhealthy": {
@@ -226,7 +234,7 @@ func TestComputeCheckStatuses(t *testing.T) {
 				"app":              ecs.HealthStatusHealthy,
 				dataplaneContainer: ecs.HealthStatusUnhealthy,
 			},
-			expectedChecks: map[string]string{
+			expectedConsulStatuses: map[string]string{
 				appCheckID:     api.HealthPassing,
 				serviceCheckID: api.HealthCritical,
 				proxyCheckID:   api.HealthCritical,
@@ -238,7 +246,7 @@ func TestComputeCheckStatuses(t *testing.T) {
 			containerStatuses: map[string]string{
 				dataplaneContainer: ecs.HealthStatusHealthy,
 			},
-			expectedChecks: map[string]string{
+			expectedConsulStatuses: map[string]string{
 				serviceCheckID: api.HealthPassing,
 				proxyCheckID:   api.HealthPassing,
 			},
@@ -249,7 +257,7 @@ func TestComputeCheckStatuses(t *testing.T) {
 			containerStatuses: map[string]string{
 				dataplaneContainer: ecs.HealthStatusHealthy,
 			},
-			expectedChecks: map[string]string{
+			expectedConsulStatuses: map[string]string{
 				serviceCheckID: api.HealthPassing,
 			},
 		},
@@ -259,7 +267,7 @@ func TestComputeCheckStatuses(t *testing.T) {
 			containerStatuses: map[string]string{
 				dataplaneContainer: ecs.HealthStatusUnhealthy,
 			},
-			expectedChecks: map[string]string{
+			expectedConsulStatuses: map[string]string{
 				serviceCheckID: api.HealthCritical,
 			},
 		},
@@ -270,7 +278,7 @@ func TestComputeCheckStatuses(t *testing.T) {
 				"app":              ecs.HealthStatusHealthy,
 				dataplaneContainer: ecs.HealthStatusHealthy,
 			},
-			expectedChecks: map[string]string{
+			expectedConsulStatuses: map[string]string{
 				appCheckID:     api.HealthPassing,
 				serviceCheckID: api.HealthPassing,
 			},
@@ -289,7 +297,19 @@ func TestComputeCheckStatuses(t *testing.T) {
 			}
 
 			result := cmd.computeCheckStatuses(serviceID, tc.containerNames, tc.containerStatuses)
-			require.Equal(t, tc.expectedChecks, result)
+
+			// Check consul statuses
+			for checkID, expectedStatus := range tc.expectedConsulStatuses {
+				require.Equal(t, expectedStatus, result[checkID].consulStatus, "consul status mismatch for %s", checkID)
+			}
+
+			// Check output messages if specified
+			for checkID, expectedOutput := range tc.expectedOutputs {
+				require.Equal(t, expectedOutput, result[checkID].output, "output mismatch for %s", checkID)
+			}
+
+			// Verify no extra checks
+			require.Len(t, result, len(tc.expectedConsulStatuses))
 		})
 	}
 }

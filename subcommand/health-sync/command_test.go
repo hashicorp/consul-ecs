@@ -1336,7 +1336,7 @@ func TestSyncChecks_ChangeDetection(t *testing.T) {
 			env.currentTaskMetaResp.Store(buildTaskMetaWithContainers(t, env.taskMetadataResponse, tc.startingContainers))
 
 			// First syncChecks call
-			statuses := env.cmd.syncChecks(env.consulClient, map[string]string{}, env.clusterARN, env.containerNames)
+			statuses := env.cmd.syncChecks(env.consulClient, map[string]checkStatus{}, env.clusterARN, env.containerNames)
 
 			// Assert expected checks after first call
 			assertCheckStatuses(t, env.consulClient, tc.expectedChecksBeforeUpdate, env.apiQueryOptions)
@@ -1415,7 +1415,7 @@ func TestSyncChecks_Gateway_ChangeDetection(t *testing.T) {
 			env.currentTaskMetaResp.Store(buildTaskMetaWithContainers(t, env.taskMetadataResponse, tc.startingContainers))
 
 			// First syncChecks call
-			statuses := env.cmd.syncChecks(env.consulClient, map[string]string{}, env.clusterARN, env.containerNames)
+			statuses := env.cmd.syncChecks(env.consulClient, map[string]checkStatus{}, env.clusterARN, env.containerNames)
 
 			// Assert expected checks after first call
 			assertCheckStatuses(t, env.consulClient, tc.expectedChecksBeforeUpdate, env.apiQueryOptions)

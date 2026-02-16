@@ -225,6 +225,50 @@
         "partition": {
           "description": "The Consul admin partition where the service will be registered [Consul Enterprise].",
           "type": ["string", "null"]
+        },
+        "networkResilienceConfig": {
+          "description": "Configuration for network partition resilience mode with outlier detection for passive health checks.",
+          "type": ["object", "null"],
+          "properties": {
+            "enabled": {
+              "description": "Enable network partition resilience mode with outlier detection.",
+              "type": "boolean"
+            },
+            "outlierDetection": {
+              "description": "Outlier detection settings for passive health checks of upstream services.",
+              "type": ["object", "null"],
+              "properties": {
+                "interval": {
+                  "description": "How often passive health checks are performed in nanoseconds. For example, 1000000000 = 1 second.",
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 1000000000
+                },
+                "maxFailures": {
+                  "description": "Number of consecutive failures before ejecting an unhealthy host from the load balancing pool.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 1
+                },
+                "enforcingConsecutive5xx": {
+                  "description": "Percentage of consecutive 5xx responses that trigger host ejection. Value between 0 and 100.",
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100,
+                  "default": 100
+                },
+                "maxEjectionPercent": {
+                  "description": "Maximum percentage of hosts that can be ejected from the load balancing pool. Value between 0 and 100.",
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100,
+                  "default": 100
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": ["port"],

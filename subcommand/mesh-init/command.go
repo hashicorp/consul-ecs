@@ -121,6 +121,7 @@ func (c *Command) realRun() error {
 		err = backoff.RetryNotify(func() error {
 			c.log.Info("registering service")
 			_, regErr := consulClient.Catalog().Register(serviceRegistration, nil)
+
 			return regErr
 		}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 		if err != nil {
@@ -141,6 +142,16 @@ func (c *Command) realRun() error {
 	}
 
 	c.log.Info("proxy registered successfully", "name", proxyRegistration.Service.Service, "id", proxyRegistration.Service.ID)
+
+	if serviceRegistration != nil &&
+		c.config.Service.NetworkPartitionResilienceConfig != nil &&
+		c.config.Service.NetworkPartitionResilienceConfig.Enabled {
+		err = c.registerServiceDefaults(consulClient, serviceRegistration.Service, c.config.Service.NetworkPartitionResilienceConfig)
+		if err != nil {
+			c.log.Warn("failed to register service defaults with outlier detection", "err", err)
+			return err
+		}
+	}
 
 	err = c.copyECSBinaryToSharedVolume()
 	if err != nil {
@@ -565,4 +576,86 @@ func getLocalityParams(taskMeta awsutil.ECSTaskMeta) *api.Locality {
 		Region: region,
 		Zone:   zone,
 	}
+}
+
+// registerServiceDefaults registers service defaults with passive health check
+// for network partition resilience mode. It fetches any existing service defaults,
+// merges the configurations, and only adds passive health check if not already present.
+func (c *Command) registerServiceDefaults(consulClient *api.Client, service *api.AgentService, resilience *config.NetworkPartitionResilienceConfig) error {
+	// Get the outlier detection config or use defaults
+	outlierDetectionCfg := resilience.OutlierDetection
+	if outlierDetectionCfg == nil {
+		outlierDetectionCfg = config.NewOutlierDetectionConfig()
+	}
+
+	// Fetch existing service defaults configuration
+	queryOpts := &api.QueryOptions{}
+	if service.Partition != "" {
+		queryOpts.Partition = service.Partition
+	}
+	if service.Namespace != "" {
+		queryOpts.Namespace = service.Namespace
+	}
+
+	var serviceDefaults *api.ServiceConfigEntry
+
+	configEntry, _, err := consulClient.ConfigEntries().Get(api.ServiceDefaults, service.Service, queryOpts)
+	if err != nil {
+		c.log.Debug("failed to fetch existing service defaults", "service", service.Service, "err", err)
+	} else if configEntry != nil {
+		if existing, ok := configEntry.(*api.ServiceConfigEntry); ok {
+			serviceDefaults = existing
+			c.log.Debug("found existing service defaults, will merge configurations", "service", service.Service)
+		}
+	}
+
+	// If no existing service defaults, create a new one
+	if serviceDefaults == nil {
+		serviceDefaults = &api.ServiceConfigEntry{
+			Kind:      api.ServiceDefaults,
+			Name:      service.Service,
+			Partition: service.Partition,
+			Namespace: service.Namespace,
+		}
+	}
+
+	// Ensure UpstreamConfig exists
+	if serviceDefaults.UpstreamConfig == nil {
+		serviceDefaults.UpstreamConfig = &api.UpstreamConfiguration{}
+	}
+
+	// Ensure Defaults exists
+	if serviceDefaults.UpstreamConfig.Defaults == nil {
+		serviceDefaults.UpstreamConfig.Defaults = &api.UpstreamConfig{}
+	}
+
+	// Only set PassiveHealthCheck if it doesn't already exist
+	if serviceDefaults.UpstreamConfig.Defaults.PassiveHealthCheck == nil {
+		passiveHealthCheck := &api.PassiveHealthCheck{
+			Interval:                outlierDetectionCfg.Interval,
+			MaxFailures:             outlierDetectionCfg.MaxFailures,
+			EnforcingConsecutive5xx: outlierDetectionCfg.EnforcingConsecutive5xx,
+			MaxEjectionPercent:      outlierDetectionCfg.MaxEjectionPercent,
+		}
+		serviceDefaults.UpstreamConfig.Defaults.PassiveHealthCheck = passiveHealthCheck
+		c.log.Info("adding passive health check to service defaults", "service", service.Service)
+	} else {
+		c.log.Debug("passive health check already exists in service defaults, skipping", "service", service.Service)
+	}
+
+	// Register the service defaults with retry logic
+	err = backoff.RetryNotify(func() error {
+		c.log.Info("registering service defaults with passive health check", "service", service.Service)
+		isSuccess, _, setErr := consulClient.ConfigEntries().Set(serviceDefaults, nil)
+		if !isSuccess {
+			return fmt.Errorf("failed to set service defaults: operation did not succeed")
+		}
+		return setErr
+	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
+	if err != nil {
+		return err
+	}
+
+	c.log.Info("service defaults registered successfully", "service", service.Service)
+	return nil
 }

@@ -5,6 +5,7 @@ package meshinit
 
 import (
 	"fmt"
+
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
 )

@@ -121,7 +121,6 @@ func (c *Command) realRun() error {
 		err = backoff.RetryNotify(func() error {
 			c.log.Info("registering service")
 			_, regErr := consulClient.Catalog().Register(serviceRegistration, nil)
-
 			return regErr
 		}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
 		if err != nil {
@@ -148,7 +147,6 @@ func (c *Command) realRun() error {
 		c.config.Service.NetworkPartitionResilienceConfig.Enabled {
 		err = c.registerServiceDefaults(consulClient, serviceRegistration.Service, c.config.Service.NetworkPartitionResilienceConfig)
 		if err != nil {
-			c.log.Warn("failed to register service defaults with outlier detection", "err", err)
 			return err
 		}
 	}
@@ -581,6 +579,8 @@ func getLocalityParams(taskMeta awsutil.ECSTaskMeta) *api.Locality {
 // registerServiceDefaults registers service defaults with passive health check
 // for network partition resilience mode. It fetches any existing service defaults,
 // merges the configurations, and only adds passive health check if not already present.
+// If upstreams are defined in the proxy configuration, passive health check is also
+// applied to those specific upstreams via UpstreamConfig.Overrides.
 func (c *Command) registerServiceDefaults(consulClient *api.Client, service *api.AgentService, resilience *config.NetworkPartitionResilienceConfig) error {
 	// Get the outlier detection config or use defaults
 	outlierDetectionCfg := resilience.OutlierDetection
@@ -601,7 +601,14 @@ func (c *Command) registerServiceDefaults(consulClient *api.Client, service *api
 
 	configEntry, _, err := consulClient.ConfigEntries().Get(api.ServiceDefaults, service.Service, queryOpts)
 	if err != nil {
-		c.log.Debug("failed to fetch existing service defaults", "service", service.Service, "err", err)
+		// Check if this is a "not found" error, which is acceptable and expected
+		if isConfigEntryNotFoundError(err) {
+			c.log.Debug("service defaults not found, will create new configuration", "service", service.Service)
+		} else {
+			// Other errors (ACL permission, network, etc.) should be treated as failures
+			// since modifying cluster-wide configuration requires proper permissions
+			return fmt.Errorf("failed to fetch existing service defaults for service %q: %w", service.Service, err)
+		}
 	} else if configEntry != nil {
 		if existing, ok := configEntry.(*api.ServiceConfigEntry); ok {
 			serviceDefaults = existing
@@ -631,11 +638,14 @@ func (c *Command) registerServiceDefaults(consulClient *api.Client, service *api
 
 	// Only set PassiveHealthCheck if it doesn't already exist
 	if serviceDefaults.UpstreamConfig.Defaults.PassiveHealthCheck == nil {
+		// Normalize outlier detection config by applying defaults for nil pointer fields
+		normalizedCfg := normalizeOutlierDetectionConfig(outlierDetectionCfg)
+
 		passiveHealthCheck := &api.PassiveHealthCheck{
-			Interval:                outlierDetectionCfg.Interval,
-			MaxFailures:             outlierDetectionCfg.MaxFailures,
-			EnforcingConsecutive5xx: outlierDetectionCfg.EnforcingConsecutive5xx,
-			MaxEjectionPercent:      outlierDetectionCfg.MaxEjectionPercent,
+			Interval:                normalizedCfg.Interval,
+			MaxFailures:             normalizedCfg.MaxFailures,
+			EnforcingConsecutive5xx: normalizedCfg.EnforcingConsecutive5xx,
+			MaxEjectionPercent:      normalizedCfg.MaxEjectionPercent,
 		}
 		serviceDefaults.UpstreamConfig.Defaults.PassiveHealthCheck = passiveHealthCheck
 		c.log.Info("adding passive health check to service defaults", "service", service.Service)
@@ -658,4 +668,53 @@ func (c *Command) registerServiceDefaults(consulClient *api.Client, service *api
 
 	c.log.Info("service defaults registered successfully", "service", service.Service)
 	return nil
+}
+
+// isConfigEntryNotFoundError returns true if the error indicates that a config entry was not found.
+// This is used to distinguish between expected "not found" errors and other errors like ACL permission
+// issues or network failures that should be treated as failures.
+func isConfigEntryNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Consul returns "not found" errors with specific strings in the error message
+	// Using case-insensitive comparison to handle variations in error formatting
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "not found") ||
+		strings.Contains(errMsg, "no such config entry")
+}
+
+// normalizeOutlierDetectionConfig ensures all pointer fields in the OutlierDetectionConfig
+// have non-nil values by applying defaults where necessary. This is important because:
+// 1. User-provided configurations may have nil pointer fields if not specified in JSON
+// 2. The PassiveHealthCheck struct expects these values to be properly initialized
+// 3. Consul API requires valid values for outlier detection parameters
+func normalizeOutlierDetectionConfig(cfg *config.OutlierDetectionConfig) *config.OutlierDetectionConfig {
+	if cfg == nil {
+		return config.NewOutlierDetectionConfig()
+	}
+
+	// Create a new normalized config with all fields properly initialized
+	normalized := &config.OutlierDetectionConfig{
+		Interval:    cfg.Interval,
+		MaxFailures: cfg.MaxFailures,
+	}
+
+	// Apply default for EnforcingConsecutive5xx if nil
+	if cfg.EnforcingConsecutive5xx == nil {
+		defaultVal := config.DefaultOutlierDetectionEnforcingConsecutive5xx
+		normalized.EnforcingConsecutive5xx = &defaultVal
+	} else {
+		normalized.EnforcingConsecutive5xx = cfg.EnforcingConsecutive5xx
+	}
+
+	// Apply default for MaxEjectionPercent if nil
+	if cfg.MaxEjectionPercent == nil {
+		defaultVal := config.DefaultOutlierDetectionMaxEjectionPercent
+		normalized.MaxEjectionPercent = &defaultVal
+	} else {
+		normalized.MaxEjectionPercent = cfg.MaxEjectionPercent
+	}
+
+	return normalized
 }

@@ -4,6 +4,7 @@
 package netdial
 
 import (
+	"fmt"
 	"net"
 
 	"github.com/mitchellh/cli"
@@ -23,7 +24,9 @@ func (c *Command) Run(args []string) int {
 	if err != nil {
 		return 2
 	}
-	conn.Close()
+	if err := conn.Close(); err != nil {
+		fmt.Printf("Warning: failed to close connection: %v\n", err)
+	}
 
 	return 0
 }

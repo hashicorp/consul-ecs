@@ -67,22 +67,29 @@ func writeXML(w http.ResponseWriter, val interface{}) {
 	str, err := xml.MarshalIndent(val, "", " ")
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, err.Error())
+		if _, writeErr := fmt.Fprint(w, err.Error()); writeErr != nil {
+			fmt.Printf("Failed to write error response: %v\n", writeErr)
+		}
 		return
 	}
 	w.Header().Add("Content-Type", "text/xml")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, string(str))
+	if _, writeErr := fmt.Fprint(w, string(str)); writeErr != nil {
+		fmt.Printf("Failed to write XML response: %v\n", writeErr)
+	}
 }
 
 func writeError(w http.ResponseWriter, code int, r *http.Request) {
 	w.WriteHeader(code)
 	msg := fmt.Sprintf("%s %s", r.Method, r.URL)
-	fmt.Fprintf(w, `<ErrorResponse xmlns="https://fakeaws/">
+	if _, writeErr := fmt.Fprintf(w, `<ErrorResponse xmlns="https://fakeaws/">
   <Error>
 	<Message>Fake AWS Server Error: %s</Message>
   </Error>
-</ErrorResponse>`, msg)
+</ErrorResponse>`, msg); writeErr != nil {
+		// Log write error but don't fail the test
+		fmt.Printf("Failed to write error response: %v\n", writeErr)
+	}
 }
 
 type Fixture struct {

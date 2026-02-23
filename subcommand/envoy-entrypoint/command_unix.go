@@ -41,7 +41,7 @@ type Command struct {
 
 func (c *Command) init() {
 	c.flagSet = flag.NewFlagSet("", flag.ContinueOnError)
-	logging.Merge(c.flagSet, c.LogOpts.Flags())
+	logging.Merge(c.flagSet, c.Flags())
 
 	c.started = make(chan struct{}, 1)
 	c.sigs = make(chan os.Signal, 1)

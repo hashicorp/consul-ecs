@@ -170,25 +170,29 @@ func (s TaskStateLister) fetchECSTasks() (map[TaskID]*TaskState, error) {
 		tasks, err := s.ECSClient.DescribeTasks(ctx, &ecs.DescribeTasksInput{
 			Cluster: aws.String(s.ClusterARN),
 			Tasks:   taskListOutput.TaskArns,
-			Include: []types.TaskField{types.TaskFieldTags},
+			Include: []types.TaskField{types.TaskFieldTags}, // v2 uses enums
 		})
 		if err != nil {
 			return nil, fmt.Errorf("describing tasks: %w", err)
 		}
 		for _, task := range tasks.Tasks {
-			if !isMeshTask(task) {
-				s.Log.Debug("skipping non-mesh task", "task-arn", aws.ToString(task.TaskArn))
+			if task.TaskArn == nil {
+				s.Log.Warn("task has no ARN")
+				continue
+			}
+			if !isMeshTask(&task) {
+				s.Log.Debug("skipping non-mesh task", "task-arn", *task.TaskArn)
 				continue
 			}
 
-			state, err := s.taskStateFromTask(task)
+			state, err := s.taskStateFromTask(&task)
 			if err != nil {
-				s.Log.Error("skipping task", "task-arn", aws.ToString(task.TaskArn), "tags", task.Tags, "err", err)
+				s.Log.Error("skipping task", "task-arn", *task.TaskArn, "tags", task.Tags, "err", err)
 				continue
 			}
 
 			if state.Partition != s.Partition {
-				s.Log.Debug("skipping task in external partition", "partition", state.Partition, "task-arn", aws.ToString(task.TaskArn))
+				s.Log.Debug("skipping task in external partition", "partition", state.Partition, "task-arn", *task.TaskArn)
 				continue
 			}
 
@@ -420,7 +424,7 @@ func (s TaskStateLister) newTaskState(taskId TaskID, clusterArn string) *TaskSta
 	}
 }
 
-func (s TaskStateLister) taskStateFromTask(t types.Task) (*TaskState, error) {
+func (s TaskStateLister) taskStateFromTask(t *types.Task) (*TaskState, error) {
 	var partition, namespace string
 	if partitionsEnabled(s.Partition) {
 		partition = tagValue(t.Tags, partitionTag)
@@ -602,7 +606,7 @@ func getTaskIDFromServiceMeta(service *api.AgentService) (TaskID, error) {
 	return TaskID(taskID), nil
 }
 
-func isMeshTask(t types.Task) bool {
+func isMeshTask(t *types.Task) bool {
 	return tagValue(t.Tags, meshTag) == "true"
 }
 

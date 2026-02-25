@@ -9,24 +9,30 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 )
 
+// SMClient implements a mock for the Secrets Manager v2 client.
 type SMClient struct {
 	Secret *secretsmanager.GetSecretValueOutput
 }
 
-// SMAPI defines the interface for Secrets Manager v2 used by the controller
+// SMAPI defines the interface for Secrets Manager v2 used by the controller.
+// This interface allows you to swap the real SDK client with this mock.
 type SMAPI interface {
 	GetSecretValue(ctx context.Context, params *secretsmanager.GetSecretValueInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error)
 	UpdateSecret(ctx context.Context, params *secretsmanager.UpdateSecretInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.UpdateSecretOutput, error)
 }
 
-func (m *SMClient) GetSecretValue(ctx context.Context, input *secretsmanager.GetSecretValueInput, opts ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
+// GetSecretValue mock implementation
+func (m *SMClient) GetSecretValue(ctx context.Context, params *secretsmanager.GetSecretValueInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
 	return m.Secret, nil
 }
 
-func (m *SMClient) UpdateSecret(ctx context.Context, input *secretsmanager.UpdateSecretInput, opts ...func(*secretsmanager.Options)) (*secretsmanager.UpdateSecretOutput, error) {
+// UpdateSecret mock implementation
+func (m *SMClient) UpdateSecret(ctx context.Context, params *secretsmanager.UpdateSecretInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.UpdateSecretOutput, error) {
 	if m.Secret != nil {
-		m.Secret.Name = input.SecretId
-		m.Secret.SecretString = input.SecretString
+		// In a real scenario, UpdateSecret might create a new version,
+		// but for a mock, updating the current pointer is usually sufficient.
+		m.Secret.Name = params.SecretId
+		m.Secret.SecretString = params.SecretString
 	}
 	return &secretsmanager.UpdateSecretOutput{}, nil
 }

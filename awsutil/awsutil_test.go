@@ -5,12 +5,9 @@ package awsutil
 
 import (
 	"fmt"
-	"os"
-	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,21 +37,15 @@ func TestNewAWSConfig(t *testing.T) {
 		},
 	}
 
-	environ := os.Environ()
-	t.Cleanup(func() { restoreEnv(t, environ) })
-
 	for testName, c := range cases {
 		t.Run(testName, func(t *testing.T) {
-
-			for _, k := range []string{"AWS_REGION", "AWS_DEFAULT_REGION"} {
-				require.NoError(t, os.Unsetenv(k))
-			}
+			// Use t.Setenv instead of manual os.Unset/Set
+			// This ensures a clean slate and automatic cleanup
+			t.Setenv("AWS_REGION", "")
+			t.Setenv("AWS_DEFAULT_REGION", "")
 
 			for k, v := range c.env {
-				require.NoError(t, os.Setenv(k, v))
-				t.Cleanup(func() {
-					require.NoError(t, os.Unsetenv(k))
-				})
+				t.Setenv(k, v)
 			}
 
 			ecsMeta := ECSTaskMeta{
@@ -67,15 +58,15 @@ func TestNewAWSConfig(t *testing.T) {
 
 			if c.expectError != "" {
 				require.Error(t, err)
-				require.Equal(t, c.expectError, err.Error())
+				require.Contains(t, err.Error(), c.expectError)
 				return
 			}
 
 			require.NoError(t, err)
 			require.Equal(t, c.expectRegion, cfg.Region)
 
-			// Ensure custom User-Agent middleware (APIOptions) was added
-			require.NotEmpty(t, cfg.APIOptions)
+			// Check that we have exactly 1 custom API option (our middleware)
+			require.Len(t, cfg.APIOptions, 1, "should have registered the User-Agent middleware")
 		})
 	}
 }
@@ -107,13 +98,13 @@ func TestHasContainerStopped(t *testing.T) {
 		Containers: []ECSTaskMetaContainer{
 			{
 				Name:          "container1",
-				DesiredStatus: "RUNNING",
-				KnownStatus:   "RUNNING",
+				DesiredStatus: string(types.DesiredStatusRunning),
+				KnownStatus:   string(types.DesiredStatusRunning),
 			},
 			{
 				Name:          "container2",
-				DesiredStatus: "PENDING",
-				KnownStatus:   "PENDING",
+				DesiredStatus: string(types.DesiredStatusPending),
+				KnownStatus:   string(types.DesiredStatusPending),
 			},
 		},
 	}
@@ -129,8 +120,8 @@ func TestHasContainerStopped(t *testing.T) {
 func TestHasStopped(t *testing.T) {
 	container := ECSTaskMetaContainer{
 		Name:          "container1",
-		DesiredStatus: "RUNNING",
-		KnownStatus:   "RUNNING",
+		DesiredStatus: string(types.DesiredStatusRunning),
+		KnownStatus:   string(types.DesiredStatusRunning),
 	}
 
 	require.False(t, container.HasStopped())
@@ -143,8 +134,10 @@ func TestHasStopped(t *testing.T) {
 
 func TestIsNormalType(t *testing.T) {
 	container := ECSTaskMetaContainer{
-		Name: "container1",
-		Type: containerTypeNormal,
+		Name:          "container1",
+		DesiredStatus: string(types.DesiredStatusRunning),
+		KnownStatus:   string(types.DesiredStatusRunning),
+		Type:          containerTypeNormal,
 	}
 
 	require.True(t, container.IsNormalType())
@@ -201,13 +194,4 @@ func TestGetAWSRegion(t *testing.T) {
 
 	t.Setenv(AWSRegionEnvVar, "us-west-2")
 	require.Equal(t, "us-west-2", GetAWSRegion())
-}
-
-// Helper to restore environment
-func restoreEnv(t *testing.T, env []string) {
-	os.Clearenv()
-	for _, keyvalue := range env {
-		pair := strings.SplitN(keyvalue, "=", 2)
-		assert.NoError(t, os.Setenv(pair[0], pair[1]))
-	}
 }

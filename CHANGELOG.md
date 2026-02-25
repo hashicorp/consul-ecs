@@ -3,6 +3,7 @@ BUG FIXES
 * Fix bug where calls to AWS IAM and STS services error out due to URL with multiple trailing slashes.
 
 SECURITY
+* Update Dockerfile to use Alpine 3.19.1 and explicitly upgrade curl and gnupg to mitigate [CVE-2025-14819], [CVE-2025-14524], [CVE-2025-14017], and [CVE-2025-30258].
 * Upgrade `golang.org/x/crypto` to `v0.45.0` to address [GO-2025-4134] and [GO-2025-4116]
 
 IMPROVEMENTS

@@ -72,10 +72,10 @@ func (c *Command) setChecksCritical(consulClient *api.Client, taskMeta awsutil.E
 	for _, containerName := range parsedContainerNames {
 		var err error
 		if containerName == config.ConsulDataplaneContainerName {
-			err = c.handleHealthForDataplaneContainer(consulClient, taskID, serviceName, clusterARN, containerName, string(string(types.HealthStatusUnhealthy)))
+			err = c.handleHealthForDataplaneContainer(consulClient, taskID, serviceName, clusterARN, containerName, string(types.HealthStatusUnhealthy))
 		} else {
 			checkID := constructCheckID(makeServiceID(serviceName, taskID), containerName)
-			err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, string(string(types.HealthStatusUnhealthy)))
+			err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, string(types.HealthStatusUnhealthy))
 		}
 
 		if err == nil {

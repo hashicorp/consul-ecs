@@ -11,7 +11,7 @@
 FROM golang:1.23.6-alpine as go-discover
 RUN CGO_ENABLED=0 go install github.com/hashicorp/go-discover/cmd/discover@214571b6a5309addf3db7775f4ee8cf4d264fd5f
 
-FROM docker.mirror.hashicorp.services/alpine:latest AS release-default
+FROM docker.mirror.hashicorp.services/alpine:3.19.1 AS release-default
 
 ARG BIN_NAME=consul-ecs
 ARG PRODUCT_VERSION
@@ -56,7 +56,9 @@ ENV PATH="/bin/consul-inject:${PATH}"
 VOLUME [ "/consul" ]
 
 # Set up certificates, base tools, and software.
-RUN apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils iptables gcompat libc6-compat libstdc++
+RUN apk update && \
+    apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils iptables gcompat libc6-compat libstdc++ && \
+    apk upgrade curl gnupg
 
 # for FIPS CGO glibc compatibility in alpine
 # see https://github.com/golang/go/issues/59305

@@ -4,13 +4,14 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ecs"
-	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
@@ -65,10 +66,16 @@ type Resource interface {
 	Reconcile() error
 }
 
+// ECSAPI defines the required ECS methods (SDK v2 compatible)
+type ECSAPI interface {
+	ListTasks(ctx context.Context, params *ecs.ListTasksInput, optFns ...func(*ecs.Options)) (*ecs.ListTasksOutput, error)
+	DescribeTasks(ctx context.Context, params *ecs.DescribeTasksInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error)
+}
+
 // TaskStateLister is an implementation of ResourceLister.
 type TaskStateLister struct {
 	// ECSClient is the AWS ECS client to be used by the ServiceStateLister.
-	ECSClient ecsiface.ECSAPI
+	ECSClient ECSAPI
 
 	// SetupConsulClientFn sets up a consul client on demand.
 	SetupConsulClientFn func() (*api.Client, error)
@@ -142,10 +149,12 @@ func (s TaskStateLister) fetchECSTasks() (map[TaskID]*TaskState, error) {
 	// nextToken is to handle paginated responses from AWS.
 	var nextToken *string
 
+	ctx := context.TODO()
+
 	// This isn't an infinite loop, instead this is a "do while" loop
 	// because we'll break out of it as soon as nextToken is nil.
 	for {
-		taskListOutput, err := s.ECSClient.ListTasks(&ecs.ListTasksInput{
+		taskListOutput, err := s.ECSClient.ListTasks(ctx, &ecs.ListTasksInput{
 			Cluster:   aws.String(s.ClusterARN),
 			NextToken: nextToken,
 		})
@@ -154,33 +163,32 @@ func (s TaskStateLister) fetchECSTasks() (map[TaskID]*TaskState, error) {
 		}
 		nextToken = taskListOutput.NextToken
 
-		tasks, err := s.ECSClient.DescribeTasks(&ecs.DescribeTasksInput{
+		if len(taskListOutput.TaskArns) == 0 {
+			break
+		}
+
+		tasks, err := s.ECSClient.DescribeTasks(ctx, &ecs.DescribeTasksInput{
 			Cluster: aws.String(s.ClusterARN),
 			Tasks:   taskListOutput.TaskArns,
-			Include: []*string{aws.String("TAGS")},
+			Include: []types.TaskField{types.TaskFieldTags},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("describing tasks: %w", err)
 		}
 		for _, task := range tasks.Tasks {
-			if task == nil {
-				s.Log.Warn("task is nil")
-				continue
-			}
-
 			if !isMeshTask(task) {
-				s.Log.Debug("skipping non-mesh task", "task-arn", *task.TaskArn)
+				s.Log.Debug("skipping non-mesh task", "task-arn", aws.ToString(task.TaskArn))
 				continue
 			}
 
 			state, err := s.taskStateFromTask(task)
 			if err != nil {
-				s.Log.Error("skipping task", "task-arn", *task.TaskArn, "tags", task.Tags, "err", err)
+				s.Log.Error("skipping task", "task-arn", aws.ToString(task.TaskArn), "tags", task.Tags, "err", err)
 				continue
 			}
 
 			if state.Partition != s.Partition {
-				s.Log.Debug("skipping task in external partition", "partition", state.Partition, "task-arn", *task.TaskArn)
+				s.Log.Debug("skipping task in external partition", "partition", state.Partition, "task-arn", aws.ToString(task.TaskArn))
 				continue
 			}
 
@@ -412,7 +420,7 @@ func (s TaskStateLister) newTaskState(taskId TaskID, clusterArn string) *TaskSta
 	}
 }
 
-func (s TaskStateLister) taskStateFromTask(t *ecs.Task) (*TaskState, error) {
+func (s TaskStateLister) taskStateFromTask(t types.Task) (*TaskState, error) {
 	var partition, namespace string
 	if partitionsEnabled(s.Partition) {
 		partition = tagValue(t.Tags, partitionTag)
@@ -426,12 +434,12 @@ func (s TaskStateLister) taskStateFromTask(t *ecs.Task) (*TaskState, error) {
 			return nil, fmt.Errorf("task definition requires both partition and namespace tags")
 		}
 	}
-	taskId := awsutil.ParseTaskID(*t.TaskArn)
+	taskId := awsutil.ParseTaskID(aws.ToString(t.TaskArn))
 	if taskId == "" {
 		return nil, fmt.Errorf("cannot determine task id from task arn")
 	}
 
-	ts := s.newTaskState(TaskID(taskId), *t.ClusterArn)
+	ts := s.newTaskState(TaskID(taskId), aws.ToString(t.ClusterArn))
 	ts.ECSTaskFound = true
 	ts.Partition = partition
 	ts.NS = namespace
@@ -594,17 +602,14 @@ func getTaskIDFromServiceMeta(service *api.AgentService) (TaskID, error) {
 	return TaskID(taskID), nil
 }
 
-func isMeshTask(t *ecs.Task) bool {
+func isMeshTask(t types.Task) bool {
 	return tagValue(t.Tags, meshTag) == "true"
 }
 
-func tagValue(tags []*ecs.Tag, key string) string {
+func tagValue(tags []types.Tag, key string) string {
 	for _, t := range tags {
-		if t.Key != nil && *t.Key == key {
-			if t.Value == nil {
-				return ""
-			}
-			return *t.Value
+		if aws.ToString(t.Key) == key {
+			return aws.ToString(t.Value)
 		}
 	}
 	return ""

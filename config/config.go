@@ -4,15 +4,16 @@
 package config
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go-v2/config"
+	v2creds "github.com/aws/aws-sdk-go-v2/credentials"
+	v1creds "github.com/aws/aws-sdk-go/aws/credentials"
 	iamauth "github.com/hashicorp/consul-awsauth"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
@@ -229,37 +230,37 @@ func (c *Config) createAWSBearerToken(taskMeta awsutil.ECSTaskMeta) (string, err
 		region = r
 	}
 
-	cfg := aws.Config{
-		Region: aws.String(region),
-		// More detailed error message to help debug credential discovery.
-		CredentialsChainVerboseErrors: aws.Bool(true),
-	}
+	var opts []func(*config.LoadOptions) error
+	opts = append(opts, config.WithRegion(region))
 
 	// support explicit creds for unit tests
 	if l.AccessKeyID != "" {
-		cfg.Credentials = credentials.NewStaticCredentials(
-			l.AccessKeyID, l.SecretAccessKey, "",
-		)
+		opts = append(opts, config.WithCredentialsProvider(
+			v2creds.NewStaticCredentialsProvider(l.AccessKeyID, l.SecretAccessKey, ""),
+		))
 	}
 
-	// Session loads creds from standard sources (env vars, file, EC2 metadata, ...)
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config: cfg,
-		// Allow loading from config files by default:
-		//   ~/.aws/config or AWS_CONFIG_FILE
-		//   ~/.aws/credentials or AWS_SHARED_CREDENTIALS_FILE
-		SharedConfigState: session.SharedConfigEnable,
-	})
+	// Load v2 config
+	cfg, err := config.LoadDefaultConfig(context.TODO(), opts...)
 	if err != nil {
 		return "", err
 	}
 
-	if sess.Config.Credentials == nil {
-		return "", fmt.Errorf("AWS credentials not found")
+	v2Creds, err := cfg.Credentials.Retrieve(context.TODO())
+	if err != nil {
+		return "", fmt.Errorf("AWS credentials not found: %w", err)
 	}
 
+	// The iamauth library still requires a v1 credential provider.
+	// We wrap our v2 credentials into a v1 provider for compatibility.
+	v1CredsProvider := v1creds.NewStaticCredentials(
+		v2Creds.AccessKeyID,
+		v2Creds.SecretAccessKey,
+		v2Creds.SessionToken,
+	)
+
 	loginData, err := iamauth.GenerateLoginData(&iamauth.LoginInput{
-		Creds:                  sess.Config.Credentials,
+		Creds:                  v1CredsProvider,
 		IncludeIAMEntity:       l.IncludeEntity,
 		STSEndpoint:            l.STSEndpoint,
 		STSRegion:              region,

@@ -4,30 +4,31 @@
 package awsutil
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"runtime"
 	"strings"
+	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/arn"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ecs"
-	"github.com/hashicorp/consul-ecs/version"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
+	"github.com/aws/aws-sdk-go-v2/config"
+
+	smithymiddleware "github.com/aws/smithy-go/middleware"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 const (
 	ECSMetadataURIEnvVar = "ECS_CONTAINER_METADATA_URI_V4"
+	AWSRegionEnvVar      = "AWS_REGION"
 
-	AWSRegionEnvVar = "AWS_REGION"
+	containerTypeNormal  = "NORMAL"
+	DesiredStatusStopped = "STOPPED"
 
-	// This is the type assigned to the containers that are
-	// present in the task definition.
-	containerTypeNormal = "NORMAL"
+	metadataTimeout = 2 * time.Second
 )
 
 type ECSTaskMeta struct {
@@ -92,9 +93,6 @@ func (e ECSTaskMeta) AccountID() (string, error) {
 }
 
 func (e ECSTaskMeta) Region() (string, error) {
-	// Task ARN: "arn:aws:ecs:us-east-1:000000000000:task/cluster/00000000000000000000000000000000"
-	// https://docs.aws.amazon.com/general/latest/gr/aws-arns-and-namespaces.html
-	// See also: https://github.com/aws/containers-roadmap/issues/337
 	a, err := arn.Parse(e.TaskARN)
 	if err != nil {
 		return "", fmt.Errorf("unable to determine AWS region from Task ARN: %q", e.TaskARN)
@@ -125,8 +123,8 @@ func (e ECSTaskMeta) HasContainerStopped(name string) bool {
 }
 
 func (c ECSTaskMetaContainer) HasStopped() bool {
-	return c.DesiredStatus == ecs.DesiredStatusStopped &&
-		c.KnownStatus == ecs.DesiredStatusStopped
+	return c.DesiredStatus == DesiredStatusStopped &&
+		c.KnownStatus == DesiredStatusStopped
 }
 
 func (c ECSTaskMetaContainer) IsNormalType() bool {
@@ -140,52 +138,81 @@ func ECSTaskMetadata() (ECSTaskMeta, error) {
 	if metadataURI == "" {
 		return metadataResp, fmt.Errorf("%s env var not set", ECSMetadataURIEnvVar)
 	}
-	resp, err := http.Get(fmt.Sprintf("%s/task", metadataURI))
-	if err != nil {
-		return metadataResp, fmt.Errorf("calling metadata uri: %s", err)
+
+	client := &http.Client{
+		Timeout: metadataTimeout,
 	}
+
+	resp, err := client.Get(fmt.Sprintf("%s/task", metadataURI))
+	if err != nil {
+		return metadataResp, fmt.Errorf("calling metadata uri: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return metadataResp, fmt.Errorf("metadata endpoint returned status %d", resp.StatusCode)
+	}
+
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return metadataResp, fmt.Errorf("reading metadata uri response body: %s", err)
+		return metadataResp, fmt.Errorf("reading metadata uri response body: %w", err)
 	}
+
 	if err := json.Unmarshal(respBytes, &metadataResp); err != nil {
-		return metadataResp, fmt.Errorf("unmarshalling metadata uri response: %s", err)
+		return metadataResp, fmt.Errorf("unmarshalling metadata uri response: %w", err)
 	}
+
 	return metadataResp, nil
 }
 
-func UserAgentHandler(caller string) request.NamedHandler {
-	return request.NamedHandler{
-		Name: "UserAgentHandler",
-		Fn: func(r *request.Request) {
-			userAgent := r.HTTPRequest.Header.Get("User-Agent")
-			r.HTTPRequest.Header.Set("User-Agent",
-				fmt.Sprintf("consul-ecs-%s/%s (%s) %s", caller, version.Version, runtime.GOOS, userAgent))
-		},
+// UserAgentMiddleware adds a custom user-agent string to SDK v2 requests.
+func UserAgentMiddleware(caller string) func(*smithymiddleware.Stack) error {
+	return func(stack *smithymiddleware.Stack) error {
+		return stack.Build.Add(
+			smithymiddleware.BuildMiddlewareFunc("CustomUserAgent",
+				func(ctx context.Context, in smithymiddleware.BuildInput, next smithymiddleware.BuildHandler) (
+					out smithymiddleware.BuildOutput, metadata smithymiddleware.Metadata, err error,
+				) {
+					req, ok := in.Request.(*smithyhttp.Request)
+					if ok {
+						req.Header.Set("User-Agent", req.Header.Get("User-Agent")+" "+caller)
+					}
+					return next.HandleBuild(ctx, in)
+				}),
+			smithymiddleware.After,
+		)
 	}
 }
 
-// NewSession prepares a client session.
-// The returned session includes a User-Agent handler to enable AWS to track usage.
-// If the AWS SDK fails to find the region, the region is parsed from Task metadata
-// (on EC2 the region is not typically defined in the environment).
-func NewSession(meta ECSTaskMeta, userAgentCaller string) (*session.Session, error) {
-	clientSession, err := session.NewSession()
-	if err != nil {
-		return nil, err
-	}
+// NewAWSConfig loads AWS SDK v2 config with proper region injection.
+func NewAWSConfig(meta ECSTaskMeta, userAgentCaller string) (aws.Config, error) {
+	ctx := context.Background()
 
-	clientSession.Handlers.Build.PushBackNamed(UserAgentHandler(userAgentCaller))
+	// 1. Try env var first
+	region := os.Getenv(AWSRegionEnvVar)
 
-	cfg := clientSession.Config
-	if cfg.Region == nil || *cfg.Region == "" {
-		region, err := meta.Region()
+	// 2. Fallback to ECS metadata
+	if region == "" {
+		var err error
+		region, err = meta.Region()
 		if err != nil {
-			return nil, err
+			return aws.Config{}, err
 		}
-		cfg.Region = aws.String(region)
 	}
-	return clientSession, nil
+
+	cfg, err := config.LoadDefaultConfig(
+		ctx,
+		config.WithRegion(region),
+	)
+	if err != nil {
+		return aws.Config{}, err
+	}
+
+	if userAgentCaller != "" {
+		cfg.APIOptions = append(cfg.APIOptions, UserAgentMiddleware(userAgentCaller))
+	}
+
+	return cfg, nil
 }
 
 func GetAWSRegion() string {

@@ -4,52 +4,66 @@
 package mocks
 
 import (
-	"github.com/aws/aws-sdk-go/service/ecs"
-	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
-	mapset "github.com/deckarep/golang-set"
+	"context"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	mapset "github.com/deckarep/golang-set/v2"
 )
 
 type ECSClient struct {
-	ecsiface.ECSAPI
-	Tasks           []*ecs.Task
+	Tasks           []types.Task
 	PaginateResults bool
 }
 
-func (m *ECSClient) ListTasks(input *ecs.ListTasksInput) (*ecs.ListTasksOutput, error) {
-	var taskARNs []*string
+type ECSAPI interface {
+	ListTasks(ctx context.Context, input *ecs.ListTasksInput, opts ...func(*ecs.Options)) (*ecs.ListTasksOutput, error)
+	DescribeTasks(ctx context.Context, input *ecs.DescribeTasksInput, opts ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error)
+}
+
+func (m *ECSClient) ListTasks(ctx context.Context, input *ecs.ListTasksInput, opts ...func(*ecs.Options)) (*ecs.ListTasksOutput, error) {
+	var taskARNs []string
 	var nextToken *string
+
 	if m.PaginateResults && input.NextToken == nil {
-		for _, t := range m.Tasks[:len(m.Tasks)/2] {
-			taskARNs = append(taskARNs, t.TaskArn)
+		half := len(m.Tasks) / 2
+		for _, t := range m.Tasks[:half] {
+			taskARNs = append(taskARNs, aws.ToString(t.TaskArn))
 		}
-		nextToken = m.Tasks[len(m.Tasks)/2].TaskArn
+		if half < len(m.Tasks) {
+			nextToken = m.Tasks[half].TaskArn
+		}
 	} else if m.PaginateResults && input.NextToken != nil {
-		for _, t := range m.Tasks[len(m.Tasks)/2:] {
-			taskARNs = append(taskARNs, t.TaskArn)
+		half := len(m.Tasks) / 2
+		for _, t := range m.Tasks[half:] {
+			taskARNs = append(taskARNs, aws.ToString(t.TaskArn))
 		}
 	} else {
 		for _, t := range m.Tasks {
-			taskARNs = append(taskARNs, t.TaskArn)
+			taskARNs = append(taskARNs, aws.ToString(t.TaskArn))
 		}
 	}
+
 	return &ecs.ListTasksOutput{
 		NextToken: nextToken,
 		TaskArns:  taskARNs,
 	}, nil
 }
 
-func (m *ECSClient) DescribeTasks(input *ecs.DescribeTasksInput) (*ecs.DescribeTasksOutput, error) {
-	var tasksResult []*ecs.Task
-	taskARNsInput := mapset.NewSet()
+func (m *ECSClient) DescribeTasks(ctx context.Context, input *ecs.DescribeTasksInput, opts ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error) {
+	var tasksResult []types.Task
+	taskARNsInput := mapset.NewSet[string]()
+
 	for _, arn := range input.Tasks {
-		taskARNsInput.Add(*arn)
+		taskARNsInput.Add(arn)
 	}
 
-	// Only return Tasks asked for in the input.
 	for _, task := range m.Tasks {
-		if taskARNsInput.Contains(*task.TaskArn) {
+		if task.TaskArn != nil && taskARNsInput.Contains(*task.TaskArn) {
 			tasksResult = append(tasksResult, task)
 		}
 	}
+
 	return &ecs.DescribeTasksOutput{Tasks: tasksResult}, nil
 }

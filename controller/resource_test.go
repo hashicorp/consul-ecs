@@ -28,8 +28,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/consul-ecs/controller/mocks"
@@ -48,12 +48,12 @@ const testClusterArn = "arn:aws:ecs:bogus-east-1:000000000000:cluster/my-cluster
 
 func TestTaskStateListerList(t *testing.T) {
 	t.Parallel()
-	meshTasks := []*ecs.Task{
+	meshTasks := []*types.Task{
 		makeECSTask(t, "mesh-task-id-1", meshTag, "true"),
 		makeECSTask(t, "mesh-task-id-2", meshTag, "true"),
 		makeECSTask(t, "mesh-task-id-3", meshTag, "true"),
 	}
-	nonMeshTasks := []*ecs.Task{
+	nonMeshTasks := []*types.Task{
 		makeECSTask(t, "non-mesh-task-id-1"),
 		makeECSTask(t, "non-mesh-task-id-2"),
 		makeECSTask(t, "non-mesh-task-id-3"),
@@ -93,7 +93,7 @@ func TestTaskStateListerList(t *testing.T) {
 
 	type testCase struct {
 		// tasks to setup in ECS for the test
-		initTasks []*ecs.Task
+		initTasks []*types.Task
 		// tokens to setup in Consul for the test
 		initTokens []*api.ACLTokenListEntry
 		// setup partitions + namespaces in Consul
@@ -159,12 +159,12 @@ func TestTaskStateListerList(t *testing.T) {
 
 	if enterpriseFlag() {
 		tags := []string{meshTag, "true", partitionTag, testPtn, namespaceTag, testNs}
-		entMeshTasks := []*ecs.Task{
+		entMeshTasks := []*types.Task{
 			makeECSTask(t, "partition-task-1", tags...),
 			makeECSTask(t, "partition-task-2", tags...),
 			makeECSTask(t, "partition-task-3", tags...),
 		}
-		entOtherTasks := []*ecs.Task{
+		entOtherTasks := []*types.Task{
 			// missing mesh tag
 			makeECSTask(t, "other-task-1", partitionTag, testPtn, namespaceTag, testNs),
 			// different partition
@@ -265,8 +265,15 @@ func TestTaskStateListerList(t *testing.T) {
 			consulClient, cfg := initConsul(t)
 			clientCfg := &ClientCfg{cfg: cfg}
 
+			var mockTasks []types.Task
+			for _, task := range c.initTasks {
+				if task != nil {
+					mockTasks = append(mockTasks, *task)
+				}
+			}
+
 			lister := TaskStateLister{
-				ECSClient:           &mocks.ECSClient{Tasks: c.initTasks},
+				ECSClient:           &mocks.ECSClient{Tasks: mockTasks},
 				SetupConsulClientFn: clientCfg.setupConsulClient,
 				ClusterARN:          testClusterArn,
 				Log:                 hclog.Default().Named("lister"),
@@ -643,19 +650,21 @@ func listNamespaces(t *testing.T, consulClient *api.Client) map[string][]string 
 	return names
 }
 
-func makeECSTask(t *testing.T, taskId string, tags ...string) *ecs.Task {
+func makeECSTask(t *testing.T, taskId string, tags ...string) *types.Task {
 	require.Equal(t, 0, len(tags)%2, "tags must be even length")
-	var ecsTags []*ecs.Tag
+	var ecsTags []types.Tag
 	for i := 0; i < len(tags); i += 2 {
-		ecsTags = append(ecsTags, &ecs.Tag{
+		ecsTags = append(ecsTags, types.Tag{
 			Key:   aws.String(tags[i]),
 			Value: aws.String(tags[i+1]),
 		})
 	}
-	return &ecs.Task{
+	return &types.Task{
 		ClusterArn: aws.String(testClusterArn),
-		TaskArn:    aws.String("arn:aws:ecs:bogus-east-1:000000000000:task/my-cluster/" + taskId),
-		Tags:       ecsTags,
+		TaskArn: aws.String(
+			"arn:aws:ecs:bogus-east-1:000000000000:task/my-cluster/" + taskId,
+		),
+		Tags: ecsTags,
 	}
 }
 

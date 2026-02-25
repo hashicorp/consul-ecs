@@ -15,7 +15,7 @@ import (
 	"sync"
 	"text/template"
 
-	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/controller"
@@ -110,13 +110,13 @@ func (c *Command) run() error {
 	}
 	c.log.Info("cluster arn determined", "cluster-arn", clusterArn)
 
-	clientSession, err := awsutil.NewSession(ecsMeta, "controller")
+	awsConfig, err := awsutil.NewAWSConfig(ecsMeta, "controller")
 	if err != nil {
 		return err
 	}
 
 	// Set up ECS client.
-	ecsClient := ecs.New(clientSession)
+	ecsClient := ecs.NewFromConfig(awsConfig)
 
 	serverConnMgrCfg, err := c.config.ConsulServerConnMgrConfig(ecsMeta)
 	if err != nil {

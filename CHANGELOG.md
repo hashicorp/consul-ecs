@@ -7,8 +7,9 @@ SECURITY
 * Upgrade `golang.org/x/crypto` to `v0.45.0` to address [GO-2025-4134] and [GO-2025-4116]
 
 IMPROVEMENTS
+* AWS SDK Migration: Migrated core AWS integration from SDK v1 to SDK v2. This improves performance, reduces memory overhead, and adopts modern Go patterns (Context support, non-pointer slice types).
 * Remove info logs from health sync checks
-* Bump Go version to `1.25.5`
+* Bump Go version to `1.25.7`
 * Bump `golang.org/x/net` to `v0.47.0`
 * Bump `golang.org/x/sys` to `v0.38.0`
 * Bump `golang.org/x/text` to `v0.31.0`  

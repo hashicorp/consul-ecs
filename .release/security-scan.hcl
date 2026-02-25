@@ -16,9 +16,7 @@ binary {
 
 	triage {
 		suppress {
-			vulnerabilities = [
-				"GO-2022-0635", // github.com/aws/aws-sdk-go@v1.55.5
-			]
+			vulnerabilities = []
 		}
 	}
 }

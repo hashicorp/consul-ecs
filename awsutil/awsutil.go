@@ -147,7 +147,7 @@ func ECSTaskMetadata() (ECSTaskMeta, error) {
 	if err != nil {
 		return metadataResp, fmt.Errorf("calling metadata uri: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return metadataResp, fmt.Errorf("metadata endpoint returned status %d", resp.StatusCode)

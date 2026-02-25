@@ -5,6 +5,7 @@ package mocks
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -12,37 +13,47 @@ import (
 	mapset "github.com/deckarep/golang-set/v2"
 )
 
+// ECSAPI defines the interface for ECS v2 used by the controller.
+type ECSAPI interface {
+	ListTasks(ctx context.Context, params *ecs.ListTasksInput, optFns ...func(*ecs.Options)) (*ecs.ListTasksOutput, error)
+	DescribeTasks(ctx context.Context, params *ecs.DescribeTasksInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error)
+}
+
+// ECSClient implements the ECSAPI for testing.
 type ECSClient struct {
 	Tasks           []types.Task
 	PaginateResults bool
 }
 
-type ECSAPI interface {
-	ListTasks(ctx context.Context, input *ecs.ListTasksInput, opts ...func(*ecs.Options)) (*ecs.ListTasksOutput, error)
-	DescribeTasks(ctx context.Context, input *ecs.DescribeTasksInput, opts ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error)
-}
-
-func (m *ECSClient) ListTasks(ctx context.Context, input *ecs.ListTasksInput, opts ...func(*ecs.Options)) (*ecs.ListTasksOutput, error) {
+func (m *ECSClient) ListTasks(ctx context.Context, params *ecs.ListTasksInput, optFns ...func(*ecs.Options)) (*ecs.ListTasksOutput, error) {
 	var taskARNs []string
 	var nextToken *string
 
-	if m.PaginateResults && input.NextToken == nil {
-		half := len(m.Tasks) / 2
-		for _, t := range m.Tasks[:half] {
-			taskARNs = append(taskARNs, aws.ToString(t.TaskArn))
+	startIndex := 0
+	// Simulate NextToken as an index string
+	if params.NextToken != nil && *params.NextToken != "" {
+		idx, err := strconv.Atoi(*params.NextToken)
+		if err == nil {
+			startIndex = idx
 		}
-		if half < len(m.Tasks) {
-			nextToken = m.Tasks[half].TaskArn
+	}
+
+	limit := len(m.Tasks)
+	if m.PaginateResults {
+		pageSize := 2
+		if params.MaxResults != nil {
+			pageSize = int(*params.MaxResults)
 		}
-	} else if m.PaginateResults && input.NextToken != nil {
-		half := len(m.Tasks) / 2
-		for _, t := range m.Tasks[half:] {
-			taskARNs = append(taskARNs, aws.ToString(t.TaskArn))
+
+		endIndex := startIndex + pageSize
+		if endIndex < len(m.Tasks) {
+			limit = endIndex
+			nextToken = aws.String(strconv.Itoa(endIndex))
 		}
-	} else {
-		for _, t := range m.Tasks {
-			taskARNs = append(taskARNs, aws.ToString(t.TaskArn))
-		}
+	}
+
+	for i := startIndex; i < limit && i < len(m.Tasks); i++ {
+		taskARNs = append(taskARNs, aws.ToString(m.Tasks[i].TaskArn))
 	}
 
 	return &ecs.ListTasksOutput{
@@ -51,11 +62,11 @@ func (m *ECSClient) ListTasks(ctx context.Context, input *ecs.ListTasksInput, op
 	}, nil
 }
 
-func (m *ECSClient) DescribeTasks(ctx context.Context, input *ecs.DescribeTasksInput, opts ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error) {
+func (m *ECSClient) DescribeTasks(ctx context.Context, params *ecs.DescribeTasksInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error) {
 	var tasksResult []types.Task
 	taskARNsInput := mapset.NewSet[string]()
 
-	for _, arn := range input.Tasks {
+	for _, arn := range params.Tasks {
 		taskARNsInput.Add(arn)
 	}
 
@@ -65,5 +76,7 @@ func (m *ECSClient) DescribeTasks(ctx context.Context, input *ecs.DescribeTasksI
 		}
 	}
 
-	return &ecs.DescribeTasksOutput{Tasks: tasksResult}, nil
+	return &ecs.DescribeTasksOutput{
+		Tasks: tasksResult,
+	}, nil
 }

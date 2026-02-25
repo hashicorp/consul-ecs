@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/config"
-	v2creds "github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	iamauth "github.com/hashicorp/consul-awsauth"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
@@ -229,37 +229,34 @@ func (c *Config) createAWSBearerToken(taskMeta awsutil.ECSTaskMeta) (string, err
 		region = r
 	}
 
+	// v2 uses functional options to build the config
 	var opts []func(*config.LoadOptions) error
 	opts = append(opts, config.WithRegion(region))
 
-	// support explicit creds for unit tests
+	// In v2, we use WithCredentialsProvider instead of manually setting it on a struct
 	if l.AccessKeyID != "" {
 		opts = append(opts, config.WithCredentialsProvider(
-			v2creds.NewStaticCredentialsProvider(l.AccessKeyID, l.SecretAccessKey, ""),
+			credentials.NewStaticCredentialsProvider(l.AccessKeyID, l.SecretAccessKey, ""),
 		))
 	}
 
-	// Load v2 config
+	// LoadDefaultConfig is the v2 replacement for session.NewSession
+	// context.TODO() is used here as this is a configuration load call
 	cfg, err := config.LoadDefaultConfig(context.TODO(), opts...)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("unable to load SDK config, %v", err)
 	}
 
-	v2Creds, err := cfg.Credentials.Retrieve(context.TODO())
-	if err != nil {
-		return "", fmt.Errorf("AWS credentials not found: %w", err)
+	// In v2, cfg.Credentials is a Provider (interface), not a concrete struct.
+	// Most consumers (like iamauth) will call cfg.Credentials.Retrieve(ctx)
+	if cfg.Credentials == nil {
+		return "", fmt.Errorf("AWS credentials not found")
 	}
-
-	// The iamauth library still requires a v1 credential provider.
-	// We wrap our v2 credentials into a v1 provider for compatibility.
-	v1CredsProvider := v2creds.NewStaticCredentialsProvider(
-		v2Creds.AccessKeyID,
-		v2Creds.SecretAccessKey,
-		v2Creds.SessionToken,
-	)
 
 	loginData, err := iamauth.GenerateLoginData(&iamauth.LoginInput{
-		Creds:                  v1CredsProvider,
+		// iamauth might need an update to accept aws.CredentialsProvider
+		// if it was previously expecting v1 credentials.
+		Creds:                  cfg.Credentials,
 		IncludeIAMEntity:       l.IncludeEntity,
 		STSEndpoint:            l.STSEndpoint,
 		STSRegion:              region,

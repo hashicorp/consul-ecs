@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2021, 2025
 // SPDX-License-Identifier: MPL-2.0
 
 package meshinit
@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/iptables"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
+	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
 )
@@ -1077,4 +1078,272 @@ func (m *mockTrafficRedirectionProvider) Apply() error {
 
 func (m *mockTrafficRedirectionProvider) Config() iptables.Config {
 	return iptables.Config{}
+}
+
+// TestRegisterServiceDefaults tests the registerServiceDefaults method with various scenarios
+func TestRegisterServiceDefaults(t *testing.T) {
+	cases := map[string]struct {
+		setupConsul                 func(t *testing.T, client *api.Client)
+		expectError                 bool
+		expectErrorMessage          string
+		expectServiceName           string
+		expectPassiveHealthCheckSet bool
+		expectedInterval            time.Duration
+	}{
+		"creates new service defaults when not found": {
+			setupConsul: func(t *testing.T, client *api.Client) {
+				// No setup needed - service defaults should not exist initially
+			},
+			expectError:                 false,
+			expectServiceName:           "test-service",
+			expectPassiveHealthCheckSet: true,
+			expectedInterval:            10 * time.Second, // Default from config
+		},
+		"merges with existing service defaults without passive health check": {
+			setupConsul: func(t *testing.T, client *api.Client) {
+				// Pre-create service defaults without PassiveHealthCheck
+				existing := &api.ServiceConfigEntry{
+					Kind: api.ServiceDefaults,
+					Name: "test-service-merge",
+					UpstreamConfig: &api.UpstreamConfiguration{
+						Defaults: &api.UpstreamConfig{
+							// No PassiveHealthCheck - should be added
+						},
+					},
+				}
+				_, _, err := client.ConfigEntries().Set(existing, nil)
+				require.NoError(t, err)
+			},
+			expectError:                 false,
+			expectServiceName:           "test-service-merge",
+			expectPassiveHealthCheckSet: true,
+			expectedInterval:            10 * time.Second,
+		},
+		"preserves existing passive health check config": {
+			setupConsul: func(t *testing.T, client *api.Client) {
+				// Pre-create service defaults WITH existing PassiveHealthCheck
+				// This should be preserved and NOT overwritten
+				enforcingVal := uint32(100)
+				ejectVal := uint32(50)
+				existing := &api.ServiceConfigEntry{
+					Kind: api.ServiceDefaults,
+					Name: "test-service-preserve",
+					UpstreamConfig: &api.UpstreamConfiguration{
+						Defaults: &api.UpstreamConfig{
+							PassiveHealthCheck: &api.PassiveHealthCheck{
+								Interval:                30 * time.Second,
+								MaxFailures:             10,
+								EnforcingConsecutive5xx: &enforcingVal,
+								MaxEjectionPercent:      &ejectVal,
+							},
+						},
+					},
+				}
+				_, _, err := client.ConfigEntries().Set(existing, nil)
+				require.NoError(t, err)
+			},
+			expectError:                 false,
+			expectServiceName:           "test-service-preserve",
+			expectPassiveHealthCheckSet: true,
+			expectedInterval:            30 * time.Second, // Should preserve the existing interval, not apply default
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Start Consul server
+			server, cfg := testutil.ConsulServer(t, nil)
+			t.Cleanup(func() {
+				_ = server.Stop()
+			})
+
+			consulClient, err := api.NewClient(cfg)
+			require.NoError(t, err)
+
+			// Setup test scenario
+			tc.setupConsul(t, consulClient)
+
+			// Create command with logger
+			cmd := &Command{
+				UI:  cli.NewMockUi(),
+				log: hclog.NewNullLogger(),
+			}
+
+			// Create service and resilience config for testing
+			service := &api.AgentService{
+				Service: tc.expectServiceName,
+			}
+
+			resilienceConfig := &config.NetworkPartitionResilienceConfig{
+				Enabled: true,
+			}
+
+			// Call registerServiceDefaults
+			err = cmd.registerServiceDefaults(consulClient, service, resilienceConfig)
+
+			if tc.expectError {
+				require.Error(t, err)
+				if tc.expectErrorMessage != "" {
+					require.Contains(t, err.Error(), tc.expectErrorMessage)
+				}
+			} else {
+				require.NoError(t, err)
+
+				// Verify that service defaults were registered
+				configEntry, _, err := consulClient.ConfigEntries().Get(api.ServiceDefaults, tc.expectServiceName, nil)
+				require.NoError(t, err)
+				require.NotNil(t, configEntry)
+
+				svcDefaults, ok := configEntry.(*api.ServiceConfigEntry)
+				require.True(t, ok)
+				require.Equal(t, svcDefaults.Name, tc.expectServiceName)
+				require.NotNil(t, svcDefaults.UpstreamConfig)
+				require.NotNil(t, svcDefaults.UpstreamConfig.Defaults)
+
+				// Verify PassiveHealthCheck is set
+				if tc.expectPassiveHealthCheckSet {
+					require.NotNil(t, svcDefaults.UpstreamConfig.Defaults.PassiveHealthCheck)
+					// Verify the interval matches expected value (either preserved or newly set)
+					require.Equal(t, tc.expectedInterval, svcDefaults.UpstreamConfig.Defaults.PassiveHealthCheck.Interval)
+				}
+			}
+		})
+	}
+}
+
+// TestIsConfigEntryNotFoundErrorHelper tests the error detection helper function
+func TestIsConfigEntryNotFoundErrorHelper(t *testing.T) {
+	cases := map[string]struct {
+		err    error
+		expect bool
+	}{
+		"nil error": {
+			err:    nil,
+			expect: false,
+		},
+		"not found error with 'not found' string": {
+			err:    fmt.Errorf("config entry not found"),
+			expect: true,
+		},
+		"not found error with 'No such config entry' string": {
+			err:    fmt.Errorf("No such config entry"),
+			expect: true,
+		},
+		"not found error with uppercase NOT FOUND": {
+			err:    fmt.Errorf("config entry NOT FOUND"),
+			expect: true,
+		},
+		"not found error with uppercase NO SUCH CONFIG ENTRY": {
+			err:    fmt.Errorf("NO SUCH CONFIG ENTRY"),
+			expect: true,
+		},
+		"not found error with mixed case Not Found": {
+			err:    fmt.Errorf("Service Not Found in catalog"),
+			expect: true,
+		},
+		"ACL permission error": {
+			err:    fmt.Errorf("403 Forbidden: ACL token has insufficient permissions"),
+			expect: false,
+		},
+		"network error": {
+			err:    fmt.Errorf("connection refused"),
+			expect: false,
+		},
+		"permission denied wrapped": {
+			err:    fmt.Errorf("failed to read: permission denied"),
+			expect: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := isConfigEntryNotFoundError(tc.err)
+			require.Equal(t, tc.expect, result, "error: %v", tc.err)
+		})
+	}
+}
+
+// TestNormalizeOutlierDetectionConfig tests the normalization of outlier detection configuration
+func TestNormalizeOutlierDetectionConfig(t *testing.T) {
+	cases := map[string]struct {
+		input                       *config.OutlierDetectionConfig
+		expectNilEnforcingConsec5xx bool
+		expectNilMaxEjectionPercent bool
+		expectedEnforcingConsec5xx  uint32
+		expectedMaxEjectionPercent  uint32
+	}{
+		"nil config returns defaults": {
+			input:                       nil,
+			expectNilEnforcingConsec5xx: false,
+			expectNilMaxEjectionPercent: false,
+			expectedEnforcingConsec5xx:  config.DefaultOutlierDetectionEnforcingConsecutive5xx,
+			expectedMaxEjectionPercent:  config.DefaultOutlierDetectionMaxEjectionPercent,
+		},
+		"config with nil pointer fields gets defaults applied": {
+			input: &config.OutlierDetectionConfig{
+				Interval:                10 * time.Second,
+				MaxFailures:             5,
+				EnforcingConsecutive5xx: nil, // Should get default
+				MaxEjectionPercent:      nil, // Should get default
+			},
+			expectNilEnforcingConsec5xx: false,
+			expectNilMaxEjectionPercent: false,
+			expectedEnforcingConsec5xx:  config.DefaultOutlierDetectionEnforcingConsecutive5xx,
+			expectedMaxEjectionPercent:  config.DefaultOutlierDetectionMaxEjectionPercent,
+		},
+		"config with set pointer fields is preserved": {
+			input: func() *config.OutlierDetectionConfig {
+				customEnforcing := uint32(80)
+				customEjection := uint32(30)
+				return &config.OutlierDetectionConfig{
+					Interval:                15 * time.Second,
+					MaxFailures:             8,
+					EnforcingConsecutive5xx: &customEnforcing,
+					MaxEjectionPercent:      &customEjection,
+				}
+			}(),
+			expectNilEnforcingConsec5xx: false,
+			expectNilMaxEjectionPercent: false,
+			expectedEnforcingConsec5xx:  80,
+			expectedMaxEjectionPercent:  30,
+		},
+		"config with partial nil fields applies selective defaults": {
+			input: func() *config.OutlierDetectionConfig {
+				customEnforcing := uint32(90)
+				return &config.OutlierDetectionConfig{
+					Interval:                12 * time.Second,
+					MaxFailures:             6,
+					EnforcingConsecutive5xx: &customEnforcing, // Has value
+					MaxEjectionPercent:      nil,              // Will get default
+				}
+			}(),
+			expectNilEnforcingConsec5xx: false,
+			expectNilMaxEjectionPercent: false,
+			expectedEnforcingConsec5xx:  90,
+			expectedMaxEjectionPercent:  config.DefaultOutlierDetectionMaxEjectionPercent,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			normalized := normalizeOutlierDetectionConfig(tc.input)
+			require.NotNil(t, normalized)
+
+			// Verify EnforcingConsecutive5xx
+			if tc.expectNilEnforcingConsec5xx {
+				require.Nil(t, normalized.EnforcingConsecutive5xx)
+			} else {
+				require.NotNil(t, normalized.EnforcingConsecutive5xx)
+				require.Equal(t, tc.expectedEnforcingConsec5xx, *normalized.EnforcingConsecutive5xx)
+			}
+
+			// Verify MaxEjectionPercent
+			if tc.expectNilMaxEjectionPercent {
+				require.Nil(t, normalized.MaxEjectionPercent)
+			} else {
+				require.NotNil(t, normalized.MaxEjectionPercent)
+				require.Equal(t, tc.expectedMaxEjectionPercent, *normalized.MaxEjectionPercent)
+			}
+		})
+	}
 }

@@ -7,8 +7,18 @@
   "properties": {
     "logLevel": {
       "description": "Sets the log level for the `consul-ecs mesh-init` and `consul-ecs controller` commands. Defaults to `INFO`.",
-      "type": ["string", "null"],
-      "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", null]
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "TRACE",
+        "DEBUG",
+        "INFO",
+        "WARN",
+        "ERROR",
+        null
+      ]
     },
     "bootstrapDir": {
       "description": "The directory at which to mount the shared volume where Consul dataplane configuration is written by `consul-ecs mesh-init`.",
@@ -17,27 +27,45 @@
     },
     "consulLogin": {
       "description": "Configuration for logging into the AWS IAM auth method.",
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "properties": {
         "enabled": {
           "description": "Enables logging into Consul's AWS IAM auth method to obtain an ACL token. The auth method must be configured on the Consul server and the ECS task role must be trusted by the auth method. After logging in, the token is written to the file `<bootstrapDir>/service-token`.",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "method": {
           "description": "The name of Consul auth method used in the login request. Defaults to `iam-ecs-service-token`.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "datacenter": {
           "description": "Auth method datacenter to use for login to Consul.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "includeEntity": {
           "description": "Enables IAM role details to be available to the login decision, such as the IAM role path and role tags. Defaults to `true`. This should only be set if the Consul AWS IAM auth method is configured with `EnableIAMEntityDetails=true`.",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "meta": {
           "description": "Optional key-value pairs to be passed as metadata in the auth method login request. The keys `consul.hashicorp.com/task-id` and `consul.hashicorp.com/cluster` are always included as metadata.",
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "patternProperties": {
             ".*": {
               "type": "string"
@@ -46,34 +74,55 @@
         },
         "region": {
           "description": "Optional region used for AWS API calls. This should match the region of the URL in the `stsEndpoint` field, if set. If not set, the region will be discovered from the task metadata.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "stsEndpoint": {
           "description": "Optional URL used for signing `sts:GetCallerIdentity` requests. This can be used to send requests to a private endpoint or through a network proxy. By default, this is unset. This must match the `STSEndpoint` setting of the AWS IAM auth method on the Consul servers.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "serverIdHeaderValue": {
           "description": "Optional value to include in the `X-Consul-IAM-ServerID` header in the login request. This can be used to protect against certain types of replay attacks. This must match the `ServerIDHeaderValue` field of the AWS IAM auth method on the Consul servers.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "additionalProperties": false
     },
     "controller": {
       "description": "Configuration for the `consul-ecs controller` command.",
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "properties": {
         "iamRolePath": {
           "description": "IAM roles at this path will be trusted by the Consul IAM auth method configured by the controller. Defaults to `/consul-ecs/`.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "partitionsEnabled": {
           "description": "Enables support for Consul partitions and namespaces [Consul Enterprise].",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "partition": {
           "description": "The Consul partition name that the controller will use. Defaults to the `default` partition [Consul Enterprise].",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "additionalProperties": false
@@ -88,81 +137,134 @@
         },
         "defaults": {
           "description": "Default TLS settings for Consul's http and gRPC interfaces",
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "properties": {
             "caCertFile": {
               "description": "The CA certificate file for Consul's internal HTTP and gRPC interfaces.",
-              "type": ["string", "null"]
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "tls": {
               "description": "Whether to enable tls for internal RPC and HTTP traffic to the consul servers. Defaults to true",
-              "type": ["boolean", "null"]
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "tlsServerName": {
               "description": "The server name to use as the SNI host when connecting via TLS.",
-              "type": ["string", "null"]
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         },
         "http": {
           "description": "HTTP specific settings. Overrides `consulServers.defaults` for http.",
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "properties": {
             "caCertFile": {
               "description": "The CA certificate file for Consul's internal HTTP interfaces. Overrides `consulServers.defaults.caCertFile`",
-              "type": ["string", "null"]
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "https": {
               "description": "Whether to use HTTPS connections to the `consulServers.hosts`. Defaults to true.",
-              "type": ["boolean", "null"]
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "port": {
               "description": "The Consul server HTTP(S) port. Defaults to 8501",
-              "type": ["integer", "null"]
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "tls": {
               "description": "Whether to enable tls for internal HTTP traffic to the consul servers. Overrides `consulServers.defaults.tls`",
-              "type": ["boolean", "null"]
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "tlsServerName": {
               "description": "The server name to use as the SNI host when connecting via TLS. Overrides `consulServers.defaults.tlsServerName`",
-              "type": ["string", "null"]
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         },
         "grpc": {
           "description": "gRPC specific settings. Overrides `consulServers.defaults` for gRPC.",
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "properties": {
             "caCertFile": {
               "description": "The Consul server CA cert file for internal gRPC communication. Overrides `consulServers.defaults.caCertFile`",
-              "type": ["string", "null"]
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "port": {
               "description": "The Consul server gRPC port. Defaults to 8503",
-              "type": ["integer", "null"]
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "tls": {
               "description": "Whether to enable tls for internal RPC traffic to the consul servers. Overrides `consulServers.defaults.tls`",
-              "type": ["boolean", "null"]
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "tlsServerName": {
               "description": "The server name to use as the SNI host when connecting via TLS. Overrides `consulServers.defaults.tlsServerName`",
-              "type": ["string", "null"]
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         },
         "skipServerWatch": {
           "description": "If true, the dataplane skips watching upstream server changes. Useful when servers are behind a load balancer. Defaults to false",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
-      "required": ["hosts"],
+      "required": [
+        "hosts"
+      ],
       "additionalProperties": false
     },
     "healthSyncContainers": {
       "description": "The names of containers that will have health check status synced from ECS into Consul. Cannot be specified with `service.checks`.",
-      "type": ["array", "null"],
+      "type": [
+        "array",
+        "null"
+      ],
       "items": {
         "type": "string"
       },
@@ -174,12 +276,18 @@
       "properties": {
         "name": {
           "description": "The name the service will be registered as in Consul. Defaults to the Task family name if empty or null.",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "(^$)|(^[a-z0-9]([a-z0-9-_]*[a-z0-9])?$)"
         },
         "tags": {
           "description": "List of string values that can be used to add service-level labels.",
-          "type": ["array", "null"],
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           },
@@ -191,11 +299,17 @@
         },
         "enableTagOverride": {
           "description": "Determines if the anti-entropy feature for the service is enabled",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "meta": {
           "description": "Key-value pairs of metadata to include for the Consul service.",
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "patternProperties": {
             ".*": {
               "type": "string"
@@ -204,7 +318,10 @@
         },
         "weights": {
           "description": "Configures the weight of the service in terms of its DNS service (SRV) response.",
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "properties": {
             "passing": {
               "description": "Weight for the service when its health checks are passing.",
@@ -215,59 +332,148 @@
               "type": "integer"
             }
           },
-          "required": ["passing", "warning"],
+          "required": [
+            "passing",
+            "warning"
+          ],
           "additionalProperties": false
         },
         "namespace": {
           "description": "The Consul namespace where the service will be registered [Consul Enterprise].",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "partition": {
           "description": "The Consul admin partition where the service will be registered [Consul Enterprise].",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "networkResilienceConfig": {
+          "description": "Configuration for network partition resilience mode with outlier detection for passive health checks.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "enabled": {
+              "description": "Enable network partition resilience mode with outlier detection.",
+              "type": "boolean"
+            },
+            "outlierDetection": {
+              "description": "Outlier detection settings for passive health checks of upstream services.",
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "interval": {
+                  "description": "How often passive health checks are performed in nanoseconds. For example, 10000000000 = 10 seconds.",
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 10000000000
+                },
+                "maxFailures": {
+                  "description": "Number of consecutive failures before ejecting an unhealthy host from the load balancing pool.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 5
+                },
+                "enforcingConsecutive5xx": {
+                  "description": "Percentage of consecutive 5xx responses that trigger host ejection. Value between 0 and 100.",
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100,
+                  "default": 100
+                },
+                "maxEjectionPercent": {
+                  "description": "Maximum percentage of hosts that can be ejected from the load balancing pool. Value between 0 and 100.",
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100,
+                  "default": 50
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
-      "required": ["port"],
+      "required": [
+        "port"
+      ],
       "additionalProperties": false
     },
     "proxy": {
       "description": "Configuration for the sidecar proxy registration with Consul.",
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "properties": {
         "config": {
           "description": "Object value that specifies an opaque JSON configuration. The JSON is stored and returned along with the service instance when called from the API.",
-          "type": ["object", "null"]
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "localServiceAddress": {
           "description": "The IP address or hostname that Envoy should use to connect to the local service. Defaults to localhost.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "publicListenerPort": {
           "description": "The public listener port for Envoy used for service-to-service communication. Defaults to 20000.",
-          "type": ["integer", "null"]
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "healthCheckPort": {
           "description": "The port where a health check endpoint is configured to indicate Envoy's readiness. Defaults to 22000."
         },
         "upstreams": {
           "description": "The list of the upstream services that the proxy should create listeners for.",
-          "type": ["array", "null"],
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "description": "The list of the upstream services that the proxy should create listeners for. Each `upstream` object may contain the following fields.",
             "type": "object",
             "properties": {
               "destinationType": {
                 "description": "Specifies the type of discovery query the proxy should use for finding service mesh instances.",
-                "type": ["string", "null"],
-                "enum": ["service", "prepared_query", null]
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "service",
+                  "prepared_query",
+                  null
+                ]
               },
               "destinationNamespace": {
                 "description": "Specifies the namespace containing the upstream service [Consul Enterprise].",
-                "type": ["string", "null"]
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "destinationPartition": {
                 "description": "Specifies the name of the admin partition containing the upstream service [Consul Enterprise].",
-                "type": ["string", "null"]
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "destinationName": {
                 "description": "Specifies the name of the upstream service or prepared query to route the service mesh to.",
@@ -275,15 +481,24 @@
               },
               "destinationPeer": {
                 "description": "Specifies the name of the peer cluster which contains the upstream service.",
-                "type": ["string", "null"]
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "datacenter": {
                 "description": "Specifies the datacenter to issue the discovery query to.",
-                "type": ["string", "null"]
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "localBindAddress": {
                 "description": "Specifies the address to bind a local listener to.",
-                "type": ["string", "null"]
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "localBindPort": {
                 "description": "Specifies the port to bind a local listener to. The application will make outbound connections to the upstream from the local port.",
@@ -291,41 +506,68 @@
               },
               "config": {
                 "description": "Specifies opaque configuration options that will be provided to the proxy instance for the upstream.",
-                "type": ["object", "null"]
+                "type": [
+                  "object",
+                  "null"
+                ]
               },
               "meshGateway": {
                 "description": "Specifies the mesh gateway configuration for the proxy for this upstream.",
-                "type": ["object", "null"],
+                "type": [
+                  "object",
+                  "null"
+                ],
                 "properties": {
                   "mode": {
                     "description": "Specifies how the upstream with a remote destination datacenter gets resolved.",
                     "type": "string",
-                    "enum": ["none", "local", "remote"]
+                    "enum": [
+                      "none",
+                      "local",
+                      "remote"
+                    ]
                   }
                 },
-                "required": ["mode"]
+                "required": [
+                  "mode"
+                ]
               }
             },
-            "required": ["destinationName", "localBindPort"],
+            "required": [
+              "destinationName",
+              "localBindPort"
+            ],
             "additionalProperties": false
           }
         },
         "meshGateway": {
           "description": "Specifies the mesh gateway configuration for the proxy.",
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "properties": {
             "mode": {
               "description": "Specifies how upstreams with a remote destination datacenter are resolved.",
               "type": "string",
-              "enum": ["none", "local", "remote"]
+              "enum": [
+                "none",
+                "local",
+                "remote"
+              ]
             }
           },
-          "required": ["mode"]
+          "required": [
+            "mode"
+          ]
         }
       },
       "expose": {
         "description": "Specifies a configuration for exposing HTTP paths through the proxy.",
-        "type": ["object", "null"],
+        "type": [
+          "object",
+          "null"
+        ],
         "properties": {
           "checks": {
             "description": "If enabled, all HTTP and gRPC checks registered with the agent are exposed through Envoy.",
@@ -351,7 +593,10 @@
                 },
                 "protocol": {
                   "description": "Sets the protocol of the listener.",
-                  "enum": ["http", "http2"]
+                  "enum": [
+                    "http",
+                    "http2"
+                  ]
                 }
               }
             }
@@ -366,42 +611,70 @@
         "kind": {
           "description": "Specifies the type of gateway to register.",
           "type": "string",
-          "enum": ["mesh-gateway", "terminating-gateway", "api-gateway"]
+          "enum": [
+            "mesh-gateway",
+            "terminating-gateway",
+            "api-gateway"
+          ]
         },
         "lanAddress": {
           "description": "LAN address and port for the gateway. If not specified, defaults to the task/node address.",
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "properties": {
             "address": {
-              "type": ["string", "null"]
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "port": {
-              "type": ["integer", "null"]
+              "type": [
+                "integer",
+                "null"
+              ]
             }
           },
           "additionalProperties": false
         },
         "wanAddress": {
           "description": "WAN address and port for the gateway. If not specified, defaults to the task/node address.",
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "properties": {
             "address": {
-              "type": ["string", "null"]
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "port": {
-              "type": ["integer", "null"]
+              "type": [
+                "integer",
+                "null"
+              ]
             }
           },
           "additionalProperties": false
         },
         "name": {
           "description": "The name the gateway will be registered as in Consul. Defaults to the Task family name.",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "(^$)|(^[a-z0-9]([a-z0-9-_]*[a-z0-9])?$)"
         },
         "tags": {
           "description": "List of string values that can be used to add labels to the gateway.",
-          "type": ["array", "null"],
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           },
@@ -409,7 +682,10 @@
         },
         "meta": {
           "description": "Key-value pairs of metadata to include for the gateway.",
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "patternProperties": {
             ".*": {
               "type": "string"
@@ -418,39 +694,62 @@
         },
         "namespace": {
           "description": "Consul namespace in which the gateway will be registered [Consul Enterprise].",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "partition": {
           "description": "Consul admin partition in which the gateway will be registered [Consul Enterprise].",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "healthCheckPort": {
           "description": "The port where a health check endpoint is configured to indicate Envoy's readiness. Defaults to 22000."
         },
         "proxy": {
           "description": "Object that contains the proxy parameters.",
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "properties": {
             "config": {
-              "type": ["object", "null"]
+              "type": [
+                "object",
+                "null"
+              ]
             }
           }
         }
       },
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "additionalProperties": false
     },
     "transparentProxy": {
       "description": "Transparent proxy configuration for the Consul service",
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "properties": {
         "enabled": {
           "description": "Whether transparent proxy is enabled or disabled for this task. Defaults to true",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "excludeInboundPorts": {
           "description": "List of inbound ports to exclude from traffic redirection",
-          "type": ["array", "null"],
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "integer"
           },
@@ -458,7 +757,10 @@
         },
         "excludeOutboundPorts": {
           "description": "List of outbound ports to exclude from traffic redirection",
-          "type": ["array", "null"],
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "integer"
           },
@@ -466,7 +768,10 @@
         },
         "excludeOutboundCIDRs": {
           "description": "List of outbound IP CIDRs to exclude from traffic redirection",
-          "type": ["array", "null"],
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           },
@@ -474,7 +779,10 @@
         },
         "excludeUIDs": {
           "description": "List of additional UserIDs to exclude from traffic redirection",
-          "type": ["array", "null"],
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           },
@@ -486,7 +794,10 @@
           "properties": {
             "enabled": {
               "description": "Whether Consul DNS should be enabled for this task. Requires transparent proxy to be enabled. Defaults to false. If enabled, services in the mesh will use Consul DNS for default DNS resolution.",
-              "type": ["boolean", "null"]
+              "type": [
+                "boolean",
+                "null"
+              ]
             }
           },
           "additionalProperties": false
@@ -495,6 +806,9 @@
       "additionalProperties": false
     }
   },
-  "required": ["bootstrapDir", "consulServers"],
+  "required": [
+    "bootstrapDir",
+    "consulServers"
+  ],
   "additionalProperties": false
 }

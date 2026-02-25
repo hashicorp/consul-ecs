@@ -11,25 +11,30 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/config"
-
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	smithymiddleware "github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 const (
 	ECSMetadataURIEnvVar = "ECS_CONTAINER_METADATA_URI_V4"
-	AWSRegionEnvVar      = "AWS_REGION"
 
-	containerTypeNormal  = "NORMAL"
-	DesiredStatusStopped = "STOPPED"
+	AWSRegionEnvVar = "AWS_REGION"
 
-	metadataTimeout = 2 * time.Second
+	// This is the type assigned to the containers that are
+	// present in the task definition.
+	containerTypeNormal = "NORMAL"
 )
+
+// UserAgentMiddleware adds a custom user-agent string to SDK v2 requests.
+// Implement it as a named struct for better clarity in the middleware stack.
+type userAgentMiddleware struct {
+	caller string
+}
 
 type ECSTaskMeta struct {
 	Cluster          string                 `json:"Cluster"`
@@ -93,6 +98,9 @@ func (e ECSTaskMeta) AccountID() (string, error) {
 }
 
 func (e ECSTaskMeta) Region() (string, error) {
+	// Task ARN: "arn:aws:ecs:us-east-1:000000000000:task/cluster/00000000000000000000000000000000"
+	// https://docs.aws.amazon.com/general/latest/gr/aws-arns-and-namespaces.html
+	// See also: https://github.com/aws/containers-roadmap/issues/337
 	a, err := arn.Parse(e.TaskARN)
 	if err != nil {
 		return "", fmt.Errorf("unable to determine AWS region from Task ARN: %q", e.TaskARN)
@@ -123,8 +131,8 @@ func (e ECSTaskMeta) HasContainerStopped(name string) bool {
 }
 
 func (c ECSTaskMetaContainer) HasStopped() bool {
-	return c.DesiredStatus == DesiredStatusStopped &&
-		c.KnownStatus == DesiredStatusStopped
+	return c.DesiredStatus == string(types.DesiredStatusStopped) &&
+		c.KnownStatus == string(types.DesiredStatusStopped)
 }
 
 func (c ECSTaskMetaContainer) IsNormalType() bool {
@@ -138,52 +146,48 @@ func ECSTaskMetadata() (ECSTaskMeta, error) {
 	if metadataURI == "" {
 		return metadataResp, fmt.Errorf("%s env var not set", ECSMetadataURIEnvVar)
 	}
-
-	client := &http.Client{
-		Timeout: metadataTimeout,
-	}
-
-	resp, err := client.Get(fmt.Sprintf("%s/task", metadataURI))
+	resp, err := http.Get(fmt.Sprintf("%s/task", metadataURI))
 	if err != nil {
-		return metadataResp, fmt.Errorf("calling metadata uri: %w", err)
+		return metadataResp, fmt.Errorf("calling metadata uri: %s", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		return metadataResp, fmt.Errorf("metadata endpoint returned status %d", resp.StatusCode)
-	}
-
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return metadataResp, fmt.Errorf("reading metadata uri response body: %w", err)
+		return metadataResp, fmt.Errorf("reading metadata uri response body: %s", err)
 	}
-
 	if err := json.Unmarshal(respBytes, &metadataResp); err != nil {
-		return metadataResp, fmt.Errorf("unmarshalling metadata uri response: %w", err)
+		return metadataResp, fmt.Errorf("unmarshalling metadata uri response: %s", err)
 	}
-
 	return metadataResp, nil
 }
 
-// UserAgentMiddleware adds a custom user-agent string to SDK v2 requests.
-func UserAgentMiddleware(caller string) func(*smithymiddleware.Stack) error {
-	return func(stack *smithymiddleware.Stack) error {
-		return stack.Build.Add(
-			smithymiddleware.BuildMiddlewareFunc("CustomUserAgent",
-				func(ctx context.Context, in smithymiddleware.BuildInput, next smithymiddleware.BuildHandler) (
-					out smithymiddleware.BuildOutput, metadata smithymiddleware.Metadata, err error,
-				) {
-					req, ok := in.Request.(*smithyhttp.Request)
-					if ok {
-						req.Header.Set("User-Agent", req.Header.Get("User-Agent")+" "+caller)
-					}
-					return next.HandleBuild(ctx, in)
-				}),
-			smithymiddleware.After,
-		)
-	}
+func (m *userAgentMiddleware) ID() string {
+	return "ConsulECSUserAgent"
 }
 
+// UserAgentMiddleware adds a custom user-agent string to SDK v2 requests.
+func (m *userAgentMiddleware) HandleBuild(
+	ctx context.Context, in smithymiddleware.BuildInput, next smithymiddleware.BuildHandler,
+) (
+	out smithymiddleware.BuildOutput, metadata smithymiddleware.Metadata, err error,
+) {
+	req, ok := in.Request.(*smithyhttp.Request)
+	if ok {
+		// Append the caller to the existing User-Agent
+		ua := req.Header.Get("User-Agent")
+		if ua != "" {
+			ua = ua + " "
+		}
+		req.Header.Set("User-Agent", ua+m.caller)
+	}
+	return next.HandleBuild(ctx, in)
+}
+
+// NewSession prepares a client session.
+// The returned session includes a User-Agent handler to enable AWS to track usage.
+// If the AWS SDK fails to find the region, the region is parsed from Task metadata
+// (on EC2 the region is not typically defined in the environment).
 // NewAWSConfig loads AWS SDK v2 config with proper region injection.
 func NewAWSConfig(meta ECSTaskMeta, userAgentCaller string) (aws.Config, error) {
 	ctx := context.Background()
@@ -209,7 +213,10 @@ func NewAWSConfig(meta ECSTaskMeta, userAgentCaller string) (aws.Config, error) 
 	}
 
 	if userAgentCaller != "" {
-		cfg.APIOptions = append(cfg.APIOptions, UserAgentMiddleware(userAgentCaller))
+		// Register the middleware onto the Build step of the stack
+		cfg.APIOptions = append(cfg.APIOptions, func(stack *smithymiddleware.Stack) error {
+			return stack.Build.Add(&userAgentMiddleware{caller: userAgentCaller}, smithymiddleware.After)
+		})
 	}
 
 	return cfg, nil

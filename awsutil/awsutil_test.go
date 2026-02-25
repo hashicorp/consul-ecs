@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -119,8 +120,8 @@ func TestHasContainerStopped(t *testing.T) {
 
 	require.False(t, taskMeta.HasContainerStopped("container2"))
 
-	taskMeta.Containers[1].DesiredStatus = DesiredStatusStopped
-	taskMeta.Containers[1].KnownStatus = DesiredStatusStopped
+	taskMeta.Containers[1].DesiredStatus = string(types.DesiredStatusStopped)
+	taskMeta.Containers[1].KnownStatus = string(types.DesiredStatusStopped)
 
 	require.True(t, taskMeta.HasContainerStopped("container2"))
 }
@@ -134,8 +135,8 @@ func TestHasStopped(t *testing.T) {
 
 	require.False(t, container.HasStopped())
 
-	container.DesiredStatus = DesiredStatusStopped
-	container.KnownStatus = DesiredStatusStopped
+	container.DesiredStatus = string(types.DesiredStatusStopped)
+	container.KnownStatus = string(types.DesiredStatusStopped)
 
 	require.True(t, container.HasStopped())
 }

@@ -4,11 +4,13 @@
 package healthsync
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -22,6 +24,7 @@ import (
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/serf/testutil/retry"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
@@ -145,7 +148,7 @@ func TestRun(t *testing.T) {
 					status:  ecs.HealthStatusUnhealthy,
 				},
 			},
-			expectedDataplaneHealthStatus: api.HealthPassing,
+			expectedDataplaneHealthStatus: api.HealthCritical,
 			consulLogin:                   consulLoginCfg,
 		},
 		"two unhealthy health sync containers": {
@@ -201,10 +204,10 @@ func TestRun(t *testing.T) {
 				},
 				"container-2": {
 					missing: true,
-					status:  ecs.HealthStatusUnhealthy,
+					status:  ecs.HealthStatusHealthy,
 				},
 			},
-			expectedDataplaneHealthStatus:   api.HealthPassing,
+			expectedDataplaneHealthStatus:   api.HealthCritical,
 			shouldMissingContainersReappear: true,
 			consulLogin:                     consulLoginCfg,
 		},
@@ -381,6 +384,7 @@ func TestRun(t *testing.T) {
 					if expCheck.CheckID == checkID {
 						if hsc.missing {
 							expCheck.Status = api.HealthCritical
+							markDataplaneContainerUnhealthy = true
 						} else {
 							expCheck.Status = ecsHealthToConsulHealth(hsc.status)
 							// If there are multiple health sync containers and one of them is unhealthy
@@ -446,8 +450,9 @@ func TestRun(t *testing.T) {
 			if c.shouldMissingContainersReappear {
 				// Mark all containers as non missing
 				c.missingDataplaneContainer = false
-				for _, hsc := range c.healthSyncContainers {
+				for name, hsc := range c.healthSyncContainers {
 					hsc.missing = false
+					c.healthSyncContainers[name] = hsc
 				}
 
 				// Add the containers data into task meta response
@@ -841,6 +846,18 @@ func injectContainersIntoTaskMetaResponse(t *testing.T, taskMetadataResponse *aw
 	return taskMetaRespStr
 }
 
+func buildTaskMetaWithContainers(t *testing.T, taskMetadataResponse *awsutil.ECSTaskMeta, containers map[string]string) string {
+	var taskMetaContainersResponse []awsutil.ECSTaskMetaContainer
+	for name, status := range containers {
+		taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(name, status))
+	}
+	taskMetadataResponse.Containers = taskMetaContainersResponse
+	taskMetaRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
+	require.NoError(t, err)
+
+	return taskMetaRespStr
+}
+
 func constructContainerResponse(name, health string) awsutil.ECSTaskMetaContainer {
 	return awsutil.ECSTaskMetaContainer{
 		Name: name,
@@ -925,4 +942,498 @@ func registerNode(t *testing.T, consulClient *api.Client, taskMeta awsutil.ECSTa
 
 	_, err = consulClient.Catalog().Register(payload, nil)
 	require.NoError(t, err)
+}
+
+// expectedCheck represents the expected state of a health check
+type expectedCheck struct {
+	serviceName string
+	checkID     string
+	status      string // api.HealthPassing or api.HealthCritical
+}
+
+// assertCheckStatuses verifies all expected checks exist and have the expected status, with retries
+func assertCheckStatuses(t *testing.T, client *api.Client, expectedChecks []expectedCheck, opts *api.QueryOptions) {
+	timer := &retry.Timer{Timeout: 5 * time.Second, Wait: 500 * time.Millisecond}
+	retry.RunWith(timer, t, func(r *retry.R) {
+		for _, exp := range expectedChecks {
+			filter := fmt.Sprintf("CheckID == `%s`", exp.checkID)
+			queryOpts := &api.QueryOptions{
+				Filter:    filter,
+				Namespace: opts.Namespace,
+				Partition: opts.Partition,
+			}
+			checks, _, err := client.Health().Checks(exp.serviceName, queryOpts)
+			require.NoError(r, err)
+			require.Len(r, checks, 1, "expected exactly one check with ID %s", exp.checkID)
+			require.Equal(r, exp.status, checks[0].Status, "check %s has unexpected status", exp.checkID)
+		}
+	})
+}
+
+// extractUpdatedCheckIDs parses log output and returns a set of checkIDs that were updated
+func extractUpdatedCheckIDs(logContent string) map[string]bool {
+	updated := make(map[string]bool)
+	// Match log lines like: health check updated in Consul: checkID=xxx status=yyy
+	re := regexp.MustCompile(`health check updated in Consul: checkID=([^\s]+)`)
+	matches := re.FindAllStringSubmatch(logContent, -1)
+	for _, match := range matches {
+		if len(match) >= 2 {
+			updated[match[1]] = true
+		}
+	}
+	return updated
+}
+
+// getExpectedUpdatedCheckIDs returns the set of checkIDs that should have been updated
+// (i.e., those whose status changed between before and after)
+func getExpectedUpdatedCheckIDs(before, after []expectedCheck) map[string]bool {
+	beforeStatus := make(map[string]string)
+	for _, c := range before {
+		beforeStatus[c.checkID] = c.status
+	}
+
+	expected := make(map[string]bool)
+	for _, c := range after {
+		if beforeStatus[c.checkID] != c.status {
+			expected[c.checkID] = true
+		}
+	}
+	return expected
+}
+
+// assertExpectedUpdates verifies that exactly the expected checks were updated (no more, no less)
+func assertExpectedUpdates(t *testing.T, logContent string, expectedBefore, expectedAfter []expectedCheck) {
+	actualUpdates := extractUpdatedCheckIDs(logContent)
+	expectedUpdates := getExpectedUpdatedCheckIDs(expectedBefore, expectedAfter)
+
+	// Check for missing updates (expected but not found in logs)
+	for checkID := range expectedUpdates {
+		require.True(t, actualUpdates[checkID],
+			"expected check %s to be updated but no log entry found", checkID)
+	}
+
+	// Check for unexpected updates (found in logs but not expected)
+	for checkID := range actualUpdates {
+		require.True(t, expectedUpdates[checkID],
+			"check %s was updated but should not have been", checkID)
+	}
+}
+
+type syncChecksTestConfig struct {
+	service              *config.ServiceRegistration
+	proxy                *config.AgentServiceConnectProxyConfig
+	gateway              *config.GatewayRegistration
+	healthSyncContainers []string
+}
+
+type syncChecksTestEnvironment struct {
+	consulClient         *api.Client
+	apiQueryOptions      *api.QueryOptions
+	cmd                  *Command
+	clusterARN           string
+	containerNames       []string
+	taskMetadataResponse *awsutil.ECSTaskMeta
+	currentTaskMetaResp  *atomic.Value
+	logBuffer            *bytes.Buffer
+}
+
+func setupSyncChecksTest(t *testing.T, cfg syncChecksTestConfig) *syncChecksTestEnvironment {
+	var (
+		partition = ""
+		namespace = ""
+	)
+
+	if testutil.EnterpriseFlag() {
+		partition = "foo"
+		namespace = "default"
+	}
+
+	server, consulCfg := testutil.ConsulServer(t, nil)
+	consulClient, err := api.NewClient(consulCfg)
+	require.NoError(t, err)
+
+	if testutil.EnterpriseFlag() {
+		createPartitionAndNamespace(t, consulClient, partition, namespace)
+	}
+
+	_, serverGRPCPort := testutil.GetHostAndPortFromAddress(server.GRPCAddr)
+	_, serverHTTPPort := testutil.GetHostAndPortFromAddress(server.HTTPAddr)
+
+	taskMetadataResponse := &awsutil.ECSTaskMeta{
+		Cluster: "arn:aws:ecs:us-east-1:123456789:cluster/test",
+		TaskARN: "arn:aws:ecs:us-east-1:123456789:task/test/abcdef",
+		Family:  "test-family",
+	}
+	taskMetaRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
+	require.NoError(t, err)
+
+	var currentTaskMetaResp atomic.Value
+	currentTaskMetaResp.Store(taskMetaRespStr)
+	testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t,
+		func() string {
+			return currentTaskMetaResp.Load().(string)
+		},
+	))
+
+	envoyBootstrapDir := testutil.TempDir(t)
+
+	consulEcsConfig := config.Config{
+		LogLevel:             "DEBUG",
+		BootstrapDir:         envoyBootstrapDir,
+		HealthSyncContainers: cfg.healthSyncContainers,
+		ConsulServers: config.ConsulServers{
+			Hosts: "127.0.0.1",
+			GRPC: config.GRPCSettings{
+				Port: serverGRPCPort,
+			},
+			HTTP: config.HTTPSettings{
+				Port: serverHTTPPort,
+			},
+			SkipServerWatch: true,
+		},
+	}
+
+	if cfg.gateway != nil {
+		consulEcsConfig.Gateway = cfg.gateway
+		if testutil.EnterpriseFlag() {
+			consulEcsConfig.Gateway.Namespace = namespace
+			consulEcsConfig.Gateway.Partition = partition
+		}
+	} else {
+		consulEcsConfig.Service = *cfg.service
+		consulEcsConfig.Proxy = cfg.proxy
+		if testutil.EnterpriseFlag() {
+			consulEcsConfig.Service.Namespace = namespace
+			consulEcsConfig.Service.Partition = partition
+		}
+	}
+
+	testutil.SetECSConfigEnvVar(t, &consulEcsConfig)
+
+	// Run mesh-init to register services and create health checks
+	ui := cli.NewMockUi()
+	ctrlPlaneCmd := meshinit.Command{UI: ui}
+	code := ctrlPlaneCmd.Run(nil)
+	require.Equal(t, 0, code, ui.ErrorWriter.String())
+
+	// Set up the Command with a logger that writes to a buffer for testing
+	logBuf := &bytes.Buffer{}
+	logger := hclog.New(&hclog.LoggerOptions{
+		Level:  hclog.LevelFromString(consulEcsConfig.LogLevel),
+		Output: logBuf,
+	})
+
+	cmd := &Command{UI: ui}
+	cmd.config = &consulEcsConfig
+	cmd.log = logger
+
+	taskMeta, err := awsutil.ECSTaskMetadata()
+	require.NoError(t, err)
+
+	cmd.checks, err = cmd.fetchHealthChecks(consulClient, taskMeta)
+	require.NoError(t, err)
+
+	clusterARN, err := taskMeta.ClusterARN()
+	require.NoError(t, err)
+
+	return &syncChecksTestEnvironment{
+		consulClient: consulClient,
+		apiQueryOptions: &api.QueryOptions{
+			Namespace: namespace,
+			Partition: partition,
+		},
+		cmd:                  cmd,
+		clusterARN:           clusterARN,
+		containerNames:       append(cfg.healthSyncContainers, config.ConsulDataplaneContainerName),
+		taskMetadataResponse: taskMetadataResponse,
+		currentTaskMetaResp:  &currentTaskMetaResp,
+		logBuffer:            logBuf,
+	}
+}
+
+// TestSyncChecks_ChangeDetection tests that syncChecks correctly updates Consul
+// health checks and only updates when status actually changes.
+func TestSyncChecks_ChangeDetection(t *testing.T) {
+	serviceName := "test-service"
+	proxyServiceName := fmt.Sprintf("%s-sidecar-proxy", serviceName)
+	servicePort := 8080
+	taskID := "abcdef"
+
+	cases := map[string]struct {
+		healthSyncContainers         []string
+		startingContainers           map[string]string
+		expectedChecksBeforeUpdate   []expectedCheck
+		updatedContainers            map[string]string
+		expectedChecksAfterUpdate    []expectedCheck
+	}{
+		"no change should not update consul": {
+			healthSyncContainers: []string{"app"},
+			startingContainers: map[string]string{
+				"app":                                ecs.HealthStatusHealthy,
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksBeforeUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+			},
+			updatedContainers: map[string]string{
+				"app":                                ecs.HealthStatusHealthy,
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksAfterUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+			},
+		},
+		"healthy to unhealthy should update all checks": {
+			healthSyncContainers: []string{"app"},
+			startingContainers: map[string]string{
+				"app":                                ecs.HealthStatusHealthy,
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksBeforeUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+			},
+			updatedContainers: map[string]string{
+				"app":                                ecs.HealthStatusUnhealthy,
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksAfterUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+			},
+		},
+		"one of two containers becomes unhealthy": {
+			healthSyncContainers: []string{"app1", "app2"},
+			startingContainers: map[string]string{
+				"app1":                               ecs.HealthStatusHealthy,
+				"app2":                               ecs.HealthStatusHealthy,
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksBeforeUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app1", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app2", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+			},
+			updatedContainers: map[string]string{
+				"app1":                               ecs.HealthStatusUnhealthy,
+				"app2":                               ecs.HealthStatusHealthy,
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksAfterUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app1", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app2", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+			},
+		},
+		"unhealthy to healthy recovery": {
+			healthSyncContainers: []string{"app"},
+			startingContainers: map[string]string{
+				"app":                                ecs.HealthStatusUnhealthy,
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksBeforeUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+			},
+			updatedContainers: map[string]string{
+				"app":                                ecs.HealthStatusHealthy,
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksAfterUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+			},
+		},
+		"dataplane container goes missing": {
+			healthSyncContainers: []string{"app"},
+			startingContainers: map[string]string{
+				"app":                                ecs.HealthStatusHealthy,
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksBeforeUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+			},
+			updatedContainers: map[string]string{
+				"app": ecs.HealthStatusHealthy,
+				// dataplane container is missing from task metadata
+			},
+			expectedChecksAfterUpdate: []expectedCheck{
+				// app check remains passing since app container is still healthy
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app", serviceName, taskID), status: api.HealthPassing},
+				// dataplane checks become critical because dataplane container is missing
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+			},
+		},
+		"missing container treated as unhealthy": {
+			healthSyncContainers: []string{"app"},
+			startingContainers: map[string]string{
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksBeforeUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+			},
+			updatedContainers: map[string]string{
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksAfterUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+			},
+		},
+		"container reappears healthy": {
+			healthSyncContainers: []string{"app"},
+			startingContainers: map[string]string{
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksBeforeUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+			},
+			updatedContainers: map[string]string{
+				"app":                                ecs.HealthStatusHealthy,
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksAfterUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-app", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+				{serviceName: proxyServiceName, checkID: fmt.Sprintf("%s-%s-sidecar-proxy-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			env := setupSyncChecksTest(t, syncChecksTestConfig{
+				service: &config.ServiceRegistration{
+					Name: serviceName,
+					Port: servicePort,
+				},
+				proxy: &config.AgentServiceConnectProxyConfig{
+					PublicListenerPort: config.DefaultPublicListenerPort,
+				},
+				healthSyncContainers: tc.healthSyncContainers,
+			})
+
+			// Set up initial container state
+			env.currentTaskMetaResp.Store(buildTaskMetaWithContainers(t, env.taskMetadataResponse, tc.startingContainers))
+
+			// First syncChecks call
+			statuses := env.cmd.syncChecks(env.consulClient, map[string]checkStatus{}, env.clusterARN, env.containerNames)
+
+			// Assert expected checks after first call
+			assertCheckStatuses(t, env.consulClient, tc.expectedChecksBeforeUpdate, env.apiQueryOptions)
+
+			// Update container state for second call
+			env.currentTaskMetaResp.Store(buildTaskMetaWithContainers(t, env.taskMetadataResponse, tc.updatedContainers))
+
+			// Clear log buffer before second call to isolate its log output
+			env.logBuffer.Reset()
+
+			// Second syncChecks call
+			statuses = env.cmd.syncChecks(env.consulClient, statuses, env.clusterARN, env.containerNames)
+
+			// Assert expected checks after second call
+			assertCheckStatuses(t, env.consulClient, tc.expectedChecksAfterUpdate, env.apiQueryOptions)
+
+			// Verify exactly the expected checks were updated (no more, no less)
+			assertExpectedUpdates(t, env.logBuffer.String(), tc.expectedChecksBeforeUpdate, tc.expectedChecksAfterUpdate)
+		})
+	}
+}
+
+// TestSyncChecks_Gateway_ChangeDetection tests syncChecks change detection for gateway services
+func TestSyncChecks_Gateway_ChangeDetection(t *testing.T) {
+	serviceName := "test-mesh-gateway"
+	taskID := "abcdef"
+
+	cases := map[string]struct {
+		startingContainers         map[string]string
+		expectedChecksBeforeUpdate []expectedCheck
+		updatedContainers          map[string]string
+		expectedChecksAfterUpdate  []expectedCheck
+	}{
+		"no change should not update consul": {
+			startingContainers: map[string]string{
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksBeforeUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+			},
+			updatedContainers: map[string]string{
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksAfterUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+			},
+		},
+		"healthy to missing dataplane should update": {
+			startingContainers: map[string]string{
+				config.ConsulDataplaneContainerName: ecs.HealthStatusHealthy,
+			},
+			expectedChecksBeforeUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthPassing},
+			},
+			updatedContainers: map[string]string{},
+			expectedChecksAfterUpdate: []expectedCheck{
+				{serviceName: serviceName, checkID: fmt.Sprintf("%s-%s-consul-dataplane", serviceName, taskID), status: api.HealthCritical},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			env := setupSyncChecksTest(t, syncChecksTestConfig{
+				gateway: &config.GatewayRegistration{
+					Kind: api.ServiceKindMeshGateway,
+					Name: serviceName,
+					LanAddress: &config.GatewayAddress{
+						Port: 12345,
+					},
+				},
+			})
+
+			// Set up initial container state
+			env.currentTaskMetaResp.Store(buildTaskMetaWithContainers(t, env.taskMetadataResponse, tc.startingContainers))
+
+			// First syncChecks call
+			statuses := env.cmd.syncChecks(env.consulClient, map[string]checkStatus{}, env.clusterARN, env.containerNames)
+
+			// Assert expected checks after first call
+			assertCheckStatuses(t, env.consulClient, tc.expectedChecksBeforeUpdate, env.apiQueryOptions)
+
+			// Update container state for second call
+			env.currentTaskMetaResp.Store(buildTaskMetaWithContainers(t, env.taskMetadataResponse, tc.updatedContainers))
+
+			// Clear log buffer before second call to isolate its log output
+			env.logBuffer.Reset()
+
+			// Second syncChecks call
+			statuses = env.cmd.syncChecks(env.consulClient, statuses, env.clusterARN, env.containerNames)
+
+			// Assert expected checks after second call
+			assertCheckStatuses(t, env.consulClient, tc.expectedChecksAfterUpdate, env.apiQueryOptions)
+
+			// Verify exactly the expected checks were updated (no more, no less)
+			assertExpectedUpdates(t, env.logBuffer.String(), tc.expectedChecksBeforeUpdate, tc.expectedChecksAfterUpdate)
+		})
+	}
 }

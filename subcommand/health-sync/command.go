@@ -136,7 +136,7 @@ func (c *Command) realRun() error {
 	var healthSyncContainers []string
 	healthSyncContainers = append(healthSyncContainers, c.config.HealthSyncContainers...)
 	healthSyncContainers = append(healthSyncContainers, config.ConsulDataplaneContainerName)
-	currentHealthStatuses := make(map[string]string)
+	currentHealthStatuses := make(map[string]checkStatus)
 
 	c.checks, err = c.fetchHealthChecks(consulClient, taskMeta)
 	if err != nil {

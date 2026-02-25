@@ -13,7 +13,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	v2creds "github.com/aws/aws-sdk-go-v2/credentials"
-	v1creds "github.com/aws/aws-sdk-go/aws/credentials"
 	iamauth "github.com/hashicorp/consul-awsauth"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
@@ -253,7 +252,7 @@ func (c *Config) createAWSBearerToken(taskMeta awsutil.ECSTaskMeta) (string, err
 
 	// The iamauth library still requires a v1 credential provider.
 	// We wrap our v2 credentials into a v1 provider for compatibility.
-	v1CredsProvider := v1creds.NewStaticCredentials(
+	v1CredsProvider := v2creds.NewStaticCredentialsProvider(
 		v2Creds.AccessKeyID,
 		v2Creds.SecretAccessKey,
 		v2Creds.SessionToken,

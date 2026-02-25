@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //go:build !windows
-// +build !windows
 
 package entrypoint
 
@@ -50,14 +49,14 @@ func (e *Cmd) Run() {
 	defer close(e.doneCh)
 	defer close(e.startedCh)
 
-	if err := e.Cmd.Start(); err != nil {
+	if err := e.Start(); err != nil {
 		e.log.Error("starting process", "error", err.Error())
 		// Closed channels (in defers) indicate the command failed to start.
 		return
 	}
 	e.startedCh <- struct{}{}
 
-	if err := e.Cmd.Wait(); err != nil {
+	if err := e.Wait(); err != nil {
 		if _, ok := err.(*exec.ExitError); !ok {
 			// Do not log if it is only a non-zero exit code.
 			e.log.Error("waiting for process to finish", "error", err.Error())

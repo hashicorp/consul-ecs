@@ -130,11 +130,19 @@ func AuthMethodInit(t *testing.T, consulClient *api.Client, expectedServiceName,
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		os.Unsetenv("AWS_ACCESS_KEY_ID")
-		os.Unsetenv("AWS_SECRET_ACCESS_KEY")
+		if err := os.Unsetenv("AWS_ACCESS_KEY_ID"); err != nil {
+			t.Logf("Failed to unset AWS_ACCESS_KEY_ID: %v", err)
+		}
+		if err := os.Unsetenv("AWS_SECRET_ACCESS_KEY"); err != nil {
+			t.Logf("Failed to unset AWS_SECRET_ACCESS_KEY: %v", err)
+		}
 	})
-	os.Setenv("AWS_ACCESS_KEY_ID", "fake-key-id")
-	os.Setenv("AWS_SECRET_ACCESS_KEY", "fake-secret-key")
+	if err := os.Setenv("AWS_ACCESS_KEY_ID", "fake-key-id"); err != nil {
+		t.Fatalf("Failed to set AWS_ACCESS_KEY_ID: %v", err)
+	}
+	if err := os.Setenv("AWS_SECRET_ACCESS_KEY", "fake-secret-key"); err != nil {
+		t.Fatalf("Failed to set AWS_SECRET_ACCESS_KEY: %v", err)
+	}
 
 	return fakeAws
 }

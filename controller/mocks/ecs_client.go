@@ -33,9 +33,10 @@ func (m *ECSClient) ListTasks(ctx context.Context, params *ecs.ListTasksInput, o
 	// Simulate NextToken as an index string
 	if params.NextToken != nil && *params.NextToken != "" {
 		idx, err := strconv.Atoi(*params.NextToken)
-		if err == nil {
-			startIndex = idx
+		if err != nil {
+			return nil, err
 		}
+		startIndex = idx
 	}
 
 	limit := len(m.Tasks)

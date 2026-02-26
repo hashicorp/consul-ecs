@@ -184,10 +184,6 @@ func (m *userAgentMiddleware) HandleBuild(
 	return next.HandleBuild(ctx, in)
 }
 
-// NewSession prepares a client session.
-// The returned session includes a User-Agent handler to enable AWS to track usage.
-// If the AWS SDK fails to find the region, the region is parsed from Task metadata
-// (on EC2 the region is not typically defined in the environment).
 // NewAWSConfig loads AWS SDK v2 config with proper region injection.
 func NewAWSConfig(meta ECSTaskMeta, userAgentCaller string) (aws.Config, error) {
 	ctx := context.Background()

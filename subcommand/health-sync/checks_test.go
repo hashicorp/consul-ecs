@@ -6,16 +6,16 @@ package healthsync
 import (
 	"testing"
 
-	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/require"
 )
 
 func TestEcsHealthToConsulHealth(t *testing.T) {
-	require.Equal(t, api.HealthPassing, ecsHealthToConsulHealth(ecs.HealthStatusHealthy))
-	require.Equal(t, api.HealthCritical, ecsHealthToConsulHealth(ecs.HealthStatusUnknown))
-	require.Equal(t, api.HealthCritical, ecsHealthToConsulHealth(ecs.HealthStatusUnhealthy))
+	require.Equal(t, api.HealthPassing, ecsHealthToConsulHealth(string(types.HealthStatusHealthy)))
+	require.Equal(t, api.HealthCritical, ecsHealthToConsulHealth(string(types.HealthStatusUnknown)))
+	require.Equal(t, api.HealthCritical, ecsHealthToConsulHealth(string(types.HealthStatusUnhealthy)))
 	require.Equal(t, api.HealthCritical, ecsHealthToConsulHealth(""))
 }
 

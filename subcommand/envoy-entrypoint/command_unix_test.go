@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
@@ -199,8 +199,8 @@ func makeTaskMeta(containerNames ...string) awsutil.ECSTaskMeta {
 	for _, name := range containerNames {
 		container := awsutil.ECSTaskMetaContainer{
 			Name:          name,
-			DesiredStatus: ecs.DesiredStatusStopped,
-			KnownStatus:   ecs.DesiredStatusRunning,
+			DesiredStatus: string(types.DesiredStatusStopped),
+			KnownStatus:   string(types.DesiredStatusRunning),
 			Type:          "NORMAL",
 		}
 

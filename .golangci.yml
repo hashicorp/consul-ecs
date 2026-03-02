@@ -4,13 +4,25 @@
 version: "2"
 
 linters:
-  disable-all: true
   enable:
     - govet
     - unconvert
     - staticcheck
     - ineffassign
     - unparam
+  disable:
+    - errcheck
+    - gosimple
+    - gocritic
+    - godot
+    - gochecknoinits
+    - gochecknoglobals
+    - gocognac
+    - gosec
+    - prealloc
+    - revive
+    - godox
+    - gofumpt
 
 formatters:
   enable:

@@ -1,4 +1,31 @@
-## Unreleased
+## 0.9.3 (Jan 12, 2026)
+SECURITY
+* Upgrade `golang.org/x/crypto` to `v0.45.0` to address [GO-2025-4134] and [GO-2025-4116]
+
+IMPROVEMENTS
+* Bump Go version to `1.25.5`
+* Bump `golang.org/x/net` to `v0.47.0`
+* Bump `golang.org/x/sys` to `v0.38.0`
+* Bump `golang.org/x/text` to `v0.31.0`  
+
+## 0.9.2 (Jun 13, 2025)
+BUG FIXES
+* Fix bug where health-sync race condition overrides consul-dataplane critical status after a sigterm
+
+IMPROVEMENTS
+Bump `x/net` to `0.38.0`
+
+## 0.9.1 (Mar 3, 2025)
+BUG FIXES
+* Fix bug where calls to AWS IAM and STS services error out due to URL with multiple trailing slashes.
+
+SECURITY
+* Upgrade go version to `1.23.6` and crypto to `0.35.0` to address [CVE-2025-22869](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-22869)
+
+IMPROVEMENTS
+* Remove info logs from health sync checks
+
+## 0.9.0 (Jan 15, 2025)
 BUG FIXES
 * Fix bug where calls to AWS IAM and STS services error out due to URL with multiple trailing slashes.
 

@@ -89,6 +89,9 @@ type TaskStateLister struct {
 
 	// Log is the logger for the ServiceStateLister.
 	Log hclog.Logger
+
+	// Ctx is the context for AWS API calls, allowing proper cancellation and timeout handling.
+	Ctx context.Context
 }
 
 // List returns resources to be reconciled.
@@ -149,7 +152,11 @@ func (s TaskStateLister) fetchECSTasks() (map[TaskID]*TaskState, error) {
 	// nextToken is to handle paginated responses from AWS.
 	var nextToken *string
 
-	ctx := context.TODO()
+	// Use the controller's context to allow proper cancellation
+	ctx := s.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	// This isn't an infinite loop, instead this is a "do while" loop
 	// because we'll break out of it as soon as nextToken is nil.

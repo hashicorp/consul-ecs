@@ -175,24 +175,24 @@ func (s TaskStateLister) fetchECSTasks() (map[TaskID]*TaskState, error) {
 		if err != nil {
 			return nil, fmt.Errorf("describing tasks: %w", err)
 		}
-		for _, task := range tasks.Tasks {
-			if task.TaskArn == nil {
+		for i := range tasks.Tasks {
+			if tasks.Tasks[i].TaskArn == nil {
 				s.Log.Warn("task has no ARN")
 				continue
 			}
-			if !isMeshTask(&task) {
-				s.Log.Debug("skipping non-mesh task", "task-arn", *task.TaskArn)
+			if !isMeshTask(&tasks.Tasks[i]) {
+				s.Log.Debug("skipping non-mesh task", "task-arn", *tasks.Tasks[i].TaskArn)
 				continue
 			}
 
-			state, err := s.taskStateFromTask(&task)
+			state, err := s.taskStateFromTask(&tasks.Tasks[i])
 			if err != nil {
-				s.Log.Error("skipping task", "task-arn", *task.TaskArn, "tags", task.Tags, "err", err)
+				s.Log.Error("skipping task", "task-arn", *tasks.Tasks[i].TaskArn, "tags", tasks.Tasks[i].Tags, "err", err)
 				continue
 			}
 
 			if state.Partition != s.Partition {
-				s.Log.Debug("skipping task in external partition", "partition", state.Partition, "task-arn", *task.TaskArn)
+				s.Log.Debug("skipping task in external partition", "partition", state.Partition, "task-arn", *tasks.Tasks[i].TaskArn)
 				continue
 			}
 

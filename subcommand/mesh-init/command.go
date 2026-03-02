@@ -579,8 +579,7 @@ func getLocalityParams(taskMeta awsutil.ECSTaskMeta) *api.Locality {
 // registerServiceDefaults registers service defaults with passive health check
 // for network partition resilience mode. It fetches any existing service defaults,
 // merges the configurations, and only adds passive health check if not already present.
-// If upstreams are defined in the proxy configuration, passive health check is also
-// applied to those specific upstreams via UpstreamConfig.Overrides.
+// The passive health check is applied to all upstreams via UpstreamConfig.Defaults.
 func (c *Command) registerServiceDefaults(consulClient *api.Client, service *api.AgentService, resilience *config.NetworkPartitionResilienceConfig) error {
 	// Get the outlier detection config or use defaults
 	outlierDetectionCfg := resilience.OutlierDetection

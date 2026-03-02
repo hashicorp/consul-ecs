@@ -27,7 +27,7 @@ RUN if [ "$GOARCH" = "arm64" ]; then \
 # Install Go with checksum verification for supply-chain security
 RUN curl -L https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -o /tmp/go.tar.gz && \
     curl -L https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz.sha256 -o /tmp/go.tar.gz.sha256 && \
-    sha256sum -c /tmp/go.tar.gz.sha256 && \
+    echo "$(cat /tmp/go.tar.gz.sha256)  /tmp/go.tar.gz" | sha256sum -c && \
     tar -C /opt -zxf /tmp/go.tar.gz && \
     rm /tmp/go.tar.gz /tmp/go.tar.gz.sha256
 

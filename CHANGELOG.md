@@ -5,7 +5,6 @@ BUG FIXES
 SECURITY
 * Update Dockerfile to use Alpine 3.23 and run full `apk upgrade` to mitigate multiple vulnerable packages including curl, gnupg, openssl, sqlite-libs, busybox, and others identified by Wiz security scan ([CVE-2025-14819], [CVE-2025-14524], [CVE-2025-14017], [CVE-2025-30258], and related CVEs).
 * Fix reflected XSS vulnerability in testutil/iamauthtest/testing.go by escaping user-provided HTTP request values before embedding in error responses.
-* Add checksum verification for Go binary downloads in FIPS Dockerfile to mitigate supply-chain risks.
 * Upgrade `golang.org/x/crypto` to `v0.45.0` to address [GO-2025-4134] and [GO-2025-4116]
 * Update go-discover to use latest version v1.1.0 to include latest security patches and dependency updates.
 

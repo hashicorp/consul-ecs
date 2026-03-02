@@ -24,8 +24,12 @@ RUN if [ "$GOARCH" = "arm64" ]; then \
       apt-get install -y --no-install-recommends crossbuild-essential-arm64 gcc-aarch64-linux-gnu; \
     fi
 
-# Install Go
-RUN curl -L https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C /opt -zxv
+# Install Go with checksum verification for supply-chain security
+RUN curl -L https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -o /tmp/go.tar.gz && \
+    curl -L https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz.sha256 -o /tmp/go.tar.gz.sha256 && \
+    sha256sum -c /tmp/go.tar.gz.sha256 && \
+    tar -C /opt -zxf /tmp/go.tar.gz && \
+    rm /tmp/go.tar.gz /tmp/go.tar.gz.sha256
 
 ENV PATH="/root/go/bin:/opt/go/bin:$PATH"
 

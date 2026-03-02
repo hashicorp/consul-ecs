@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2021, 2025
 // SPDX-License-Identifier: MPL-2.0
 
 package iamauthtest
@@ -9,6 +9,7 @@ package iamauthtest
 import (
 	"encoding/xml"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -81,7 +82,7 @@ func writeXML(w http.ResponseWriter, val interface{}) {
 
 func writeError(w http.ResponseWriter, code int, r *http.Request) {
 	w.WriteHeader(code)
-	msg := fmt.Sprintf("%s %s", r.Method, r.URL)
+	msg := fmt.Sprintf("%s %s", html.EscapeString(r.Method), html.EscapeString(r.URL.String()))
 	if _, writeErr := fmt.Fprintf(w, `<ErrorResponse xmlns="https://fakeaws/">
   <Error>
 	<Message>Fake AWS Server Error: %s</Message>

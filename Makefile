@@ -3,7 +3,8 @@ SHELL = /usr/bin/env bash -euo pipefail -c
 # ---------- CRT ----------
 BIN_NAME = consul-ecs
 
-ARCH     = $(shell A=$$(uname -m); [ $$A = x86_64 ] && A=amd64; [ $$A = aarch64 ] && A=arm64; echo $$A)
+# Allow ARCH to be overridden; auto-detect only if not set
+ARCH     ?= $(shell A=$$(uname -m); [ $$A = x86_64 ] && A=amd64; [ $$A = aarch64 ] && A=arm64; echo $$A)
 OS       = $(shell uname | tr [[:upper:]] [[:lower:]])
 PLATFORM = $(OS)/$(ARCH)
 DIST     = dist/$(PLATFORM)

@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2021, 2025
 // SPDX-License-Identifier: MPL-2.0
 
 package netdial
@@ -25,7 +25,7 @@ func (c *Command) Run(args []string) int {
 		return 2
 	}
 	if err := conn.Close(); err != nil {
-		fmt.Printf("Warning: failed to close connection: %v\n", err)
+		c.UI.Warn(fmt.Sprintf("failed to close connection: %v", err))
 	}
 
 	return 0

@@ -1,21 +1,17 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2021, 2025
 // SPDX-License-Identifier: MPL-2.0
 
 package awsutil
 
 import (
 	"fmt"
-	"os"
-	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/ecs"
-	"github.com/stretchr/testify/assert"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewSession(t *testing.T) {
+func TestNewAWSConfig(t *testing.T) {
 	taskRegion := "bogus-east-1"
 	nonTaskRegion := "some-other-region"
 	taskArn := fmt.Sprintf("arn:aws:ecs:%s:123456789:task/test/abcdef", taskRegion)
@@ -41,23 +37,15 @@ func TestNewSession(t *testing.T) {
 		},
 	}
 
-	// Restore the environment after these test cases.
-	environ := os.Environ()
-	t.Cleanup(func() { restoreEnv(t, environ) })
-
 	for testName, c := range cases {
 		t.Run(testName, func(t *testing.T) {
-			// Ensure external environment doesn't affect us.
-			for _, k := range []string{"AWS_REGION", "AWS_DEFAULT_REGION"} {
-				require.NoError(t, os.Unsetenv(k))
-			}
+			// Use t.Setenv instead of manual os.Unset/Set
+			// This ensures a clean slate and automatic cleanup
+			t.Setenv("AWS_REGION", "")
+			t.Setenv("AWS_DEFAULT_REGION", "")
 
-			// Prepare environment for each test case.
 			for k, v := range c.env {
-				require.NoError(t, os.Setenv(k, v))
-				t.Cleanup(func() {
-					require.NoError(t, os.Unsetenv(k))
-				})
+				t.Setenv(k, v)
 			}
 
 			ecsMeta := ECSTaskMeta{
@@ -66,23 +54,19 @@ func TestNewSession(t *testing.T) {
 				Family:  "task",
 			}
 
-			sess, err := NewSession(ecsMeta, "")
+			cfg, err := NewAWSConfig(ecsMeta, "test-caller")
 
-			// Check an expected error
 			if c.expectError != "" {
-				require.Nil(t, sess)
 				require.Error(t, err)
-				require.Equal(t, c.expectError, err.Error())
+				require.Contains(t, err.Error(), c.expectError)
 				return
 			}
 
-			// Validate region is pulled correctly from environment or Task metadata.
-			require.Equal(t, c.expectRegion, *sess.Config.Region)
+			require.NoError(t, err)
+			require.Equal(t, c.expectRegion, cfg.Region)
 
-			// Ensure the User-Agent request handler was added.
-			// (Hacky. Only way I could figure out to detect a request handler by name)
-			foundHandler := sess.Handlers.Build.Swap("UserAgentHandler", request.NamedHandler{})
-			require.True(t, foundHandler)
+			// Check that we have exactly 1 custom API option (our middleware)
+			require.Len(t, cfg.APIOptions, 1, "should have registered the User-Agent middleware")
 		})
 	}
 }
@@ -93,9 +77,11 @@ func TestECSTaskMeta(t *testing.T) {
 		TaskARN: "arn:aws:ecs:us-east-1:123456789:task/test/abcdef",
 		Family:  "task",
 	}
+
 	require.Equal(t, "abcdef", ecsMeta.TaskID())
+
 	region, err := ecsMeta.Region()
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.Equal(t, "us-east-1", region)
 
 	account, err := ecsMeta.AccountID()
@@ -104,52 +90,53 @@ func TestECSTaskMeta(t *testing.T) {
 
 	clusterArn, err := ecsMeta.ClusterARN()
 	require.NoError(t, err)
-	require.Equal(t, clusterArn, "arn:aws:ecs:us-east-1:123456789:cluster/test")
+	require.Equal(t, "arn:aws:ecs:us-east-1:123456789:cluster/test", clusterArn)
 }
 
 func TestHasContainerStopped(t *testing.T) {
-	taskMeta := ECSTaskMeta{}
-	taskMeta.Containers = []ECSTaskMetaContainer{
-		{
-			Name:          "container1",
-			DesiredStatus: ecs.DesiredStatusRunning,
-			KnownStatus:   ecs.DesiredStatusRunning,
-		},
-		{
-			Name:          "container2",
-			DesiredStatus: ecs.DesiredStatusPending,
-			KnownStatus:   ecs.DesiredStatusPending,
+	taskMeta := ECSTaskMeta{
+		Containers: []ECSTaskMetaContainer{
+			{
+				Name:          "container1",
+				DesiredStatus: string(types.DesiredStatusRunning),
+				KnownStatus:   string(types.DesiredStatusRunning),
+			},
+			{
+				Name:          "container2",
+				DesiredStatus: string(types.DesiredStatusPending),
+				KnownStatus:   string(types.DesiredStatusPending),
+			},
 		},
 	}
 
-	require.Equal(t, false, taskMeta.HasContainerStopped("container2"))
+	require.False(t, taskMeta.HasContainerStopped("container2"))
 
-	taskMeta.Containers[1].DesiredStatus = ecs.DesiredStatusStopped
-	taskMeta.Containers[1].KnownStatus = ecs.DesiredStatusStopped
+	taskMeta.Containers[1].DesiredStatus = string(types.DesiredStatusStopped)
+	taskMeta.Containers[1].KnownStatus = string(types.DesiredStatusStopped)
 
-	require.Equal(t, true, taskMeta.HasContainerStopped("container2"))
+	require.True(t, taskMeta.HasContainerStopped("container2"))
 }
 
 func TestHasStopped(t *testing.T) {
 	container := ECSTaskMetaContainer{
 		Name:          "container1",
-		DesiredStatus: ecs.DesiredStatusRunning,
-		KnownStatus:   ecs.DesiredStatusRunning,
+		DesiredStatus: string(types.DesiredStatusRunning),
+		KnownStatus:   string(types.DesiredStatusRunning),
 	}
 
-	require.Equal(t, false, container.HasStopped())
+	require.False(t, container.HasStopped())
 
-	container.DesiredStatus = ecs.DesiredStatusStopped
-	container.KnownStatus = ecs.DesiredStatusStopped
+	container.DesiredStatus = string(types.DesiredStatusStopped)
+	container.KnownStatus = string(types.DesiredStatusStopped)
 
-	require.Equal(t, true, container.HasStopped())
+	require.True(t, container.HasStopped())
 }
 
 func TestIsNormalType(t *testing.T) {
 	container := ECSTaskMetaContainer{
 		Name:          "container1",
-		DesiredStatus: ecs.DesiredStatusRunning,
-		KnownStatus:   ecs.DesiredStatusRunning,
+		DesiredStatus: string(types.DesiredStatusRunning),
+		KnownStatus:   string(types.DesiredStatusRunning),
 		Type:          containerTypeNormal,
 	}
 
@@ -158,15 +145,6 @@ func TestIsNormalType(t *testing.T) {
 	container.Type = "SOME_AWS_MANAGED_TYPE"
 
 	require.False(t, container.IsNormalType())
-}
-
-// Helper to restore the environment after a test.
-func restoreEnv(t *testing.T, env []string) {
-	os.Clearenv()
-	for _, keyvalue := range env {
-		pair := strings.SplitN(keyvalue, "=", 2)
-		assert.NoError(t, os.Setenv(pair[0], pair[1]))
-	}
 }
 
 func TestECSTaskMeta_NodeIP(t *testing.T) {
@@ -203,6 +181,7 @@ func TestECSTaskMeta_NodeIP(t *testing.T) {
 			expNodeIP: "10.1.2.3",
 		},
 	}
+
 	for _, c := range cases {
 		nodeIP := c.ecsMeta.NodeIP()
 		require.Equal(t, c.expNodeIP, nodeIP)

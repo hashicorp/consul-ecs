@@ -27,6 +27,24 @@ IMPROVEMENTS
 
 ## 0.9.0 (Jan 15, 2025)
 BUG FIXES
+* Fix bug where calls to AWS IAM and STS services error out due to URL with multiple trailing slashes.
+
+SECURITY
+* Update Dockerfile to use Alpine 3.23 and run full `apk upgrade` to mitigate multiple vulnerable packages including curl, gnupg, openssl, sqlite-libs, busybox, and others identified by Wiz security scan ([CVE-2025-14819], [CVE-2025-14524], [CVE-2025-14017], [CVE-2025-30258], and related CVEs).
+* Fix reflected XSS vulnerability in testutil/iamauthtest/testing.go by escaping user-provided HTTP request values before embedding in error responses.
+* Upgrade `golang.org/x/crypto` to `v0.45.0` to address [GO-2025-4134] and [GO-2025-4116]
+* Update go-discover to use latest version v1.1.0 to include latest security patches and dependency updates.
+
+IMPROVEMENTS
+* AWS SDK Migration: Migrated core AWS integration from SDK v1 to SDK v2. This improves performance, reduces memory overhead, and adopts modern Go patterns (Context support, non-pointer slice types).
+* Remove info logs from health sync checks
+* Bump Go version to `1.25.7`
+* Bump `golang.org/x/net` to `v0.47.0`
+* Bump `golang.org/x/sys` to `v0.38.0`
+* Bump `golang.org/x/text` to `v0.31.0`  
+
+## 0.9.0 (Jan 15, 2025)
+BUG FIXES
 * Fix the issue where the service was accepting traffic even though it wasn't healthy. This fix updates the health check status for `consul-dataplane` container and takes into account the health of the service container as well.
 
 IMPROVEMENTS

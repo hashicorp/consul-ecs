@@ -41,9 +41,9 @@ func setupSyncChecksCmd(t *testing.T, serviceName string, healthSyncContainers [
 		BootstrapDir:         testutil.TempDir(t),
 		HealthSyncContainers: healthSyncContainers,
 		ConsulServers: config.ConsulServers{
-			Hosts: "127.0.0.1",
-			GRPC:  config.GRPCSettings{Port: serverGRPCPort},
-			HTTP:  config.HTTPSettings{Port: serverHTTPPort},
+			Hosts:           "127.0.0.1",
+			GRPC:            config.GRPCSettings{Port: serverGRPCPort},
+			HTTP:            config.HTTPSettings{Port: serverHTTPPort},
 			SkipServerWatch: true,
 		},
 		Service: config.ServiceRegistration{

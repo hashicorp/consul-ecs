@@ -112,21 +112,18 @@ func (c *Command) syncChecks(consulClient *api.Client,
 
 	// Mark the Consul health status as critical for missing containers
 	for _, name := range missingContainers {
+		if name == config.ConsulDataplaneContainerName {
+			continue // handled exclusively by the aggregation block below
+		}
 		checkID := constructCheckID(makeServiceID(serviceName, taskMeta.TaskID()), name)
 		c.log.Debug("marking container as unhealthy since it wasn't found in the task metadata", "name", name)
 
-		var err error
-		if name == config.ConsulDataplaneContainerName {
-			err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, name, string(types.HealthStatusUnhealthy))
-		} else {
-			err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, string(types.HealthStatusUnhealthy))
-		}
-
+		err := c.updateConsulHealthStatus(consulClient, checkID, clusterARN, string(types.HealthStatusUnhealthy))
 		if err != nil {
 			c.log.Error("failed to update Consul health status for missing container", "err", err, "container", name)
 		} else {
 			c.log.Info("container health check updated in Consul for missing container", "container", name)
-			currentStatuses[name] = api.HealthCritical
+			currentStatuses[name] = string(types.HealthStatusUnhealthy)
 		}
 	}
 
@@ -150,7 +147,9 @@ func (c *Command) syncChecks(consulClient *api.Client,
 
 			if err != nil {
 				c.log.Warn("failed to update Consul health status", "err", err)
-			} else {
+			} else if container.Name != config.ConsulDataplaneContainerName {
+				// consul-dataplane's entry in currentStatuses is managed exclusively
+				// by the aggregation block below, which tracks the computed overall health.
 				c.log.Info("container health check updated in Consul",
 					"name", container.Name,
 					"status", container.Health.Status,
@@ -178,9 +177,14 @@ func (c *Command) syncChecks(consulClient *api.Client,
 		overallDataplaneHealthStatus = string(types.HealthStatusUnhealthy)
 	}
 
-	err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, config.ConsulDataplaneContainerName, overallDataplaneHealthStatus)
-	if err != nil {
-		c.log.Warn("failed to update Consul health status", "err", err)
+	previousDataplaneStatus := currentStatuses[config.ConsulDataplaneContainerName]
+	if overallDataplaneHealthStatus != previousDataplaneStatus {
+		err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, config.ConsulDataplaneContainerName, overallDataplaneHealthStatus)
+		if err != nil {
+			c.log.Warn("failed to update Consul health status", "err", err)
+		} else {
+			currentStatuses[config.ConsulDataplaneContainerName] = overallDataplaneHealthStatus
+		}
 	}
 
 	return currentStatuses

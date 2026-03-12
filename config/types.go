@@ -51,6 +51,7 @@ const (
 	DefaultOutlierDetectionInterval                       = 10 * time.Second
 	DefaultOutlierDetectionMaxFailures             uint32 = 5
 	DefaultOutlierDetectionEnforcingConsecutive5xx uint32 = 100
+	DefaultOutlierDetectionEnforcingGatewayFailure uint32 = 100
 	DefaultOutlierDetectionMaxEjectionPercent      uint32 = 50
 )
 
@@ -637,11 +638,22 @@ func (cfg *Config) ConsulDNSEnabled() bool {
 }
 
 // OutlierDetectionConfig defines the passive health check settings for outlier detection.
+// These fields map directly to the Consul API PassiveHealthCheck struct:
+// - Interval maps to PassiveHealthCheck.Interval
+// - MaxFailures maps to PassiveHealthCheck.MaxFailures
+// - EnforcingConsecutive5xx maps to PassiveHealthCheck.EnforcingConsecutive5xx
+// - Consecutive5xx maps to PassiveHealthCheck.Consecutive5xx
+// - EnforcingConsecutiveGatewayFailure maps to PassiveHealthCheck.EnforcingConsecutiveGatewayFailure
+// - ConsecutiveGatewayFailure maps to PassiveHealthCheck.ConsecutiveGatewayFailure
+// - MaxEjectionPercent maps to PassiveHealthCheck.MaxEjectionPercent
 type OutlierDetectionConfig struct {
-	Interval                time.Duration `json:"interval,omitempty"`
-	MaxFailures             uint32        `json:"maxFailures,omitempty"`
-	EnforcingConsecutive5xx *uint32       `json:"enforcingConsecutive5xx,omitempty"`
-	MaxEjectionPercent      *uint32       `json:"maxEjectionPercent,omitempty"`
+	Interval                           time.Duration `json:"interval,omitempty"`
+	MaxFailures                        uint32        `json:"maxFailures,omitempty"`
+	EnforcingConsecutive5xx            *uint32       `json:"enforcingConsecutive5xx,omitempty"`
+	Consecutive5xx                     *uint32       `json:"consecutive5xx,omitempty"`
+	EnforcingConsecutiveGatewayFailure *uint32       `json:"enforcingConsecutiveGatewayFailure,omitempty"`
+	ConsecutiveGatewayFailure          *uint32       `json:"consecutiveGatewayFailure,omitempty"`
+	MaxEjectionPercent                 *uint32       `json:"maxEjectionPercent,omitempty"`
 }
 
 // NetworkPartitionResilienceConfig defines the configuration for network partition resilience mode
@@ -654,13 +666,13 @@ type NetworkPartitionResilienceConfig struct {
 // NewOutlierDetectionConfig returns a new OutlierDetectionConfig with default values
 // for network partition resilience mode.
 func NewOutlierDetectionConfig() *OutlierDetectionConfig {
-	enforcingConsecutive5xx := DefaultOutlierDetectionEnforcingConsecutive5xx
+	enforcingConsecutiveGatewayFailure := DefaultOutlierDetectionEnforcingGatewayFailure
 	maxEjectionPercent := DefaultOutlierDetectionMaxEjectionPercent
 	return &OutlierDetectionConfig{
-		Interval:                DefaultOutlierDetectionInterval,
-		MaxFailures:             DefaultOutlierDetectionMaxFailures,
-		EnforcingConsecutive5xx: &enforcingConsecutive5xx,
-		MaxEjectionPercent:      &maxEjectionPercent,
+		Interval:                           DefaultOutlierDetectionInterval,
+		MaxFailures:                        DefaultOutlierDetectionMaxFailures,
+		EnforcingConsecutiveGatewayFailure: &enforcingConsecutiveGatewayFailure,
+		MaxEjectionPercent:                 &maxEjectionPercent,
 	}
 }
 

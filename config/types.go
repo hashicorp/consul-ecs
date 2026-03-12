@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2021, 2025
 // SPDX-License-Identifier: MPL-2.0
 
 //go:generate go run gen.go
@@ -6,6 +6,7 @@ package config
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/hashicorp/consul/api"
 )
@@ -44,6 +45,13 @@ const (
 	GetEntityBodyHeader    string = "X-Consul-IAM-GetEntity-Body"
 
 	SyntheticNode string = "synthetic-node"
+
+	// Outlier detection constants for network partition resilience mode
+	// These values define the passive health check thresholds for detecting unhealthy upstream services
+	DefaultOutlierDetectionInterval                       = 10 * time.Second
+	DefaultOutlierDetectionMaxFailures             uint32 = 5
+	DefaultOutlierDetectionEnforcingConsecutive5xx uint32 = 100
+	DefaultOutlierDetectionMaxEjectionPercent      uint32 = 50
 )
 
 // Config is the top-level config object.
@@ -342,14 +350,15 @@ func (c *Controller) UnmarshalJSON(data []byte) error {
 //   - Proxy registration occurs in a separate request, so no need to inline the proxy config.
 //     See the SidecarProxyRegistration type.
 type ServiceRegistration struct {
-	Name              string            `json:"name"`
-	Tags              []string          `json:"tags,omitempty"`
-	Port              int               `json:"port"`
-	EnableTagOverride bool              `json:"enableTagOverride,omitempty"`
-	Meta              map[string]string `json:"meta,omitempty"`
-	Weights           *AgentWeights     `json:"weights,omitempty"`
-	Namespace         string            `json:"namespace,omitempty"`
-	Partition         string            `json:"partition,omitempty"`
+	Name                             string                            `json:"name"`
+	Tags                             []string                          `json:"tags,omitempty"`
+	Port                             int                               `json:"port"`
+	EnableTagOverride                bool                              `json:"enableTagOverride,omitempty"`
+	Meta                             map[string]string                 `json:"meta,omitempty"`
+	Weights                          *AgentWeights                     `json:"weights,omitempty"`
+	Namespace                        string                            `json:"namespace,omitempty"`
+	Partition                        string                            `json:"partition,omitempty"`
+	NetworkPartitionResilienceConfig *NetworkPartitionResilienceConfig `json:"networkResilienceConfig,omitempty"`
 }
 
 func (r *ServiceRegistration) ToConsulType() *api.AgentService {
@@ -625,4 +634,40 @@ type ConsulDNS struct {
 
 func (cfg *Config) ConsulDNSEnabled() bool {
 	return cfg.TransparentProxy.Enabled && cfg.TransparentProxy.ConsulDNS.Enabled && !cfg.IsGateway()
+}
+
+// OutlierDetectionConfig defines the passive health check settings for outlier detection.
+type OutlierDetectionConfig struct {
+	Interval                time.Duration `json:"interval,omitempty"`
+	MaxFailures             uint32        `json:"maxFailures,omitempty"`
+	EnforcingConsecutive5xx *uint32       `json:"enforcingConsecutive5xx,omitempty"`
+	MaxEjectionPercent      *uint32       `json:"maxEjectionPercent,omitempty"`
+}
+
+// NetworkPartitionResilienceConfig defines the configuration for network partition resilience mode
+// which includes outlier detection settings for handling network partitions.
+type NetworkPartitionResilienceConfig struct {
+	Enabled          bool                    `json:"enabled,omitempty"`
+	OutlierDetection *OutlierDetectionConfig `json:"outlierDetection,omitempty"`
+}
+
+// NewOutlierDetectionConfig returns a new OutlierDetectionConfig with default values
+// for network partition resilience mode.
+func NewOutlierDetectionConfig() *OutlierDetectionConfig {
+	enforcingConsecutive5xx := DefaultOutlierDetectionEnforcingConsecutive5xx
+	maxEjectionPercent := DefaultOutlierDetectionMaxEjectionPercent
+	return &OutlierDetectionConfig{
+		Interval:                DefaultOutlierDetectionInterval,
+		MaxFailures:             DefaultOutlierDetectionMaxFailures,
+		EnforcingConsecutive5xx: &enforcingConsecutive5xx,
+		MaxEjectionPercent:      &maxEjectionPercent,
+	}
+}
+
+// NewNetworkResilienceConfig returns a new NetworkPartitionResilienceConfig with outlier detection enabled.
+func NewNetworkResilienceConfig() *NetworkPartitionResilienceConfig {
+	return &NetworkPartitionResilienceConfig{
+		Enabled:          true,
+		OutlierDetection: NewOutlierDetectionConfig(),
+	}
 }

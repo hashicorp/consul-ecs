@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2021, 2025
 // SPDX-License-Identifier: MPL-2.0
 
 package healthsync
@@ -6,7 +6,7 @@ package healthsync
 import (
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
@@ -72,10 +72,10 @@ func (c *Command) setChecksCritical(consulClient *api.Client, taskMeta awsutil.E
 	for _, containerName := range parsedContainerNames {
 		var err error
 		if containerName == config.ConsulDataplaneContainerName {
-			err = c.handleHealthForDataplaneContainer(consulClient, taskID, serviceName, clusterARN, containerName, ecs.HealthStatusUnhealthy)
+			err = c.handleHealthForDataplaneContainer(consulClient, taskID, serviceName, clusterARN, containerName, string(types.HealthStatusUnhealthy))
 		} else {
 			checkID := constructCheckID(makeServiceID(serviceName, taskID), containerName)
-			err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecs.HealthStatusUnhealthy)
+			err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, string(types.HealthStatusUnhealthy))
 		}
 
 		if err == nil {
@@ -117,9 +117,9 @@ func (c *Command) syncChecks(consulClient *api.Client,
 
 		var err error
 		if name == config.ConsulDataplaneContainerName {
-			err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, name, ecs.HealthStatusUnhealthy)
+			err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, name, string(types.HealthStatusUnhealthy))
 		} else {
-			err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecs.HealthStatusUnhealthy)
+			err = c.updateConsulHealthStatus(consulClient, checkID, clusterARN, string(types.HealthStatusUnhealthy))
 		}
 
 		if err != nil {
@@ -164,18 +164,18 @@ func (c *Command) syncChecks(consulClient *api.Client,
 	}
 	overallDataplaneHealthStatus, ok := parsedContainers[config.ConsulDataplaneContainerName]
 	// if dataplane container exist and healthy then proceed to checking the other containers health
-	if ok && overallDataplaneHealthStatus == ecs.HealthStatusHealthy {
+	if ok && overallDataplaneHealthStatus == string(types.HealthStatusHealthy) {
 		//
 		for _, healthStatus := range parsedContainers {
 			// as soon as we find any unhealthy container, we can set the dataplane health to unhealthy
-			if healthStatus != ecs.HealthStatusHealthy {
-				overallDataplaneHealthStatus = ecs.HealthStatusUnhealthy
+			if healthStatus != string(types.HealthStatusHealthy) {
+				overallDataplaneHealthStatus = string(types.HealthStatusUnhealthy)
 				break
 			}
 		}
 	} else {
 		// If no dataplane container or dataplane container is not healthy set overall health to unhealthy
-		overallDataplaneHealthStatus = ecs.HealthStatusUnhealthy
+		overallDataplaneHealthStatus = string(types.HealthStatusUnhealthy)
 	}
 
 	err = c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, config.ConsulDataplaneContainerName, overallDataplaneHealthStatus)
@@ -268,7 +268,7 @@ func findContainersToSync(containerNames []string, taskMeta awsutil.ECSTaskMeta)
 func ecsHealthToConsulHealth(ecsHealth string) string {
 	// `HEALTHY`, `UNHEALTHY`, and `UNKNOWN` are the valid ECS health statuses.
 	// This assumes that the only passing status is `HEALTHY`
-	if ecsHealth != ecs.HealthStatusHealthy {
+	if ecsHealth != string(types.HealthStatusHealthy) {
 		return api.HealthCritical
 	}
 	return api.HealthPassing

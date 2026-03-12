@@ -236,6 +236,128 @@ func TestSyncChecksContainerMissingToUnhealthy(t *testing.T) {
 	require.Equal(t, api.HealthPassing, appChecks[0].Status)
 }
 
+// TestSyncChecksMissingHealthSyncContainerMarksDataplaneUnhealthy verifies the
+// fix for the bug where a missing health-sync container (application not yet
+// started) was not considered when computing the overall dataplane health,
+// causing the consul-dataplane check to pass prematurely and traffic to be
+// directed at a service whose application container had not yet started.
+func TestSyncChecksMissingHealthSyncContainerMarksDataplaneUnhealthy(t *testing.T) {
+	serviceName := "missing-hsc-svc"
+	proxyServiceName := serviceName + "-sidecar-proxy"
+	taskARN := "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+	appContainer := "app-container"
+
+	taskMeta := &awsutil.ECSTaskMeta{Cluster: "test", TaskARN: taskARN, Family: serviceName}
+
+	var currentTaskMetaResp atomic.Value
+
+	// consul-dataplane is HEALTHY but app-container has not started yet (missing).
+	taskMeta.Containers = []awsutil.ECSTaskMetaContainer{
+		constructContainerResponse(config.ConsulDataplaneContainerName, string(types.HealthStatusHealthy)),
+	}
+	s, err := constructTaskMetaResponseString(taskMeta)
+	require.NoError(t, err)
+	currentTaskMetaResp.Store(s)
+	testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
+		return currentTaskMetaResp.Load().(string)
+	}))
+
+	cmd, consulClient, clusterARN := setupSyncChecksCmd(t, serviceName, []string{appContainer}, taskMeta)
+	healthSyncContainers := []string{appContainer, config.ConsulDataplaneContainerName}
+	currentStatuses := make(map[string]string)
+
+	// Tick 1: app-container missing → consul-dataplane check must be CRITICAL
+	// even though consul-dataplane itself reports HEALTHY.
+	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	require.Equal(t, string(types.HealthStatusUnhealthy), currentStatuses[config.ConsulDataplaneContainerName])
+
+	proxyChecks, _, err := consulClient.Health().Checks(proxyServiceName, nil)
+	require.NoError(t, err)
+	require.Len(t, proxyChecks, 1)
+	require.Equal(t, api.HealthCritical, proxyChecks[0].Status,
+		"proxy check must be critical while app-container is still missing")
+
+	// Tick 2: app-container starts up HEALTHY → consul-dataplane check must become PASSING.
+	taskMeta.Containers = []awsutil.ECSTaskMetaContainer{
+		constructContainerResponse(config.ConsulDataplaneContainerName, string(types.HealthStatusHealthy)),
+		constructContainerResponse(appContainer, string(types.HealthStatusHealthy)),
+	}
+	s, err = constructTaskMetaResponseString(taskMeta)
+	require.NoError(t, err)
+	currentTaskMetaResp.Store(s)
+
+	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[config.ConsulDataplaneContainerName])
+
+	proxyChecks, _, err = consulClient.Health().Checks(proxyServiceName, nil)
+	require.NoError(t, err)
+	require.Len(t, proxyChecks, 1)
+	require.Equal(t, api.HealthPassing, proxyChecks[0].Status,
+		"proxy check must be passing once all containers are healthy")
+}
+
+func TestComputeOverallDataplaneHealth(t *testing.T) {
+	healthy := string(types.HealthStatusHealthy)
+	unhealthy := string(types.HealthStatusUnhealthy)
+	dp := config.ConsulDataplaneContainerName
+
+	cases := map[string]struct {
+		parsedContainers  map[string]string
+		missingContainers []string
+		expected          string
+	}{
+		"dataplane missing from task metadata": {
+			parsedContainers:  map[string]string{},
+			missingContainers: []string{dp},
+			expected:          unhealthy,
+		},
+		"dataplane present but UNHEALTHY": {
+			parsedContainers:  map[string]string{dp: unhealthy},
+			missingContainers: []string{},
+			expected:          unhealthy,
+		},
+		"dataplane HEALTHY, no other containers": {
+			parsedContainers:  map[string]string{dp: healthy},
+			missingContainers: []string{},
+			expected:          healthy,
+		},
+		"dataplane HEALTHY, all other containers HEALTHY": {
+			parsedContainers:  map[string]string{dp: healthy, "app": healthy, "sidecar": healthy},
+			missingContainers: []string{},
+			expected:          healthy,
+		},
+		"dataplane HEALTHY, one other container UNHEALTHY": {
+			parsedContainers:  map[string]string{dp: healthy, "app": healthy, "sidecar": unhealthy},
+			missingContainers: []string{},
+			expected:          unhealthy,
+		},
+		// Bug2: missing health-sync container must block traffic even when dataplane is HEALTHY.
+		"dataplane HEALTHY, health-sync container not yet started": {
+			parsedContainers:  map[string]string{dp: healthy},
+			missingContainers: []string{"app"},
+			expected:          unhealthy,
+		},
+		"dataplane HEALTHY, multiple health-sync containers missing": {
+			parsedContainers:  map[string]string{dp: healthy},
+			missingContainers: []string{"app", "sidecar"},
+			expected:          unhealthy,
+		},
+		"dataplane itself missing alongside health-sync containers": {
+			parsedContainers:  map[string]string{},
+			missingContainers: []string{dp, "app"},
+			expected:          unhealthy,
+		},
+	}
+
+	for name, tc := range cases {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			result := computeOverallDataplaneHealth(tc.parsedContainers, tc.missingContainers)
+			require.Equal(t, tc.expected, result)
+		})
+	}
+}
+
 func TestFindContainersToSync(t *testing.T) {
 	taskMetaContainer1 := awsutil.ECSTaskMetaContainer{
 		Name: "container1",

@@ -30,7 +30,7 @@ jobs:
       with:
         go-version: ${{ needs.get-go-version.outputs.go-version }}
     - name: golangci-lint
-      uses: golangci/golangci-lint-action@3cfe3386b6a2840aea2d49aea9ecbe4e60bc2912 # v10.1.0
+      uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v2.12.1
       with:
         version: v2.12.1
         args: |

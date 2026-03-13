@@ -4,7 +4,11 @@
 container {
 	dependencies = true
 	alpine_secdb = true
-	secrets      = true
+	
+	secrets {
+		all = true
+	}
+
 	triage {
 		suppress {
 			// The security scanner will detect vulnerabilities in Alpine packages
@@ -12,8 +16,9 @@ container {
 			// known CVEs, they are patched at the OS level through apk upgrade.
 			// This suppression targets the Alpine package database to avoid false
 			// positives from the scanner.
-			vulnerabilites = [
-				"lib/apk/db/*",
+			vulnerabilities = [
+				"/lib/apk/db/*",
+      			"/etc/apk/*",
 			]
 		}
 	}

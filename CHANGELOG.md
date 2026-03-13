@@ -8,7 +8,7 @@ FEATURES
 
 IMPROVEMENTS
 * AWS SDK Migration: Migrated core AWS integration from SDK v1 to SDK v2. This improves performance, reduces memory overhead, and adopts modern Go patterns (Context support, non-pointer slice types).
-* Bump Go version to `1.25.7`
+* Bump Go version to `1.26.1`
 * Expand test coverage to include Consul 1.21.5 and 1.21.9+ent (enterprise) versions
 
 ## 0.9.3 (Jan 12, 2026)

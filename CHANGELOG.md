@@ -1,3 +1,16 @@
+## 0.9.4 (March 13, 2026)
+SECURITY
+* Update Dockerfile to use Alpine 3.23 and run full `apk upgrade` to mitigate multiple vulnerable packages including curl, gnupg, openssl, sqlite-libs, busybox, and others identified by Wiz security scan ([CVE-2025-14819], [CVE-2025-14524], [CVE-2025-14017], [CVE-2025-30258], and related CVEs).
+* Update go-discover to use latest version v1.1.0 to include latest security patches and dependency updates.
+
+FEATURES
+* Add network partition resilience configuration support for ECS services via outlier detection in Envoy. Services can now automatically eject unhealthy upstream instances from the load balancing pool based on consecutive failures through passive health checks configured via Consul service defaults. [[GH-313](https://github.com/hashicorp/consul-ecs/pull/313)]
+
+IMPROVEMENTS
+* AWS SDK Migration: Migrated core AWS integration from SDK v1 to SDK v2. This improves performance, reduces memory overhead, and adopts modern Go patterns (Context support, non-pointer slice types).
+* Bump Go version to `1.25.7`
+* Expand test coverage to include Consul 1.21.5 and 1.21.9+ent (enterprise) versions
+
 ## 0.9.3 (Jan 12, 2026)
 SECURITY
 * Upgrade `golang.org/x/crypto` to `v0.45.0` to address [GO-2025-4134] and [GO-2025-4116]

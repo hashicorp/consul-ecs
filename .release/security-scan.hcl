@@ -17,7 +17,8 @@ container {
 			// This suppression targets the Alpine package database to avoid false
 			// positives from the scanner.
 			vulnerabilities = [
-				"lib/apk/db/*",
+				"/lib/apk/db/*",
+      			"/etc/apk/*",
 			]
 		}
 	}

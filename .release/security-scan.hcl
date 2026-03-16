@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: MPL-2.0
 
 container {
-	dependencies = true
-	alpine_secdb = true
+  	dependencies    = true
+  	alpine_security = true
+  	osv             = true
+  	go_modules      = true
 	
 	secrets {
 		all = true
@@ -16,10 +18,11 @@ container {
 			// known CVEs, they are patched at the OS level through apk upgrade.
 			// This suppression targets the Alpine package database to avoid false
 			// positives from the scanner.
-			vulnerabilities = [
+			paths = [
 				"/lib/apk/db/*",
-      			"/etc/apk/*",
+				"/etc/apk/*",
 			]
+			vulnerabilities = []
 		}
 	}
 }

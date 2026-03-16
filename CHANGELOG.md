@@ -1,6 +1,6 @@
 ## 0.9.4 (March 13, 2026)
 SECURITY
-* Update Dockerfile to use Alpine 3.24 and run full `apk upgrade` to mitigate multiple vulnerable packages including curl, gnupg, openssl, sqlite-libs, busybox, and others identified by Wiz security scan ([CVE-2025-14819], [CVE-2025-14524], [CVE-2025-14017], [CVE-2025-30258], and related CVEs).
+* Update Dockerfile to use Alpine 3.23 and run full `apk upgrade` to mitigate multiple vulnerable packages including curl, gnupg, openssl, sqlite-libs, busybox, and others identified by Wiz security scan ([CVE-2025-14819], [CVE-2025-14524], [CVE-2025-14017], [CVE-2025-30258], and related CVEs).
 * Update go-discover to use latest version v1.1.0 to include latest security patches and dependency updates.
 
 FEATURES

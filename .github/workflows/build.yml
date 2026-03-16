@@ -6,6 +6,7 @@ on:
   pull_request:
     branches:
       - main
+      - alpine-cve
 
 env:
   PKG_NAME: "consul-ecs"

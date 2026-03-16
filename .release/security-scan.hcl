@@ -16,8 +16,9 @@ container {
 			// known CVEs, they are patched at the OS level through apk upgrade.
 			// This suppression targets the Alpine package database to avoid false
 			// positives from the scanner.
-			vulnerabilities = [
-				"lib/apk/db/*",
+			paths = [
+				"/lib/apk/db/*",
+				"/etc/apk/*",
 			]
 		}
 	}

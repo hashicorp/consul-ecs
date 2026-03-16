@@ -22,7 +22,6 @@ container {
 				"/lib/apk/db/*",
 				"/etc/apk/*",
 			]
-			vulnerabilities = []
 		}
 	}
 }

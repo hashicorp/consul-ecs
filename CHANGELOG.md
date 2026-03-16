@@ -1,4 +1,4 @@
-## 0.9.4 (March 13, 2026)
+## 0.9.4 (March 16, 2026)
 SECURITY
 * Update Dockerfile to use Alpine 3.23 and run full `apk upgrade` to mitigate multiple vulnerable packages including curl, gnupg, openssl, sqlite-libs, busybox, and others identified by Wiz security scan ([CVE-2025-14819], [CVE-2025-14524], [CVE-2025-14017], [CVE-2025-30258], and related CVEs).
 * Update go-discover to use latest version v1.1.0 to include latest security patches and dependency updates.
@@ -8,7 +8,7 @@ FEATURES
 
 IMPROVEMENTS
 * AWS SDK Migration: Migrated core AWS integration from SDK v1 to SDK v2. This improves performance, reduces memory overhead, and adopts modern Go patterns (Context support, non-pointer slice types).
-* Bump Go version to `1.26.1`
+* Bump Go version to `1.25.8`
 * Expand test coverage to include Consul 1.21.5 and 1.21.9+ent (enterprise) versions
 
 ## 0.9.3 (Jan 12, 2026)

@@ -1,6 +1,6 @@
 module github.com/hashicorp/consul-ecs
 
-go 1.26.1
+go 1.25.8
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.2

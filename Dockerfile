@@ -9,10 +9,10 @@
 
 # go-discover builds the discover binary
 FROM golang:1.25.8-alpine as go-discover
-RUN CGO_ENABLED=0 go install github.com/hashicorp/go-discover/cmd/discover@f2efba8b24cb9a442238b106b6d7b526c0ca1ff6
+RUN CGO_ENABLED=0 go install github.com/hashicorp/go-discover/cmd/discover@latest
 
 FROM docker.mirror.hashicorp.services/alpine:3.23 AS release-default
-RUN apk upgrade --no-cache
+RUN apk update && apk upgrade --no-cache
 
 ARG BIN_NAME=consul-ecs
 ARG PRODUCT_VERSION

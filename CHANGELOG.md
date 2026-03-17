@@ -1,7 +1,7 @@
 ## 0.9.4 (March 16, 2026)
 SECURITY
 * Update Dockerfile to use Alpine 3.23 and run full `apk upgrade` to mitigate multiple vulnerable packages including curl, gnupg, openssl, sqlite-libs, busybox, and others identified by Wiz security scan ([CVE-2025-14819], [CVE-2025-14524], [CVE-2025-14017], [CVE-2025-30258], and related CVEs).
-* Update go-discover to use latest version v1.1.0 to include latest security patches and dependency updates.
+* Update go-discover to use latest pinned commit `838b57e` to mitigate multiple vulnerabilities in dependencies including `golang.org/x/crypto`, `golang.org/x/net`, `golang.org/x/oauth2`, and `github.com/sirupsen/logrus`.
 
 FEATURES
 * Add network partition resilience configuration support for ECS services via outlier detection in Envoy. Services can now automatically eject unhealthy upstream instances from the load balancing pool based on consecutive failures through passive health checks configured via Consul service defaults. [[GH-313](https://github.com/hashicorp/consul-ecs/pull/313)]

@@ -1,4 +1,4 @@
-# Copyright IBM Corp. 2021, 2025
+# Copyright IBM Corp. 2021, 2026
 # SPDX-License-Identifier: MPL-2.0
 
 url_docker_registry_dockerhub = "https://hub.docker.com/r/hashicorp/consul-ecs"

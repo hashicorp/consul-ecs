@@ -296,6 +296,91 @@ func TestSyncChecksMissingHealthSyncContainerMarksDataplaneUnhealthy(t *testing.
 		"proxy check must be passing once all containers are healthy")
 }
 
+// TestSyncChecksAppBecomesUnhealthyMidOperation verifies that when an
+// application container transitions HEALTHY → UNHEALTHY after steady state,
+// both the app check and the dataplane check go critical, and that recovery
+// brings both back to passing.
+func TestSyncChecksAppBecomesUnhealthyMidOperation(t *testing.T) {
+	serviceName := "app-unhealthy-mid-svc"
+	proxyServiceName := serviceName + "-sidecar-proxy"
+	taskARN := "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+	appContainer := "app-container"
+
+	taskMeta := &awsutil.ECSTaskMeta{Cluster: "test", TaskARN: taskARN, Family: serviceName}
+
+	var currentTaskMetaResp atomic.Value
+
+	// Start with everything healthy.
+	taskMeta.Containers = []awsutil.ECSTaskMetaContainer{
+		constructContainerResponse(config.ConsulDataplaneContainerName, string(types.HealthStatusHealthy)),
+		constructContainerResponse(appContainer, string(types.HealthStatusHealthy)),
+	}
+	s, err := constructTaskMetaResponseString(taskMeta)
+	require.NoError(t, err)
+	currentTaskMetaResp.Store(s)
+	testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
+		return currentTaskMetaResp.Load().(string)
+	}))
+
+	cmd, consulClient, clusterARN := setupSyncChecksCmd(t, serviceName, []string{appContainer}, taskMeta)
+	healthSyncContainers := []string{appContainer, config.ConsulDataplaneContainerName}
+	currentStatuses := make(map[string]string)
+
+	// Tick 1: all healthy → passing.
+	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[appContainer])
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[config.ConsulDataplaneContainerName])
+
+	proxyChecks, _, err := consulClient.Health().Checks(proxyServiceName, nil)
+	require.NoError(t, err)
+	require.Len(t, proxyChecks, 1)
+	require.Equal(t, api.HealthPassing, proxyChecks[0].Status)
+
+	// Tick 2: app becomes UNHEALTHY → both app and dataplane must go critical.
+	taskMeta.Containers = []awsutil.ECSTaskMetaContainer{
+		constructContainerResponse(config.ConsulDataplaneContainerName, string(types.HealthStatusHealthy)),
+		constructContainerResponse(appContainer, string(types.HealthStatusUnhealthy)),
+	}
+	s, err = constructTaskMetaResponseString(taskMeta)
+	require.NoError(t, err)
+	currentTaskMetaResp.Store(s)
+
+	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	require.Equal(t, string(types.HealthStatusUnhealthy), currentStatuses[appContainer])
+	require.Equal(t, string(types.HealthStatusUnhealthy), currentStatuses[config.ConsulDataplaneContainerName])
+
+	serviceID := makeServiceID(serviceName, taskMeta.TaskID())
+	appCheckID := constructCheckID(serviceID, appContainer)
+	filter := "CheckID == `" + appCheckID + "`"
+	appChecks, _, err := consulClient.Health().Checks(serviceName, &api.QueryOptions{Filter: filter})
+	require.NoError(t, err)
+	require.Len(t, appChecks, 1)
+	require.Equal(t, api.HealthCritical, appChecks[0].Status, "app check must be critical")
+
+	proxyChecks, _, err = consulClient.Health().Checks(proxyServiceName, nil)
+	require.NoError(t, err)
+	require.Len(t, proxyChecks, 1)
+	require.Equal(t, api.HealthCritical, proxyChecks[0].Status, "proxy check must be critical when app is unhealthy")
+
+	// Tick 3: app recovers → both must return to passing.
+	taskMeta.Containers = []awsutil.ECSTaskMetaContainer{
+		constructContainerResponse(config.ConsulDataplaneContainerName, string(types.HealthStatusHealthy)),
+		constructContainerResponse(appContainer, string(types.HealthStatusHealthy)),
+	}
+	s, err = constructTaskMetaResponseString(taskMeta)
+	require.NoError(t, err)
+	currentTaskMetaResp.Store(s)
+
+	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[appContainer])
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[config.ConsulDataplaneContainerName])
+
+	proxyChecks, _, err = consulClient.Health().Checks(proxyServiceName, nil)
+	require.NoError(t, err)
+	require.Len(t, proxyChecks, 1)
+	require.Equal(t, api.HealthPassing, proxyChecks[0].Status, "proxy check must recover to passing")
+}
+
 func TestComputeOverallDataplaneHealth(t *testing.T) {
 	healthy := string(types.HealthStatusHealthy)
 	unhealthy := string(types.HealthStatusUnhealthy)
@@ -345,6 +430,16 @@ func TestComputeOverallDataplaneHealth(t *testing.T) {
 		"dataplane itself missing alongside health-sync containers": {
 			parsedContainers:  map[string]string{},
 			missingContainers: []string{dp, "app"},
+			expected:          unhealthy,
+		},
+		"dataplane HEALTHY, one container UNKNOWN": {
+			parsedContainers:  map[string]string{dp: healthy, "app": string(types.HealthStatusUnknown)},
+			missingContainers: []string{},
+			expected:          unhealthy,
+		},
+		"dataplane UNKNOWN": {
+			parsedContainers:  map[string]string{dp: string(types.HealthStatusUnknown), "app": healthy},
+			missingContainers: []string{},
 			expected:          unhealthy,
 		},
 	}

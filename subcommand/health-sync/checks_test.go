@@ -386,68 +386,60 @@ func TestComputeOverallDataplaneHealth(t *testing.T) {
 	unhealthy := string(types.HealthStatusUnhealthy)
 	dp := config.ConsulDataplaneContainerName
 
+	// syncChecks always seeds missing containers into the input map as
+	// UNHEALTHY before calling computeOverallDataplaneHealth, so the test
+	// cases below model that same shape.
 	cases := map[string]struct {
-		parsedContainers  map[string]string
-		missingContainers []string
-		expected          string
+		resolvedStatuses map[string]string
+		expected         string
 	}{
 		"dataplane missing from task metadata": {
-			parsedContainers:  map[string]string{},
-			missingContainers: []string{dp},
-			expected:          unhealthy,
+			resolvedStatuses: map[string]string{dp: unhealthy},
+			expected:         unhealthy,
 		},
 		"dataplane present but UNHEALTHY": {
-			parsedContainers:  map[string]string{dp: unhealthy},
-			missingContainers: []string{},
-			expected:          unhealthy,
+			resolvedStatuses: map[string]string{dp: unhealthy},
+			expected:         unhealthy,
 		},
 		"dataplane HEALTHY, no other containers": {
-			parsedContainers:  map[string]string{dp: healthy},
-			missingContainers: []string{},
-			expected:          healthy,
+			resolvedStatuses: map[string]string{dp: healthy},
+			expected:         healthy,
 		},
 		"dataplane HEALTHY, all other containers HEALTHY": {
-			parsedContainers:  map[string]string{dp: healthy, "app": healthy, "sidecar": healthy},
-			missingContainers: []string{},
-			expected:          healthy,
+			resolvedStatuses: map[string]string{dp: healthy, "app": healthy, "sidecar": healthy},
+			expected:         healthy,
 		},
 		"dataplane HEALTHY, one other container UNHEALTHY": {
-			parsedContainers:  map[string]string{dp: healthy, "app": healthy, "sidecar": unhealthy},
-			missingContainers: []string{},
-			expected:          unhealthy,
+			resolvedStatuses: map[string]string{dp: healthy, "app": healthy, "sidecar": unhealthy},
+			expected:         unhealthy,
 		},
 		// Bug2: missing health-sync container must block traffic even when dataplane is HEALTHY.
 		"dataplane HEALTHY, health-sync container not yet started": {
-			parsedContainers:  map[string]string{dp: healthy},
-			missingContainers: []string{"app"},
-			expected:          unhealthy,
+			resolvedStatuses: map[string]string{dp: healthy, "app": unhealthy},
+			expected:         unhealthy,
 		},
 		"dataplane HEALTHY, multiple health-sync containers missing": {
-			parsedContainers:  map[string]string{dp: healthy},
-			missingContainers: []string{"app", "sidecar"},
-			expected:          unhealthy,
+			resolvedStatuses: map[string]string{dp: healthy, "app": unhealthy, "sidecar": unhealthy},
+			expected:         unhealthy,
 		},
 		"dataplane itself missing alongside health-sync containers": {
-			parsedContainers:  map[string]string{},
-			missingContainers: []string{dp, "app"},
-			expected:          unhealthy,
+			resolvedStatuses: map[string]string{dp: unhealthy, "app": unhealthy},
+			expected:         unhealthy,
 		},
 		"dataplane HEALTHY, one container UNKNOWN": {
-			parsedContainers:  map[string]string{dp: healthy, "app": string(types.HealthStatusUnknown)},
-			missingContainers: []string{},
-			expected:          unhealthy,
+			resolvedStatuses: map[string]string{dp: healthy, "app": string(types.HealthStatusUnknown)},
+			expected:         unhealthy,
 		},
 		"dataplane UNKNOWN": {
-			parsedContainers:  map[string]string{dp: string(types.HealthStatusUnknown), "app": healthy},
-			missingContainers: []string{},
-			expected:          unhealthy,
+			resolvedStatuses: map[string]string{dp: string(types.HealthStatusUnknown), "app": healthy},
+			expected:         unhealthy,
 		},
 	}
 
 	for name, tc := range cases {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
-			result := computeOverallDataplaneHealth(tc.parsedContainers, tc.missingContainers)
+			result := computeOverallDataplaneHealth(tc.resolvedStatuses)
 			require.Equal(t, tc.expected, result)
 		})
 	}

@@ -145,8 +145,7 @@ func TestRun(t *testing.T) {
 					status:  string(types.HealthStatusUnhealthy),
 				},
 			},
-			expectedDataplaneHealthStatus: api.HealthPassing,
-			consulLogin:                   consulLoginCfg,
+			consulLogin: consulLoginCfg,
 		},
 		"two unhealthy health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
@@ -201,10 +200,9 @@ func TestRun(t *testing.T) {
 				},
 				"container-2": {
 					missing: true,
-					status:  string(types.HealthStatusUnhealthy),
+					status:  string(types.HealthStatusHealthy),
 				},
 			},
-			expectedDataplaneHealthStatus:   api.HealthPassing,
 			shouldMissingContainersReappear: true,
 			consulLogin:                     consulLoginCfg,
 		},
@@ -373,6 +371,13 @@ func TestRun(t *testing.T) {
 
 			// Align the expectations for checks according to the
 			// state of health sync containers
+			hasMissingHealthSyncContainer := false
+			for _, hsc := range c.healthSyncContainers {
+				if hsc.missing {
+					hasMissingHealthSyncContainer = true
+					break
+				}
+			}
 			markDataplaneContainerUnhealthy := false
 			for _, expCheck := range expectedSvcChecks {
 				found := false
@@ -404,15 +409,15 @@ func TestRun(t *testing.T) {
 					if c.expectedDataplaneHealthStatus != "" {
 						expCheck.Status = c.expectedDataplaneHealthStatus
 					} else {
-						if c.missingDataplaneContainer || markDataplaneContainerUnhealthy {
+						if c.missingDataplaneContainer || markDataplaneContainerUnhealthy || hasMissingHealthSyncContainer {
 							expCheck.Status = api.HealthCritical
-						} else if len(c.healthSyncContainers) == 0 || !markDataplaneContainerUnhealthy {
+						} else {
 							expCheck.Status = api.HealthPassing
 						}
 					}
 				}
 			}
-			if markDataplaneContainerUnhealthy {
+			if markDataplaneContainerUnhealthy || hasMissingHealthSyncContainer {
 				expectedProxyCheck.Status = api.HealthCritical
 			} else {
 				expectedProxyCheck.Status = api.HealthPassing
@@ -446,8 +451,9 @@ func TestRun(t *testing.T) {
 			if c.shouldMissingContainersReappear {
 				// Mark all containers as non missing
 				c.missingDataplaneContainer = false
-				for _, hsc := range c.healthSyncContainers {
+				for name, hsc := range c.healthSyncContainers {
 					hsc.missing = false
+					c.healthSyncContainers[name] = hsc
 				}
 
 				// Add the containers data into task meta response

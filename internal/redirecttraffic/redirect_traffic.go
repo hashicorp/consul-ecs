@@ -9,8 +9,8 @@ import (
 	"strconv"
 
 	"github.com/hashicorp/consul-ecs/config"
-	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/consul/sdk/iptables"
+	"github.com/hashicorp/consul/api/v2"
+	"github.com/hashicorp/consul/sdk/v2/iptables"
 	"github.com/mitchellh/mapstructure"
 )
 
@@ -179,7 +179,7 @@ func (c *TrafficRedirectionCfg) Apply() error {
 		iptablesProvider.AddRule("iptables", "-t", "nat", "--policy", "POSTROUTING", "ACCEPT")
 	}
 
-	err := iptables.SetupWithAdditionalRules(c.iptablesCfg, addAdditionalRulesFn)
+	err := iptables.SetupWithAdditionalRules(c.iptablesCfg, addAdditionalRulesFn, false)
 	if err != nil {
 		return fmt.Errorf("failed to setup traffic redirection rules %w", err)
 	}

@@ -21,7 +21,7 @@ import (
 	meshinit "github.com/hashicorp/consul-ecs/subcommand/mesh-init"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
-	"github.com/hashicorp/consul/api"
+	"github.com/hashicorp/consul/api/v2"
 	"github.com/hashicorp/serf/testutil/retry"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"

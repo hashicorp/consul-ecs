@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/hashicorp/consul-ecs/config"
-	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/consul/sdk/iptables"
+	"github.com/hashicorp/consul/api/v2"
+	"github.com/hashicorp/consul/sdk/v2/iptables"
 	"github.com/stretchr/testify/require"
 )
 
@@ -237,11 +237,15 @@ func (f *mockIptablesProvider) AddRule(_ string, args ...string) {
 	f.rules = append(f.rules, strings.Join(args, " "))
 }
 
-func (f *mockIptablesProvider) ApplyRules() error {
+func (f *mockIptablesProvider) ApplyRules(_ string) error {
 	f.applyCalled = true
 	return nil
 }
 
 func (f *mockIptablesProvider) Rules() []string {
 	return f.rules
+}
+
+func (f *mockIptablesProvider) ClearAllRules() {
+	f.rules = nil
 }

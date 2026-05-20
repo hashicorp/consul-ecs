@@ -12,6 +12,8 @@ out/
 
 # Allow dist and LICENSE for default Dockerfile
 !dist/*
+!dist/
+!dist/**
 !LICENSE
 
 # Allow Go source and module files for FIPS Dockerfile

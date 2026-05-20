@@ -1,4 +1,4 @@
-// Copyright IBM Corp. 2021, 2025
+// Copyright IBM Corp. 2021, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package healthsync
@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
@@ -109,7 +109,7 @@ func TestRun(t *testing.T) {
 		"one healthy health sync container": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
-					status: ecs.HealthStatusHealthy,
+					status: string(types.HealthStatusHealthy),
 				},
 			},
 			consulLogin: consulLoginCfg,
@@ -117,20 +117,20 @@ func TestRun(t *testing.T) {
 		"two healthy health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
-					status: ecs.HealthStatusHealthy,
+					status: string(types.HealthStatusHealthy),
 				},
 				"container-2": {
-					status: ecs.HealthStatusHealthy,
+					status: string(types.HealthStatusHealthy),
 				},
 			},
 		},
 		"one healthy and one unhealthy health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
-					status: ecs.HealthStatusHealthy,
+					status: string(types.HealthStatusHealthy),
 				},
 				"container-2": {
-					status: ecs.HealthStatusUnhealthy,
+					status: string(types.HealthStatusUnhealthy),
 				},
 			},
 			expectedDataplaneHealthStatus: api.HealthCritical,
@@ -138,23 +138,22 @@ func TestRun(t *testing.T) {
 		"one healthy and one missing health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
-					status: ecs.HealthStatusHealthy,
+					status: string(types.HealthStatusHealthy),
 				},
 				"container-2": {
 					missing: true,
-					status:  ecs.HealthStatusUnhealthy,
+					status:  string(types.HealthStatusUnhealthy),
 				},
 			},
-			expectedDataplaneHealthStatus: api.HealthPassing,
-			consulLogin:                   consulLoginCfg,
+			consulLogin: consulLoginCfg,
 		},
 		"two unhealthy health sync containers": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
-					status: ecs.HealthStatusUnhealthy,
+					status: string(types.HealthStatusUnhealthy),
 				},
 				"container-2": {
-					status: ecs.HealthStatusUnhealthy,
+					status: string(types.HealthStatusUnhealthy),
 				},
 			},
 			expectedDataplaneHealthStatus: api.HealthCritical,
@@ -166,10 +165,10 @@ func TestRun(t *testing.T) {
 			missingDataplaneContainer: true,
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
-					status: ecs.HealthStatusHealthy,
+					status: string(types.HealthStatusHealthy),
 				},
 				"container-2": {
-					status: ecs.HealthStatusHealthy,
+					status: string(types.HealthStatusHealthy),
 				},
 			},
 		},
@@ -177,10 +176,10 @@ func TestRun(t *testing.T) {
 			missingDataplaneContainer: true,
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
-					status: ecs.HealthStatusHealthy,
+					status: string(types.HealthStatusHealthy),
 				},
 				"container-2": {
-					status: ecs.HealthStatusUnhealthy,
+					status: string(types.HealthStatusUnhealthy),
 				},
 			},
 			consulLogin: consulLoginCfg,
@@ -189,7 +188,7 @@ func TestRun(t *testing.T) {
 			missingDataplaneContainer: true,
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
-					status:  ecs.HealthStatusHealthy,
+					status:  string(types.HealthStatusHealthy),
 					missing: true,
 				},
 			},
@@ -197,14 +196,13 @@ func TestRun(t *testing.T) {
 		"missing healthy sync container which gets synced as healthy after it reappears": {
 			healthSyncContainers: map[string]healthSyncContainerMetaData{
 				"container-1": {
-					status: ecs.HealthStatusHealthy,
+					status: string(types.HealthStatusHealthy),
 				},
 				"container-2": {
 					missing: true,
-					status:  ecs.HealthStatusUnhealthy,
+					status:  string(types.HealthStatusHealthy),
 				},
 			},
-			expectedDataplaneHealthStatus:   api.HealthPassing,
 			shouldMissingContainersReappear: true,
 			consulLogin:                     consulLoginCfg,
 		},
@@ -373,6 +371,13 @@ func TestRun(t *testing.T) {
 
 			// Align the expectations for checks according to the
 			// state of health sync containers
+			hasMissingHealthSyncContainer := false
+			for _, hsc := range c.healthSyncContainers {
+				if hsc.missing {
+					hasMissingHealthSyncContainer = true
+					break
+				}
+			}
 			markDataplaneContainerUnhealthy := false
 			for _, expCheck := range expectedSvcChecks {
 				found := false
@@ -386,7 +391,7 @@ func TestRun(t *testing.T) {
 							// If there are multiple health sync containers and one of them is unhealthy
 							// then the service check should be critical.
 							for containerName := range c.healthSyncContainers {
-								if c.healthSyncContainers[containerName].status == ecs.HealthStatusUnhealthy &&
+								if c.healthSyncContainers[containerName].status == string(types.HealthStatusUnhealthy) &&
 									c.healthSyncContainers[containerName].missing == false {
 									expCheck.Status = api.HealthCritical
 									markDataplaneContainerUnhealthy = true
@@ -404,15 +409,15 @@ func TestRun(t *testing.T) {
 					if c.expectedDataplaneHealthStatus != "" {
 						expCheck.Status = c.expectedDataplaneHealthStatus
 					} else {
-						if c.missingDataplaneContainer || markDataplaneContainerUnhealthy {
+						if c.missingDataplaneContainer || markDataplaneContainerUnhealthy || hasMissingHealthSyncContainer {
 							expCheck.Status = api.HealthCritical
-						} else if len(c.healthSyncContainers) == 0 || !markDataplaneContainerUnhealthy {
+						} else {
 							expCheck.Status = api.HealthPassing
 						}
 					}
 				}
 			}
-			if markDataplaneContainerUnhealthy {
+			if markDataplaneContainerUnhealthy || hasMissingHealthSyncContainer {
 				expectedProxyCheck.Status = api.HealthCritical
 			} else {
 				expectedProxyCheck.Status = api.HealthPassing
@@ -446,8 +451,9 @@ func TestRun(t *testing.T) {
 			if c.shouldMissingContainersReappear {
 				// Mark all containers as non missing
 				c.missingDataplaneContainer = false
-				for _, hsc := range c.healthSyncContainers {
+				for name, hsc := range c.healthSyncContainers {
 					hsc.missing = false
+					c.healthSyncContainers[name] = hsc
 				}
 
 				// Add the containers data into task meta response
@@ -824,7 +830,7 @@ func constructTaskMetaResponseString(resp *awsutil.ECSTaskMeta) (string, error) 
 func injectContainersIntoTaskMetaResponse(t *testing.T, taskMetadataResponse *awsutil.ECSTaskMeta, missingDataplaneContainer bool, healthSyncContainers map[string]healthSyncContainerMetaData) string {
 	var taskMetaContainersResponse []awsutil.ECSTaskMetaContainer
 	if !missingDataplaneContainer {
-		taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(config.ConsulDataplaneContainerName, ecs.HealthStatusHealthy))
+		taskMetaContainersResponse = append(taskMetaContainersResponse, constructContainerResponse(config.ConsulDataplaneContainerName, string(types.HealthStatusHealthy)))
 	}
 
 	for name, hsc := range healthSyncContainers {
@@ -878,8 +884,8 @@ func assertHealthChecks(t *testing.T, consulClient *api.Client, expectedServiceC
 func stopDataplaneContainer(taskMetadataResp *awsutil.ECSTaskMeta) (string, error) {
 	for i, c := range taskMetadataResp.Containers {
 		if c.Name == config.ConsulDataplaneContainerName {
-			taskMetadataResp.Containers[i].DesiredStatus = ecs.DesiredStatusStopped
-			taskMetadataResp.Containers[i].KnownStatus = ecs.DesiredStatusStopped
+			taskMetadataResp.Containers[i].DesiredStatus = string(types.DesiredStatusStopped)
+			taskMetadataResp.Containers[i].KnownStatus = string(types.DesiredStatusStopped)
 			break
 		}
 	}

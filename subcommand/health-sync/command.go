@@ -20,7 +20,7 @@ import (
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
-	"github.com/hashicorp/consul/api"
+	"github.com/hashicorp/consul/api/v2"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
 	"github.com/mitchellh/cli"

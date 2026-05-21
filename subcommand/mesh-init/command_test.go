@@ -1242,6 +1242,12 @@ func TestRegisterServiceDefaults(t *testing.T) {
 			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
 
+			// Skip if the Consul server doesn't yet support the
+			// EnforcingConsecutiveGatewayFailure / ConsecutiveGatewayFailure
+			// fields on PassiveHealthCheck (added in hashicorp/consul#23563,
+			// not present in released Consul versions).
+			skipIfGatewayFailureUnsupported(t, consulClient)
+
 			// Setup test scenario
 			tc.setupConsul(t, consulClient)
 
@@ -1291,6 +1297,32 @@ func TestRegisterServiceDefaults(t *testing.T) {
 			}
 		})
 	}
+}
+
+// skipIfGatewayFailureUnsupported probes the Consul server for support of the
+// PassiveHealthCheck.EnforcingConsecutiveGatewayFailure field. This field was
+// added in hashicorp/consul#23563 and is not yet available in released Consul
+// versions, so older servers reject it with a 400 "invalid config key" error.
+func skipIfGatewayFailureUnsupported(t *testing.T, client *api.Client) {
+	t.Helper()
+	enforcing := uint32(0)
+	probe := &api.ServiceConfigEntry{
+		Kind: api.ServiceDefaults,
+		Name: "consul-ecs-gateway-failure-probe",
+		UpstreamConfig: &api.UpstreamConfiguration{
+			Defaults: &api.UpstreamConfig{
+				PassiveHealthCheck: &api.PassiveHealthCheck{
+					EnforcingConsecutiveGatewayFailure: &enforcing,
+				},
+			},
+		},
+	}
+	_, _, err := client.ConfigEntries().Set(probe, nil)
+	if err != nil && strings.Contains(err.Error(), "EnforcingConsecutiveGatewayFailure") {
+		t.Skipf("Consul server does not support PassiveHealthCheck.EnforcingConsecutiveGatewayFailure (requires hashicorp/consul#23563): %v", err)
+	}
+	// Best-effort cleanup; ignore errors.
+	_, _ = client.ConfigEntries().Delete(api.ServiceDefaults, probe.Name, nil)
 }
 
 // TestIsConfigEntryNotFoundErrorHelper tests the error detection helper function

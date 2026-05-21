@@ -1088,7 +1088,7 @@ func TestRegisterServiceDefaults(t *testing.T) {
 		expectErrorMessage          string
 		expectServiceName           string
 		expectPassiveHealthCheckSet bool
-		expectedInterval            time.Duration
+		validatePassiveHealthCheck  func(t *testing.T, phc *api.PassiveHealthCheck)
 	}{
 		"creates new service defaults when not found": {
 			setupConsul: func(t *testing.T, client *api.Client) {
@@ -1097,7 +1097,19 @@ func TestRegisterServiceDefaults(t *testing.T) {
 			expectError:                 false,
 			expectServiceName:           "test-service",
 			expectPassiveHealthCheckSet: true,
-			expectedInterval:            10 * time.Second, // Default from config
+			validatePassiveHealthCheck: func(t *testing.T, phc *api.PassiveHealthCheck) {
+				// When PassiveHealthCheck is newly created, all fields must have their default values
+				require.Equal(t, config.DefaultOutlierDetectionInterval, phc.Interval, "Interval must be set to default")
+				require.Equal(t, config.DefaultOutlierDetectionMaxFailures, phc.MaxFailures, "MaxFailures must be set to default")
+
+				// EnforcingConsecutiveGatewayFailure is always set (never nil) via normalization
+				require.NotNil(t, phc.EnforcingConsecutiveGatewayFailure, "EnforcingConsecutiveGatewayFailure must never be nil in new PassiveHealthCheck")
+				require.Equal(t, config.DefaultOutlierDetectionEnforcingGatewayFailure, *phc.EnforcingConsecutiveGatewayFailure, "EnforcingConsecutiveGatewayFailure must use default value")
+
+				// MaxEjectionPercent is always set (never nil) via normalization
+				require.NotNil(t, phc.MaxEjectionPercent, "MaxEjectionPercent must never be nil in new PassiveHealthCheck")
+				require.Equal(t, config.DefaultOutlierDetectionMaxEjectionPercent, *phc.MaxEjectionPercent, "MaxEjectionPercent must use default value")
+			},
 		},
 		"merges with existing service defaults without passive health check": {
 			setupConsul: func(t *testing.T, client *api.Client) {
@@ -1117,7 +1129,19 @@ func TestRegisterServiceDefaults(t *testing.T) {
 			expectError:                 false,
 			expectServiceName:           "test-service-merge",
 			expectPassiveHealthCheckSet: true,
-			expectedInterval:            10 * time.Second,
+			validatePassiveHealthCheck: func(t *testing.T, phc *api.PassiveHealthCheck) {
+				// When merging and adding PassiveHealthCheck, defaults are applied
+				require.Equal(t, config.DefaultOutlierDetectionInterval, phc.Interval, "Interval must be set to default when adding to merged config")
+				require.Equal(t, config.DefaultOutlierDetectionMaxFailures, phc.MaxFailures, "MaxFailures must be set to default when adding to merged config")
+
+				// EnforcingConsecutiveGatewayFailure is always set via normalization
+				require.NotNil(t, phc.EnforcingConsecutiveGatewayFailure, "EnforcingConsecutiveGatewayFailure must never be nil when adding PassiveHealthCheck")
+				require.Equal(t, config.DefaultOutlierDetectionEnforcingGatewayFailure, *phc.EnforcingConsecutiveGatewayFailure, "EnforcingConsecutiveGatewayFailure must use default value")
+
+				// MaxEjectionPercent is always set via normalization
+				require.NotNil(t, phc.MaxEjectionPercent, "MaxEjectionPercent must never be nil when adding PassiveHealthCheck")
+				require.Equal(t, config.DefaultOutlierDetectionMaxEjectionPercent, *phc.MaxEjectionPercent, "MaxEjectionPercent must use default value")
+			},
 		},
 		"preserves existing passive health check config": {
 			setupConsul: func(t *testing.T, client *api.Client) {
@@ -1131,10 +1155,11 @@ func TestRegisterServiceDefaults(t *testing.T) {
 					UpstreamConfig: &api.UpstreamConfiguration{
 						Defaults: &api.UpstreamConfig{
 							PassiveHealthCheck: &api.PassiveHealthCheck{
-								Interval:                30 * time.Second,
-								MaxFailures:             10,
-								EnforcingConsecutive5xx: &enforcingVal,
-								MaxEjectionPercent:      &ejectVal,
+								Interval:                           30 * time.Second,
+								MaxFailures:                        10,
+								EnforcingConsecutiveGatewayFailure: &enforcingVal,
+								ConsecutiveGatewayFailure:          &ejectVal,
+								MaxEjectionPercent:                 &ejectVal,
 							},
 						},
 					},
@@ -1145,7 +1170,64 @@ func TestRegisterServiceDefaults(t *testing.T) {
 			expectError:                 false,
 			expectServiceName:           "test-service-preserve",
 			expectPassiveHealthCheckSet: true,
-			expectedInterval:            30 * time.Second, // Should preserve the existing interval, not apply default
+			validatePassiveHealthCheck: func(t *testing.T, phc *api.PassiveHealthCheck) {
+				// When PassiveHealthCheck already exists, it MUST be preserved as-is (NOT regenerated)
+				// The registerServiceDefaults function should skip creation and keep the original
+				require.Equal(t, 30*time.Second, phc.Interval, "Existing Interval must be preserved (30s), not overwritten with default (10s)")
+				require.Equal(t, uint32(10), phc.MaxFailures, "Existing MaxFailures must be preserved (10), not overwritten with default (5)")
+
+				// The existing EnforcingConsecutiveGatewayFailure value must be preserved
+				require.NotNil(t, phc.EnforcingConsecutiveGatewayFailure, "EnforcingConsecutiveGatewayFailure must be preserved")
+				require.Equal(t, uint32(100), *phc.EnforcingConsecutiveGatewayFailure, "Existing EnforcingConsecutiveGatewayFailure (100) must be preserved, not replaced with default")
+
+				// The existing consecutiveGatewayFailure must be preserved
+				require.NotNil(t, phc.ConsecutiveGatewayFailure, "ConsecutiveGatewayFailure must be preserved")
+				require.Equal(t, uint32(50), *phc.ConsecutiveGatewayFailure, "Existing ConsecutiveGatewayFailure (50) must be preserved, not replaced with default")
+				// The existing MaxEjectionPercent must be preserved
+				require.NotNil(t, phc.MaxEjectionPercent, "MaxEjectionPercent must be preserved")
+				require.Equal(t, uint32(50), *phc.MaxEjectionPercent, "Existing MaxEjectionPercent (50) must be preserved, not replaced with default")
+			},
+		},
+		"preserves existing passive health check with EnforcingConsecutive5xx": {
+			setupConsul: func(t *testing.T, client *api.Client) {
+				// Pre-create service defaults WITH existing PassiveHealthCheck using the legacy EnforcingConsecutive5xx field
+				// This should be preserved and NOT overwritten
+				enforcingVal := uint32(85)
+				ejectVal := uint32(45)
+				existing := &api.ServiceConfigEntry{
+					Kind: api.ServiceDefaults,
+					Name: "test-service-preserve-5xx",
+					UpstreamConfig: &api.UpstreamConfiguration{
+						Defaults: &api.UpstreamConfig{
+							PassiveHealthCheck: &api.PassiveHealthCheck{
+								Interval:                25 * time.Second,
+								MaxFailures:             9,
+								EnforcingConsecutive5xx: &enforcingVal,
+								MaxEjectionPercent:      &ejectVal,
+							},
+						},
+					},
+				}
+				_, _, err := client.ConfigEntries().Set(existing, nil)
+				require.NoError(t, err)
+			},
+			expectError:                 false,
+			expectServiceName:           "test-service-preserve-5xx",
+			expectPassiveHealthCheckSet: true,
+			validatePassiveHealthCheck: func(t *testing.T, phc *api.PassiveHealthCheck) {
+				// When PassiveHealthCheck with legacy EnforcingConsecutive5xx already exists, it MUST be preserved as-is
+				// The registerServiceDefaults function should skip creation and keep the original 5xx field
+				require.Equal(t, 25*time.Second, phc.Interval, "Existing Interval must be preserved (25s), not overwritten with default (10s)")
+				require.Equal(t, uint32(9), phc.MaxFailures, "Existing MaxFailures must be preserved (9), not overwritten with default (5)")
+
+				// The existing EnforcingConsecutive5xx (legacy field) must be preserved
+				require.NotNil(t, phc.EnforcingConsecutive5xx, "Legacy EnforcingConsecutive5xx must be preserved when existing")
+				require.Equal(t, uint32(85), *phc.EnforcingConsecutive5xx, "Existing EnforcingConsecutive5xx (85) must be preserved, not replaced")
+
+				// The existing MaxEjectionPercent must be preserved
+				require.NotNil(t, phc.MaxEjectionPercent, "MaxEjectionPercent must be preserved")
+				require.Equal(t, uint32(45), *phc.MaxEjectionPercent, "Existing MaxEjectionPercent (45) must be preserved, not replaced with default (50)")
+			},
 		},
 	}
 
@@ -1159,6 +1241,12 @@ func TestRegisterServiceDefaults(t *testing.T) {
 
 			consulClient, err := api.NewClient(cfg)
 			require.NoError(t, err)
+
+			// Skip if the Consul server doesn't yet support the
+			// EnforcingConsecutiveGatewayFailure / ConsecutiveGatewayFailure
+			// fields on PassiveHealthCheck (added in hashicorp/consul#23563,
+			// not present in released Consul versions).
+			skipIfGatewayFailureUnsupported(t, consulClient)
 
 			// Setup test scenario
 			tc.setupConsul(t, consulClient)
@@ -1203,12 +1291,38 @@ func TestRegisterServiceDefaults(t *testing.T) {
 				// Verify PassiveHealthCheck is set
 				if tc.expectPassiveHealthCheckSet {
 					require.NotNil(t, svcDefaults.UpstreamConfig.Defaults.PassiveHealthCheck)
-					// Verify the interval matches expected value (either preserved or newly set)
-					require.Equal(t, tc.expectedInterval, svcDefaults.UpstreamConfig.Defaults.PassiveHealthCheck.Interval)
+					// Run the comprehensive validation function for this test case
+					tc.validatePassiveHealthCheck(t, svcDefaults.UpstreamConfig.Defaults.PassiveHealthCheck)
 				}
 			}
 		})
 	}
+}
+
+// skipIfGatewayFailureUnsupported probes the Consul server for support of the
+// PassiveHealthCheck.EnforcingConsecutiveGatewayFailure field. This field was
+// added in hashicorp/consul#23563 and is not yet available in released Consul
+// versions, so older servers reject it with a 400 "invalid config key" error.
+func skipIfGatewayFailureUnsupported(t *testing.T, client *api.Client) {
+	t.Helper()
+	enforcing := uint32(0)
+	probe := &api.ServiceConfigEntry{
+		Kind: api.ServiceDefaults,
+		Name: "consul-ecs-gateway-failure-probe",
+		UpstreamConfig: &api.UpstreamConfiguration{
+			Defaults: &api.UpstreamConfig{
+				PassiveHealthCheck: &api.PassiveHealthCheck{
+					EnforcingConsecutiveGatewayFailure: &enforcing,
+				},
+			},
+		},
+	}
+	_, _, err := client.ConfigEntries().Set(probe, nil)
+	if err != nil && strings.Contains(err.Error(), "EnforcingConsecutiveGatewayFailure") {
+		t.Skipf("Consul server does not support PassiveHealthCheck.EnforcingConsecutiveGatewayFailure (requires hashicorp/consul#23563): %v", err)
+	}
+	// Best-effort cleanup; ignore errors.
+	_, _ = client.ConfigEntries().Delete(api.ServiceDefaults, probe.Name, nil)
 }
 
 // TestIsConfigEntryNotFoundErrorHelper tests the error detection helper function
@@ -1266,61 +1380,61 @@ func TestIsConfigEntryNotFoundErrorHelper(t *testing.T) {
 // TestNormalizeOutlierDetectionConfig tests the normalization of outlier detection configuration
 func TestNormalizeOutlierDetectionConfig(t *testing.T) {
 	cases := map[string]struct {
-		input                       *config.OutlierDetectionConfig
-		expectNilEnforcingConsec5xx bool
-		expectNilMaxEjectionPercent bool
-		expectedEnforcingConsec5xx  uint32
-		expectedMaxEjectionPercent  uint32
+		input                            *config.OutlierDetectionConfig
+		expectNilEnforcingGatewayFailure bool
+		expectNilMaxEjectionPercent      bool
+		expectedEnforcingGatewayFailure  uint32
+		expectedMaxEjectionPercent       uint32
 	}{
 		"nil config returns defaults": {
-			input:                       nil,
-			expectNilEnforcingConsec5xx: false,
-			expectNilMaxEjectionPercent: false,
-			expectedEnforcingConsec5xx:  config.DefaultOutlierDetectionEnforcingConsecutive5xx,
-			expectedMaxEjectionPercent:  config.DefaultOutlierDetectionMaxEjectionPercent,
+			input:                            nil,
+			expectNilEnforcingGatewayFailure: false,
+			expectNilMaxEjectionPercent:      false,
+			expectedEnforcingGatewayFailure:  config.DefaultOutlierDetectionEnforcingGatewayFailure,
+			expectedMaxEjectionPercent:       config.DefaultOutlierDetectionMaxEjectionPercent,
 		},
 		"config with nil pointer fields gets defaults applied": {
 			input: &config.OutlierDetectionConfig{
-				Interval:                10 * time.Second,
-				MaxFailures:             5,
-				EnforcingConsecutive5xx: nil, // Should get default
-				MaxEjectionPercent:      nil, // Should get default
+				Interval:                           10 * time.Second,
+				MaxFailures:                        5,
+				EnforcingConsecutiveGatewayFailure: nil, // Should get default
+				MaxEjectionPercent:                 nil, // Should get default
 			},
-			expectNilEnforcingConsec5xx: false,
-			expectNilMaxEjectionPercent: false,
-			expectedEnforcingConsec5xx:  config.DefaultOutlierDetectionEnforcingConsecutive5xx,
-			expectedMaxEjectionPercent:  config.DefaultOutlierDetectionMaxEjectionPercent,
+			expectNilEnforcingGatewayFailure: false,
+			expectNilMaxEjectionPercent:      false,
+			expectedEnforcingGatewayFailure:  config.DefaultOutlierDetectionEnforcingGatewayFailure,
+			expectedMaxEjectionPercent:       config.DefaultOutlierDetectionMaxEjectionPercent,
 		},
 		"config with set pointer fields is preserved": {
 			input: func() *config.OutlierDetectionConfig {
 				customEnforcing := uint32(80)
 				customEjection := uint32(30)
 				return &config.OutlierDetectionConfig{
-					Interval:                15 * time.Second,
-					MaxFailures:             8,
-					EnforcingConsecutive5xx: &customEnforcing,
-					MaxEjectionPercent:      &customEjection,
+					Interval:                           15 * time.Second,
+					MaxFailures:                        8,
+					EnforcingConsecutiveGatewayFailure: &customEnforcing,
+					MaxEjectionPercent:                 &customEjection,
 				}
 			}(),
-			expectNilEnforcingConsec5xx: false,
-			expectNilMaxEjectionPercent: false,
-			expectedEnforcingConsec5xx:  80,
-			expectedMaxEjectionPercent:  30,
+			expectNilEnforcingGatewayFailure: false,
+			expectNilMaxEjectionPercent:      false,
+			expectedEnforcingGatewayFailure:  80,
+			expectedMaxEjectionPercent:       30,
 		},
 		"config with partial nil fields applies selective defaults": {
 			input: func() *config.OutlierDetectionConfig {
 				customEnforcing := uint32(90)
 				return &config.OutlierDetectionConfig{
-					Interval:                12 * time.Second,
-					MaxFailures:             6,
-					EnforcingConsecutive5xx: &customEnforcing, // Has value
-					MaxEjectionPercent:      nil,              // Will get default
+					Interval:                           12 * time.Second,
+					MaxFailures:                        6,
+					EnforcingConsecutiveGatewayFailure: &customEnforcing, // Has value
+					MaxEjectionPercent:                 nil,              // Will get default
 				}
 			}(),
-			expectNilEnforcingConsec5xx: false,
-			expectNilMaxEjectionPercent: false,
-			expectedEnforcingConsec5xx:  90,
-			expectedMaxEjectionPercent:  config.DefaultOutlierDetectionMaxEjectionPercent,
+			expectNilEnforcingGatewayFailure: false,
+			expectNilMaxEjectionPercent:      false,
+			expectedEnforcingGatewayFailure:  90,
+			expectedMaxEjectionPercent:       config.DefaultOutlierDetectionMaxEjectionPercent,
 		},
 	}
 
@@ -1329,12 +1443,12 @@ func TestNormalizeOutlierDetectionConfig(t *testing.T) {
 			normalized := normalizeOutlierDetectionConfig(tc.input)
 			require.NotNil(t, normalized)
 
-			// Verify EnforcingConsecutive5xx
-			if tc.expectNilEnforcingConsec5xx {
-				require.Nil(t, normalized.EnforcingConsecutive5xx)
+			// Verify EnforcingConsecutiveGatewayFailure
+			if tc.expectNilEnforcingGatewayFailure {
+				require.Nil(t, normalized.EnforcingConsecutiveGatewayFailure)
 			} else {
-				require.NotNil(t, normalized.EnforcingConsecutive5xx)
-				require.Equal(t, tc.expectedEnforcingConsec5xx, *normalized.EnforcingConsecutive5xx)
+				require.NotNil(t, normalized.EnforcingConsecutiveGatewayFailure)
+				require.Equal(t, tc.expectedEnforcingGatewayFailure, *normalized.EnforcingConsecutiveGatewayFailure)
 			}
 
 			// Verify MaxEjectionPercent

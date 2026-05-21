@@ -19,9 +19,9 @@ import (
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/internal/dataplane"
 	"github.com/hashicorp/consul-ecs/testutil"
-	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/consul/sdk/iptables"
-	"github.com/hashicorp/consul/sdk/testutil/retry"
+	"github.com/hashicorp/consul/api/v2"
+	"github.com/hashicorp/consul/sdk/v2/iptables"
+	"github.com/hashicorp/consul/sdk/v2/testutil/retry"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
@@ -1363,10 +1363,10 @@ func TestNormalizeOutlierDetectionConfig(t *testing.T) {
 		},
 		"config with nil pointer fields gets defaults applied": {
 			input: &config.OutlierDetectionConfig{
-				Interval:                10 * time.Second,
-				MaxFailures:             5,
-				EnforcingGatewayFailure: nil, // Should get default
-				MaxEjectionPercent:      nil, // Should get default
+				Interval:                           10 * time.Second,
+				MaxFailures:                        5,
+				EnforcingConsecutiveGatewayFailure: nil, // Should get default
+				MaxEjectionPercent:                 nil, // Should get default
 			},
 			expectNilEnforcingGatewayFailure: false,
 			expectNilMaxEjectionPercent:      false,
@@ -1378,10 +1378,10 @@ func TestNormalizeOutlierDetectionConfig(t *testing.T) {
 				customEnforcing := uint32(80)
 				customEjection := uint32(30)
 				return &config.OutlierDetectionConfig{
-					Interval:                15 * time.Second,
-					MaxFailures:             8,
-					EnforcingGatewayFailure: &customEnforcing,
-					MaxEjectionPercent:      &customEjection,
+					Interval:                           15 * time.Second,
+					MaxFailures:                        8,
+					EnforcingConsecutiveGatewayFailure: &customEnforcing,
+					MaxEjectionPercent:                 &customEjection,
 				}
 			}(),
 			expectNilEnforcingGatewayFailure: false,
@@ -1393,10 +1393,10 @@ func TestNormalizeOutlierDetectionConfig(t *testing.T) {
 			input: func() *config.OutlierDetectionConfig {
 				customEnforcing := uint32(90)
 				return &config.OutlierDetectionConfig{
-					Interval:                12 * time.Second,
-					MaxFailures:             6,
-					EnforcingGatewayFailure: &customEnforcing, // Has value
-					MaxEjectionPercent:      nil,              // Will get default
+					Interval:                           12 * time.Second,
+					MaxFailures:                        6,
+					EnforcingConsecutiveGatewayFailure: &customEnforcing, // Has value
+					MaxEjectionPercent:                 nil,              // Will get default
 				}
 			}(),
 			expectNilEnforcingGatewayFailure: false,
@@ -1411,12 +1411,12 @@ func TestNormalizeOutlierDetectionConfig(t *testing.T) {
 			normalized := normalizeOutlierDetectionConfig(tc.input)
 			require.NotNil(t, normalized)
 
-			// Verify EnforcingGatewayFailure
+			// Verify EnforcingConsecutiveGatewayFailure
 			if tc.expectNilEnforcingGatewayFailure {
-				require.Nil(t, normalized.EnforcingGatewayFailure)
+				require.Nil(t, normalized.EnforcingConsecutiveGatewayFailure)
 			} else {
-				require.NotNil(t, normalized.EnforcingGatewayFailure)
-				require.Equal(t, tc.expectedEnforcingGatewayFailure, *normalized.EnforcingGatewayFailure)
+				require.NotNil(t, normalized.EnforcingConsecutiveGatewayFailure)
+				require.Equal(t, tc.expectedEnforcingGatewayFailure, *normalized.EnforcingConsecutiveGatewayFailure)
 			}
 
 			// Verify MaxEjectionPercent

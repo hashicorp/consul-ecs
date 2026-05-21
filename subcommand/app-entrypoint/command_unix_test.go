@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/consul-ecs/testutil"
-	"github.com/hashicorp/consul/sdk/testutil/retry"
+	"github.com/hashicorp/consul/sdk/v2/testutil/retry"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"
 )

@@ -677,11 +677,14 @@ func (c *Command) registerServiceDefaults(consulClient *api.Client, service *api
 	err = backoff.RetryNotify(func() error {
 		c.log.Info("registering service defaults with passive health check", "service", service.Service)
 		isSuccess, _, setErr := consulClient.ConfigEntries().Set(serviceDefaults, nil)
+		if setErr != nil {
+			return setErr
+		}
 		if !isSuccess {
 			return fmt.Errorf("failed to set service defaults: operation did not succeed")
 		}
-		return setErr
-	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
+		return nil
+	}, backoff.WithMaxRetries(backoff.NewConstantBackOff(1*time.Second), 5), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
@@ -705,12 +708,20 @@ func isConfigEntryNotFoundError(err error) bool {
 }
 
 // normalizeOutlierDetectionConfig ensures the OutlierDetectionConfig is properly initialized.
-// If the config is nil, it returns a new config with default values.
-// Otherwise, it returns the provided config as-is, allowing the caller to check
-// if individual fields are nil before setting them in PassiveHealthCheck.
+// If the config is nil, it returns a new config with default values. Otherwise, it returns
+// the provided config with any nil pointer fields populated with their default values, so
+// callers can rely on EnforcingConsecutiveGatewayFailure and MaxEjectionPercent being set.
 func normalizeOutlierDetectionConfig(cfg *config.OutlierDetectionConfig) *config.OutlierDetectionConfig {
 	if cfg == nil {
 		return config.NewOutlierDetectionConfig()
+	}
+	if cfg.EnforcingConsecutiveGatewayFailure == nil {
+		v := config.DefaultOutlierDetectionEnforcingGatewayFailure
+		cfg.EnforcingConsecutiveGatewayFailure = &v
+	}
+	if cfg.MaxEjectionPercent == nil {
+		v := config.DefaultOutlierDetectionMaxEjectionPercent
+		cfg.MaxEjectionPercent = &v
 	}
 	return cfg
 }

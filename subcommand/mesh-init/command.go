@@ -581,12 +581,6 @@ func getLocalityParams(taskMeta awsutil.ECSTaskMeta) *api.Locality {
 // merges the configurations, and only adds passive health check if not already present.
 // The passive health check is applied to all upstreams via UpstreamConfig.Defaults.
 func (c *Command) registerServiceDefaults(consulClient *api.Client, service *api.AgentService, resilience *config.NetworkPartitionResilienceConfig) error {
-	// Get the outlier detection config or use defaults
-	outlierDetectionCfg := resilience.OutlierDetection
-	if outlierDetectionCfg == nil {
-		outlierDetectionCfg = config.NewOutlierDetectionConfig()
-	}
-
 	// Fetch existing service defaults configuration
 	queryOpts := &api.QueryOptions{}
 	if service.Partition != "" {
@@ -637,15 +631,42 @@ func (c *Command) registerServiceDefaults(consulClient *api.Client, service *api
 
 	// Only set PassiveHealthCheck if it doesn't already exist
 	if serviceDefaults.UpstreamConfig.Defaults.PassiveHealthCheck == nil {
-		// Normalize outlier detection config by applying defaults for nil pointer fields
+		// Get the outlier detection config or use defaults
+		outlierDetectionCfg := resilience.OutlierDetection
+		// Normalize outlier detection config by ensuring pointer fields have valid values
 		normalizedCfg := normalizeOutlierDetectionConfig(outlierDetectionCfg)
 
+		// Build PassiveHealthCheck with only non-nil fields
 		passiveHealthCheck := &api.PassiveHealthCheck{
-			Interval:                normalizedCfg.Interval,
-			MaxFailures:             normalizedCfg.MaxFailures,
-			EnforcingConsecutive5xx: normalizedCfg.EnforcingConsecutive5xx,
-			MaxEjectionPercent:      normalizedCfg.MaxEjectionPercent,
+			Interval:    normalizedCfg.Interval,
+			MaxFailures: normalizedCfg.MaxFailures,
 		}
+
+		// Set EnforcingConsecutive5xx if not nil and valid
+		if normalizedCfg.EnforcingConsecutive5xx != nil {
+			passiveHealthCheck.EnforcingConsecutive5xx = normalizedCfg.EnforcingConsecutive5xx
+		}
+
+		// Set Consecutive5xx if not nil and valid
+		if normalizedCfg.Consecutive5xx != nil {
+			passiveHealthCheck.Consecutive5xx = normalizedCfg.Consecutive5xx
+		}
+
+		// Set EnforcingConsecutiveGatewayFailure if not nil and valid
+		if normalizedCfg.EnforcingConsecutiveGatewayFailure != nil {
+			passiveHealthCheck.EnforcingConsecutiveGatewayFailure = normalizedCfg.EnforcingConsecutiveGatewayFailure
+		}
+
+		// Set ConsecutiveGatewayFailure if not nil and valid
+		if normalizedCfg.ConsecutiveGatewayFailure != nil {
+			passiveHealthCheck.ConsecutiveGatewayFailure = normalizedCfg.ConsecutiveGatewayFailure
+		}
+
+		// Set MaxEjectionPercent if not nil and valid
+		if normalizedCfg.MaxEjectionPercent != nil {
+			passiveHealthCheck.MaxEjectionPercent = normalizedCfg.MaxEjectionPercent
+		}
+
 		serviceDefaults.UpstreamConfig.Defaults.PassiveHealthCheck = passiveHealthCheck
 		c.log.Info("adding passive health check to service defaults", "service", service.Service)
 	} else {
@@ -656,11 +677,14 @@ func (c *Command) registerServiceDefaults(consulClient *api.Client, service *api
 	err = backoff.RetryNotify(func() error {
 		c.log.Info("registering service defaults with passive health check", "service", service.Service)
 		isSuccess, _, setErr := consulClient.ConfigEntries().Set(serviceDefaults, nil)
+		if setErr != nil {
+			return setErr
+		}
 		if !isSuccess {
 			return fmt.Errorf("failed to set service defaults: operation did not succeed")
 		}
-		return setErr
-	}, backoff.NewConstantBackOff(1*time.Second), retryLogger(c.log))
+		return nil
+	}, backoff.WithMaxRetries(backoff.NewConstantBackOff(1*time.Second), 5), retryLogger(c.log))
 	if err != nil {
 		return err
 	}
@@ -683,37 +707,21 @@ func isConfigEntryNotFoundError(err error) bool {
 		strings.Contains(errMsg, "no such config entry")
 }
 
-// normalizeOutlierDetectionConfig ensures all pointer fields in the OutlierDetectionConfig
-// have non-nil values by applying defaults where necessary. This is important because:
-// 1. User-provided configurations may have nil pointer fields if not specified in JSON
-// 2. The PassiveHealthCheck struct expects these values to be properly initialized
-// 3. Consul API requires valid values for outlier detection parameters
+// normalizeOutlierDetectionConfig ensures the OutlierDetectionConfig is properly initialized.
+// If the config is nil, it returns a new config with default values. Otherwise, it returns
+// the provided config with any nil pointer fields populated with their default values, so
+// callers can rely on EnforcingConsecutiveGatewayFailure and MaxEjectionPercent being set.
 func normalizeOutlierDetectionConfig(cfg *config.OutlierDetectionConfig) *config.OutlierDetectionConfig {
 	if cfg == nil {
 		return config.NewOutlierDetectionConfig()
 	}
-
-	// Create a new normalized config with all fields properly initialized
-	normalized := &config.OutlierDetectionConfig{
-		Interval:    cfg.Interval,
-		MaxFailures: cfg.MaxFailures,
+	if cfg.EnforcingConsecutiveGatewayFailure == nil {
+		v := config.DefaultOutlierDetectionEnforcingGatewayFailure
+		cfg.EnforcingConsecutiveGatewayFailure = &v
 	}
-
-	// Apply default for EnforcingConsecutive5xx if nil
-	if cfg.EnforcingConsecutive5xx == nil {
-		defaultVal := config.DefaultOutlierDetectionEnforcingConsecutive5xx
-		normalized.EnforcingConsecutive5xx = &defaultVal
-	} else {
-		normalized.EnforcingConsecutive5xx = cfg.EnforcingConsecutive5xx
-	}
-
-	// Apply default for MaxEjectionPercent if nil
 	if cfg.MaxEjectionPercent == nil {
-		defaultVal := config.DefaultOutlierDetectionMaxEjectionPercent
-		normalized.MaxEjectionPercent = &defaultVal
-	} else {
-		normalized.MaxEjectionPercent = cfg.MaxEjectionPercent
+		v := config.DefaultOutlierDetectionMaxEjectionPercent
+		cfg.MaxEjectionPercent = &v
 	}
-
-	return normalized
+	return cfg
 }

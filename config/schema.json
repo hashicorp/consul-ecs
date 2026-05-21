@@ -389,6 +389,23 @@
                   "maximum": 100,
                   "default": 100
                 },
+                "consecutive5xx": {
+                  "description": "Number of consecutive 5xx responses before ejecting an unhealthy host.",
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "enforcingConsecutiveGatewayFailure": {
+                  "description": "Percentage of consecutive gateway failures that trigger host ejection. Value between 0 and 100.",
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100,
+                  "default": 100
+                },
+                "consecutiveGatewayFailure": {
+                  "description": "Number of consecutive gateway failures before ejecting an unhealthy host.",
+                  "type": "integer",
+                  "minimum": 0
+                },
                 "maxEjectionPercent": {
                   "description": "Maximum percentage of hosts that can be ejected from the load balancing pool. Value between 0 and 100.",
                   "type": "integer",

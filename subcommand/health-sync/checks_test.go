@@ -12,7 +12,7 @@ import (
 	"github.com/hashicorp/consul-ecs/config"
 	meshinit "github.com/hashicorp/consul-ecs/subcommand/mesh-init"
 	"github.com/hashicorp/consul-ecs/testutil"
-	"github.com/hashicorp/consul/api/v2"
+	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
 	"github.com/stretchr/testify/require"

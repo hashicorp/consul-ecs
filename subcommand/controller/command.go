@@ -21,7 +21,7 @@ import (
 	"github.com/hashicorp/consul-ecs/controller"
 	"github.com/hashicorp/consul-ecs/logging"
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
-	"github.com/hashicorp/consul/api/v2"
+	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
 	"github.com/mitchellh/mapstructure"

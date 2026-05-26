@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/hashicorp/consul-ecs/config"
-	"github.com/hashicorp/consul/api/v2"
-	"github.com/hashicorp/consul/sdk/v2/iptables"
+	"github.com/hashicorp/consul/api"
+	"github.com/hashicorp/consul/sdk/iptables"
 	"github.com/stretchr/testify/require"
 )
 

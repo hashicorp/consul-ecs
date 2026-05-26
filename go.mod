@@ -14,8 +14,8 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/hashicorp/consul-awsauth v0.0.0-20260217094118-6b9b26380433
 	github.com/hashicorp/consul-server-connection-manager v0.1.2
-	github.com/hashicorp/consul/api/v2 v2.0.0
-	github.com/hashicorp/consul/sdk/v2 v2.0.0
+	github.com/hashicorp/consul/api v1.34.3
+	github.com/hashicorp/consul/sdk v0.18.1
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-rootcerts v1.0.2
@@ -59,7 +59,6 @@ require (
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/consul/proto-public v0.1.0 // indirect
-	github.com/hashicorp/consul/sdk v0.16.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
@@ -96,4 +95,3 @@ require (
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-

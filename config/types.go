@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/hashicorp/consul/api/v2"
+	"github.com/hashicorp/consul/api"
 )
 
 const (

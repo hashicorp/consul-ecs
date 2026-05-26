@@ -16,7 +16,7 @@ import (
 	iamauth "github.com/hashicorp/consul-awsauth"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
-	"github.com/hashicorp/consul/api/v2"
+	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-rootcerts"
 )

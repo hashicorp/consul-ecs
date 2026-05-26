@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/consul-ecs/config"
-	"github.com/hashicorp/consul/api/v2"
+	"github.com/hashicorp/consul/api"
 )
 
 const (

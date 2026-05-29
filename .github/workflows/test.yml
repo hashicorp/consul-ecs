@@ -66,18 +66,6 @@ jobs:
     - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
       with:
         go-version: ${{ needs.get-go-version.outputs.go-version }}
-    - name: Activate required Go toolchain
-      # setup-go adds go1.25.8 to PATH but a transitive dep (consul/api v1.34.3)
-      # requires go1.26. GOTOOLCHAIN=auto downloads go1.26.0 during setup-go's
-      # module-cache phase but does NOT update the shell PATH. Running `go env GOROOT`
-      # here re-triggers the toolchain switch; we then export the resulting GOROOT/PATH
-      # so every subsequent step starts with go1.26.0 directly, preventing
-      # "compile: version go1.26.0 does not match go tool version go1.25.8" errors.
-      # TODO: remove once .go-version is upgraded to 1.26 in a separate PR.
-      run: |
-        GOROOT=$(go env GOROOT)
-        echo "$GOROOT/bin" >> "$GITHUB_PATH"
-        echo "GOROOT=$GOROOT" >> "$GITHUB_ENV"
     - name: Install Consul
       shell: bash
       run: |
@@ -124,19 +112,9 @@ jobs:
       uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
     - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
       with:
-        go-version: ${{ needs.get-go-version.outputs.go-version }}
-    - name: Activate required Go toolchain
-      # setup-go adds go1.25.8 to PATH but a transitive dep (consul/api v1.34.3)
-      # requires go1.26. GOTOOLCHAIN=auto downloads go1.26.0 during setup-go's
-      # module-cache phase but does NOT update the shell PATH. Running `go env GOROOT`
-      # here re-triggers the toolchain switch; we then export the resulting GOROOT/PATH
-      # so every subsequent step starts with go1.26.0 directly, preventing
-      # "compile: version go1.26.0 does not match go tool version go1.25.8" errors.
-      # TODO: remove once .go-version is upgraded to 1.26 in a separate PR.
-      run: |
-        GOROOT=$(go env GOROOT)
-        echo "$GOROOT/bin" >> "$GITHUB_PATH"
-        echo "GOROOT=$GOROOT" >> "$GITHUB_ENV"
+        # Use go-version-file to install the version declared in go.mod (go 1.26),
+        # avoiding a toolchain mismatch when .go-version and go.mod differ.
+        go-version-file: go.mod
     - name: Install Consul
       shell: bash
       run: |
@@ -167,7 +145,6 @@ jobs:
       pull-requests: write
       id-token: write
     with:
-      go-version: ${{ needs.get-go-version.outputs.go-version }}
       pr-number: ${{ github.event.pull_request.number != 0 && toJson(github.event.pull_request.number) || '' }}
 
   # This is job is required for branch protection as a required GitHub check

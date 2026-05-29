@@ -1,0 +1,29 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+
+# Codecov configuration for consul-ecs.
+# https://docs.codecov.com/docs/codecovyml-reference
+#
+# Note on displayed percentages:
+#   "project" = overall coverage across all files (matches the PR comment %)
+#   "patch"   = coverage of only the lines changed in this PR — a CI-only PR
+#               will show 0% patch coverage since it adds no new Go code.
+# Both are informational-only and will never block merges.
+
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+# Must match the exclusions in reusable-coverage-report.yml's awk/grep filters.
+ignore:
+  - "**/*_test.go"
+  - "**/mocks/**"
+  - "**/mock_*"
+  - "**/hack/**"
+  - "**/testutil/**"
+  - "version/**"

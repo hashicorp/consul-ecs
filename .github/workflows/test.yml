@@ -49,10 +49,10 @@ jobs:
     strategy:
       matrix:
         consul-version:
-          - 1.21.5
-          - 1.21.9+ent
-          - 1.22.3
-          - 1.22.3+ent
+          - 1.22.7
+          - 1.22.8+ent
+          - 2.0.0
+          - 2.0.0+ent
     env:
       TEST_RESULTS_DIR: /tmp/test-results
       GOTESTSUM_VERSION: 1.8.2

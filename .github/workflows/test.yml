@@ -14,9 +14,10 @@ concurrency:
 
 env:
   CONSUL_LICENSE: ${{ secrets.CONSUL_LICENSE }}
-  # Latest CE version used in the test matrix — also used by unit-tests-coverage.
+  # CE version used in the test matrix — also used by unit-tests-coverage.
+  # Must match the first CE entry in the matrix below (consul-version list).
   # ENT variants need CONSUL_LICENSE and cannot be used in the coverage job.
-  CONSUL_CE_VERSION: "1.22.3"
+  CONSUL_CE_VERSION: "1.22.7"
 
 jobs:
   get-go-version:

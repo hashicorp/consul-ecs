@@ -381,6 +381,210 @@ func TestSyncChecksAppBecomesUnhealthyMidOperation(t *testing.T) {
 	require.Equal(t, api.HealthPassing, proxyChecks[0].Status, "proxy check must recover to passing")
 }
 
+// TestSyncChecksBatchesRegisterInOneCall verifies that all of a tick's changed
+// checks are written by a single Catalog.Register. When the app and dataplane
+// containers both transition "" -> HEALTHY, the app service check, the dataplane
+// service check, and the dataplane proxy check must share one ModifyIndex,
+// proving they landed in a single atomic write.
+func TestSyncChecksBatchesRegisterInOneCall(t *testing.T) {
+	serviceName := "batch-register-svc"
+	proxyServiceName := serviceName + "-sidecar-proxy"
+	taskARN := "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+	appContainer := "app-container"
+
+	taskMeta := &awsutil.ECSTaskMeta{Cluster: "test", TaskARN: taskARN, Family: serviceName}
+
+	var currentTaskMetaResp atomic.Value
+	taskMeta.Containers = []awsutil.ECSTaskMetaContainer{
+		constructContainerResponse(config.ConsulDataplaneContainerName, string(types.HealthStatusHealthy)),
+		constructContainerResponse(appContainer, string(types.HealthStatusHealthy)),
+	}
+	s, err := constructTaskMetaResponseString(taskMeta)
+	require.NoError(t, err)
+	currentTaskMetaResp.Store(s)
+	testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
+		return currentTaskMetaResp.Load().(string)
+	}))
+
+	cmd, consulClient, clusterARN := setupSyncChecksCmd(t, serviceName, []string{appContainer}, taskMeta)
+	healthSyncContainers := []string{appContainer, config.ConsulDataplaneContainerName}
+	currentStatuses := make(map[string]string)
+
+	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[appContainer])
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[config.ConsulDataplaneContainerName])
+
+	serviceChecks, _, err := consulClient.Health().Checks(serviceName, nil)
+	require.NoError(t, err)
+	require.Len(t, serviceChecks, 2) // app service check + dataplane service check
+
+	proxyChecks, _, err := consulClient.Health().Checks(proxyServiceName, nil)
+	require.NoError(t, err)
+	require.Len(t, proxyChecks, 1) // dataplane proxy check
+
+	// A single atomic Catalog.Register commits at one Raft index, so every
+	// check it touched shares the same ModifyIndex.
+	idx := proxyChecks[0].ModifyIndex
+	require.Equal(t, api.HealthPassing, proxyChecks[0].Status)
+	for _, ch := range serviceChecks {
+		require.Equal(t, api.HealthPassing, ch.Status)
+		require.Equal(t, idx, ch.ModifyIndex,
+			"all of a tick's checks must be written in a single Catalog.Register (same ModifyIndex)")
+	}
+}
+
+// TestSyncChecksDataplaneFailsLeavesAppCheckUntouched verifies the asymmetry
+// between the two failure directions. When the consul-dataplane container
+// becomes UNHEALTHY while the app container stays HEALTHY, only the aggregate is
+// written: the dataplane service check and the dataplane proxy check go critical
+// (in a single atomic Catalog.Register), while the app's own check keeps its
+// PASSING status AND its ModifyIndex, proving it was skipped as unchanged.
+func TestSyncChecksDataplaneFailsLeavesAppCheckUntouched(t *testing.T) {
+	serviceName := "dp-fails-svc"
+	proxyServiceName := serviceName + "-sidecar-proxy"
+	taskARN := "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+	appContainer := "app-container"
+
+	taskMeta := &awsutil.ECSTaskMeta{Cluster: "test", TaskARN: taskARN, Family: serviceName}
+
+	var currentTaskMetaResp atomic.Value
+	// Start with everything healthy.
+	taskMeta.Containers = []awsutil.ECSTaskMetaContainer{
+		constructContainerResponse(config.ConsulDataplaneContainerName, string(types.HealthStatusHealthy)),
+		constructContainerResponse(appContainer, string(types.HealthStatusHealthy)),
+	}
+	s, err := constructTaskMetaResponseString(taskMeta)
+	require.NoError(t, err)
+	currentTaskMetaResp.Store(s)
+	testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
+		return currentTaskMetaResp.Load().(string)
+	}))
+
+	cmd, consulClient, clusterARN := setupSyncChecksCmd(t, serviceName, []string{appContainer}, taskMeta)
+	healthSyncContainers := []string{appContainer, config.ConsulDataplaneContainerName}
+	currentStatuses := make(map[string]string)
+
+	serviceID := makeServiceID(serviceName, taskMeta.TaskID())
+	appCheckID := constructCheckID(serviceID, appContainer)
+	dpCheckID := constructCheckID(serviceID, config.ConsulDataplaneContainerName)
+
+	serviceCheckByID := func(id string) *api.HealthCheck {
+		checks, _, err := consulClient.Health().Checks(serviceName, nil)
+		require.NoError(t, err)
+		for _, ch := range checks {
+			if ch.CheckID == id {
+				return ch
+			}
+		}
+		t.Fatalf("service check %s not found", id)
+		return nil
+	}
+	proxyCheck := func() *api.HealthCheck {
+		checks, _, err := consulClient.Health().Checks(proxyServiceName, nil)
+		require.NoError(t, err)
+		require.Len(t, checks, 1)
+		return checks[0]
+	}
+
+	// Tick 1: all healthy → app and dataplane checks passing.
+	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[appContainer])
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[config.ConsulDataplaneContainerName])
+
+	appAfterTick1 := serviceCheckByID(appCheckID)
+	require.Equal(t, api.HealthPassing, appAfterTick1.Status)
+	appIdxAfterTick1 := appAfterTick1.ModifyIndex
+
+	// Tick 2: only the consul-dataplane container becomes UNHEALTHY; app stays HEALTHY.
+	taskMeta.Containers = []awsutil.ECSTaskMetaContainer{
+		constructContainerResponse(config.ConsulDataplaneContainerName, string(types.HealthStatusUnhealthy)),
+		constructContainerResponse(appContainer, string(types.HealthStatusHealthy)),
+	}
+	s, err = constructTaskMetaResponseString(taskMeta)
+	require.NoError(t, err)
+	currentTaskMetaResp.Store(s)
+
+	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[appContainer],
+		"app's own status is unchanged")
+	require.Equal(t, string(types.HealthStatusUnhealthy), currentStatuses[config.ConsulDataplaneContainerName],
+		"aggregate goes critical because the dataplane container is unhealthy")
+
+	// The app check must be skipped: same status, same ModifyIndex.
+	appAfterTick2 := serviceCheckByID(appCheckID)
+	require.Equal(t, api.HealthPassing, appAfterTick2.Status,
+		"app check must remain passing when only the dataplane container fails")
+	require.Equal(t, appIdxAfterTick1, appAfterTick2.ModifyIndex,
+		"app check must NOT be rewritten when its status is unchanged")
+
+	// Only the two dataplane checks are written, and they share one ModifyIndex.
+	dpServiceCheck := serviceCheckByID(dpCheckID)
+	dpProxyCheck := proxyCheck()
+	require.Equal(t, api.HealthCritical, dpServiceCheck.Status)
+	require.Equal(t, api.HealthCritical, dpProxyCheck.Status)
+	require.Equal(t, dpServiceCheck.ModifyIndex, dpProxyCheck.ModifyIndex,
+		"the dataplane service and proxy checks must be written in a single atomic Catalog.Register")
+	require.Greater(t, dpServiceCheck.ModifyIndex, appIdxAfterTick1,
+		"the dataplane checks must advance while the app check stays put")
+}
+
+// TestSetChecksCriticalBatchesInOneCall covers the graceful-shutdown path:
+// setChecksCritical must mark every tracked container's check critical and write
+// them all in a single Catalog.Register. This is the method the SIGTERM handler
+// in realRun invokes; we call it directly (the signal wiring is not under test
+// here, only the logic it triggers).
+func TestSetChecksCriticalBatchesInOneCall(t *testing.T) {
+	serviceName := "set-critical-svc"
+	proxyServiceName := serviceName + "-sidecar-proxy"
+	taskARN := "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+	appContainer := "app-container"
+
+	taskMeta := &awsutil.ECSTaskMeta{Cluster: "test", TaskARN: taskARN, Family: serviceName}
+
+	var currentTaskMetaResp atomic.Value
+	taskMeta.Containers = []awsutil.ECSTaskMetaContainer{
+		constructContainerResponse(config.ConsulDataplaneContainerName, string(types.HealthStatusHealthy)),
+		constructContainerResponse(appContainer, string(types.HealthStatusHealthy)),
+	}
+	s, err := constructTaskMetaResponseString(taskMeta)
+	require.NoError(t, err)
+	currentTaskMetaResp.Store(s)
+	testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
+		return currentTaskMetaResp.Load().(string)
+	}))
+
+	cmd, consulClient, clusterARN := setupSyncChecksCmd(t, serviceName, []string{appContainer}, taskMeta)
+	healthSyncContainers := []string{appContainer, config.ConsulDataplaneContainerName}
+
+	// First drive everything to passing so the critical transition is observable.
+	currentStatuses := make(map[string]string)
+	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[appContainer])
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[config.ConsulDataplaneContainerName])
+
+	// Run the shutdown path directly (what the SIGTERM handler calls).
+	require.NoError(t, cmd.setChecksCritical(consulClient, *taskMeta, clusterARN, healthSyncContainers))
+
+	// Verify that all checks are critical and share one ModifyIndex.
+	serviceChecks, _, err := consulClient.Health().Checks(serviceName, nil)
+	require.NoError(t, err)
+	require.Len(t, serviceChecks, 2) // app service check + dataplane service check
+
+	proxyChecks, _, err := consulClient.Health().Checks(proxyServiceName, nil)
+	require.NoError(t, err)
+	require.Len(t, proxyChecks, 1) // dataplane proxy check
+
+	// Every check must be critical and share one ModifyIndex (single atomic write).
+	idx := proxyChecks[0].ModifyIndex
+	require.Equal(t, api.HealthCritical, proxyChecks[0].Status)
+	for _, ch := range serviceChecks {
+		require.Equal(t, api.HealthCritical, ch.Status,
+			"every container's check must be critical after setChecksCritical")
+		require.Equal(t, idx, ch.ModifyIndex,
+			"setChecksCritical must write all checks in a single Catalog.Register (same ModifyIndex)")
+	}
+}
+
 func TestComputeOverallDataplaneHealth(t *testing.T) {
 	healthy := string(types.HealthStatusHealthy)
 	unhealthy := string(types.HealthStatusUnhealthy)

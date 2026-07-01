@@ -93,6 +93,31 @@ func TestECSTaskMeta(t *testing.T) {
 	require.Equal(t, "arn:aws:ecs:us-east-1:123456789:cluster/test", clusterArn)
 }
 
+func TestECSTaskMetaContainerImageVersion(t *testing.T) {
+	cases := map[string]struct {
+		image    string
+		expected string
+	}{
+		"tagged image":                  {"hashicorp/consul-dataplane:1.3.0", "1.3.0"},
+		"registry path with tag":        {"public.ecr.aws/hashicorp/consul-dataplane:1.3.0", "1.3.0"},
+		"latest tag":                    {"consul-dataplane:latest", "latest"},
+		"registry with port and tag":    {"localhost:5000/consul-dataplane:1.3.0", "1.3.0"},
+		"tag and digest":                {"hashicorp/consul-dataplane:1.3.0@sha256:9b2cabcdef0123456789", "1.3.0"},
+		"no tag":                        {"consul-dataplane", "consul-dataplane"},
+		"registry path no tag":          {"public.ecr.aws/hashicorp/consul-dataplane", "public.ecr.aws/hashicorp/consul-dataplane"},
+		"registry with port and no tag": {"localhost:5000/consul-dataplane", "localhost:5000/consul-dataplane"},
+		"digest only":                   {"public.ecr.aws/hashicorp/consul-dataplane@sha256:9b2cabcdef0123456789", "public.ecr.aws/hashicorp/consul-dataplane@sha256:9b2cabcdef0123456789"},
+		"empty image":                   {"", ""},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			container := ECSTaskMetaContainer{Image: c.image}
+			require.Equal(t, c.expected, container.ImageVersion())
+		})
+	}
+}
+
 func TestHasContainerStopped(t *testing.T) {
 	taskMeta := ECSTaskMeta{
 		Containers: []ECSTaskMetaContainer{

@@ -23,6 +23,7 @@ import (
 	"github.com/hashicorp/consul-ecs/internal/dns"
 	"github.com/hashicorp/consul-ecs/internal/redirecttraffic"
 	"github.com/hashicorp/consul-ecs/logging"
+	"github.com/hashicorp/consul-ecs/version"
 	"github.com/hashicorp/consul-server-connection-manager/discovery"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
@@ -46,6 +47,13 @@ type Command struct {
 const (
 	dataplaneConfigFileName = "consul-dataplane.json"
 	caCertFileName          = "consul-grpc-ca-cert.pem"
+
+	// maxMetaValueLength is Consul's limit for a service meta value. Consul
+	// rejects registrations with a longer value, so we omit any value that
+	// exceeds it to avoid failing (and, given mesh-init's infinite registration
+	// retry, hanging).
+	// Refer: https://github.com/hashicorp/consul/blob/9a38fac228fae7960f12f5b2a45c7548c90e8224/agent/structs/structs.go#L191
+	maxMetaValueLength = 512
 )
 
 func (c *Command) Run(args []string) int {
@@ -260,6 +268,10 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clu
 		"source":   "consul-ecs",
 	}, c.config.Service.Meta)
 
+	// Version metadata is owned by consul-ecs and applied after the user meta so
+	// it cannot be overridden.
+	setVersionMeta(fullMeta, taskMeta)
+
 	service := c.config.Service.ToConsulType()
 	service.ID = serviceID
 	service.Service = serviceName
@@ -326,6 +338,10 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 		"task-arn": taskMeta.TaskARN,
 		"source":   "consul-ecs",
 	}, c.config.Gateway.Meta)
+
+	// Version metadata is owned by consul-ecs and applied after the user meta so
+	// it cannot be overridden.
+	setVersionMeta(gatewaySvc.Meta, taskMeta)
 
 	switch c.config.Gateway.Kind {
 	case api.ServiceKindMeshGateway:
@@ -537,6 +553,42 @@ func getNodeMeta() map[string]string {
 	return map[string]string{
 		config.SyntheticNode: "true",
 	}
+}
+
+// setVersionMeta writes the consul-ecs and consul-dataplane versions into meta.
+// These reflect the actual running binaries, so they are applied after the
+// user-provided meta and cannot be overridden: the purpose of these fields is
+// to report the exact versions in use (e.g. for LTS upgrade audits).
+// The dataplane-version key is omitted when the version cannot be determined,
+// so we never advertise a misleading empty value.
+//
+// Meta keys must not start with "consul-": that prefix is reserved for Consul's
+// internal use and Consul rejects such keys during service registration.
+// Refer: https://github.com/hashicorp/consul/blob/9a38fac228fae7960f12f5b2a45c7548c90e8224/agent/structs/structs.go#L182
+func setVersionMeta(meta map[string]string, taskMeta awsutil.ECSTaskMeta) {
+	meta["ecs-service-version"] = version.GetHumanVersion()
+	if dp := getDataplaneVersion(taskMeta); dp != "" {
+		meta["dataplane-version"] = dp
+	}
+}
+
+// getDataplaneVersion returns the version of the consul-dataplane container,
+// derived from its image reference in the ECS task metadata.
+// This is the image tag when present, otherwise the raw image reference
+// (a bare repository or a digest-pinned image).
+// It returns "" when the container is absent from the task metadata, has no
+// image reference, or the derived value exceeds Consul's meta value limit.
+func getDataplaneVersion(taskMeta awsutil.ECSTaskMeta) string {
+	for _, container := range taskMeta.Containers {
+		if container.Name == config.ConsulDataplaneContainerName {
+			dpVersion := container.ImageVersion()
+			if len(dpVersion) > maxMetaValueLength {
+				return ""
+			}
+			return dpVersion
+		}
+	}
+	return ""
 }
 
 func makeServiceID(serviceName, taskID string) string {

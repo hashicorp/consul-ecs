@@ -46,6 +46,7 @@ type ECSTaskMeta struct {
 
 type ECSTaskMetaContainer struct {
 	Name          string               `json:"Name"`
+	Image         string               `json:"Image"`
 	Health        ECSTaskMetaHealth    `json:"Health"`
 	DesiredStatus string               `json:"DesiredStatus"`
 	KnownStatus   string               `json:"KnownStatus"`
@@ -66,6 +67,36 @@ type ECSTaskMetaNetwork struct {
 
 func (e ECSTaskMeta) TaskID() string {
 	return ParseTaskID(e.TaskARN)
+}
+
+// ImageVersion returns a version identifier derived from the
+// container's image reference. It prefers the image tag (e.g. "1.3.0").
+// When the image has no tag (it is pinned only by digest, or references a bare
+// repository), it returns the raw image reference unchanged, so the value is
+// still meaningful and can be used to pull the exact image.
+// It returns "" only when no image reference is available.
+func (c ECSTaskMetaContainer) ImageVersion() string {
+	imageRef := c.Image      // full reference, e.g. "localhost:5000/repo:1.3.0@sha256:..."
+	imageWithTag := imageRef // reference reduced to its final "repo:tag" segment
+	tag := ""                // the tag portion, if the image has one
+
+	// Drop any digest ("@sha256:...") so it isn't mistaken for a tag.
+	if idx := strings.Index(imageWithTag, "@"); idx != -1 {
+		imageWithTag = imageWithTag[:idx]
+	}
+	// Reduce to the final path segment so a registry "host:port" isn't mistaken for a tag.
+	if idx := strings.LastIndex(imageWithTag, "/"); idx != -1 {
+		imageWithTag = imageWithTag[idx+1:]
+	}
+	if idx := strings.Index(imageWithTag, ":"); idx != -1 {
+		tag = imageWithTag[idx+1:]
+	}
+
+	if tag != "" {
+		return tag
+	}
+	// No tag: return the raw reference (bare repo or digest-pinned) as-is.
+	return imageRef
 }
 
 func (e ECSTaskMeta) ClusterARN() (string, error) {

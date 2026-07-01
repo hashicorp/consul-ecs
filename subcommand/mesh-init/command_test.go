@@ -19,6 +19,7 @@ import (
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/internal/dataplane"
 	"github.com/hashicorp/consul-ecs/testutil"
+	"github.com/hashicorp/consul-ecs/version"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/iptables"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
@@ -174,9 +175,11 @@ func TestRun(t *testing.T) {
 			var (
 				taskARN          = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
 				expectedTaskMeta = map[string]string{
-					"task-id":  "abcdef",
-					"task-arn": taskARN,
-					"source":   "consul-ecs",
+					"task-id":             "abcdef",
+					"task-arn":            taskARN,
+					"source":              "consul-ecs",
+					"ecs-service-version": version.GetHumanVersion(),
+					"dataplane-version":   "1.3.0",
 				}
 				expectedServiceName = strings.ToLower(family)
 				expectedPartition   = ""
@@ -232,6 +235,12 @@ func TestRun(t *testing.T) {
 				TaskARN:          taskARN,
 				Family:           family,
 				AvailabilityZone: testZone,
+				Containers: []awsutil.ECSTaskMetaContainer{
+					{
+						Name:  config.ConsulDataplaneContainerName,
+						Image: "hashicorp/consul-dataplane:1.3.0",
+					},
+				},
 			}
 			taskMetaRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
 			require.NoError(t, err)
@@ -458,9 +467,11 @@ func TestGateway(t *testing.T) {
 		publicIP         = "255.1.2.3"
 		taskDNSName      = "test-dns-name"
 		expectedTaskMeta = map[string]string{
-			"task-id":  "abcdef",
-			"task-arn": taskARN,
-			"source":   "consul-ecs",
+			"task-id":             "abcdef",
+			"task-arn":            taskARN,
+			"source":              "consul-ecs",
+			"ecs-service-version": version.GetHumanVersion(),
+			"dataplane-version":   "1.3.0",
 		}
 	)
 	// Simulate mesh gateway registration:
@@ -648,6 +659,10 @@ func TestGateway(t *testing.T) {
 							},
 						},
 					},
+					{
+						Name:  config.ConsulDataplaneContainerName,
+						Image: "hashicorp/consul-dataplane:1.3.0",
+					},
 				},
 			}
 
@@ -824,6 +839,75 @@ func TestMakeProxyServiceIDAndName(t *testing.T) {
 	actualID, actualName := makeProxySvcIDAndName("test-service-12345", "test-service")
 	require.Equal(t, expectedID, actualID)
 	require.Equal(t, expectedName, actualName)
+}
+
+func TestGetDataplaneVersion(t *testing.T) {
+	cases := map[string]struct {
+		containers []awsutil.ECSTaskMetaContainer
+		expected   string
+	}{
+		"dataplane present with tag": {
+			containers: []awsutil.ECSTaskMetaContainer{
+				{Name: config.ConsulDataplaneContainerName, Image: "hashicorp/consul-dataplane:1.3.0"},
+			},
+			expected: "1.3.0",
+		},
+		"dataplane pinned by digest": {
+			containers: []awsutil.ECSTaskMetaContainer{
+				{Name: config.ConsulDataplaneContainerName, Image: "hashicorp/consul-dataplane@sha256:9b2cabcdef0123456789"},
+			},
+			expected: "hashicorp/consul-dataplane@sha256:9b2cabcdef0123456789",
+		},
+		"dataplane absent": {
+			containers: []awsutil.ECSTaskMetaContainer{
+				{Name: "app", Image: "my-app:1.0.0"},
+			},
+			expected: "",
+		},
+		"dataplane image reference exceeds meta value limit": {
+			// A digest-only reference longer than Consul's 512-char meta value
+			// limit is omitted rather than stored (which would fail registration).
+			containers: []awsutil.ECSTaskMetaContainer{
+				{Name: config.ConsulDataplaneContainerName, Image: "hashicorp/consul-dataplane@sha256:" + strings.Repeat("a", 600)},
+			},
+			expected: "",
+		},
+		"no containers": {
+			containers: nil,
+			expected:   "",
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			taskMeta := awsutil.ECSTaskMeta{Containers: c.containers}
+			require.Equal(t, c.expected, getDataplaneVersion(taskMeta))
+		})
+	}
+}
+
+func TestSetVersionMetaOverridesUserMeta(t *testing.T) {
+	taskMeta := awsutil.ECSTaskMeta{
+		TaskARN: "arn:aws:ecs:us-east-1:123456789:task/test/abcdef",
+		Containers: []awsutil.ECSTaskMetaContainer{
+			{Name: config.ConsulDataplaneContainerName, Image: "hashicorp/consul-dataplane:1.3.0"},
+		},
+	}
+
+	// User-supplied meta attempts to spoof the version fields and keep a custom one.
+	meta := map[string]string{
+		"ecs-service-version": "spoofed",
+		"dataplane-version":   "spoofed",
+		"custom":              "keep-me",
+	}
+
+	setVersionMeta(meta, taskMeta)
+
+	// consul-ecs owns the version keys, so its values win over the user's.
+	require.Equal(t, version.GetHumanVersion(), meta["ecs-service-version"])
+	require.Equal(t, "1.3.0", meta["dataplane-version"])
+	// Non-version user keys are left untouched.
+	require.Equal(t, "keep-me", meta["custom"])
 }
 
 func TestWriteCACertToVolume(t *testing.T) {

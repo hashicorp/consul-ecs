@@ -5,6 +5,7 @@ package meshinit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	"github.com/aws/smithy-go"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
@@ -39,6 +42,10 @@ type Command struct {
 
 	// Provider to be used for applying redirection rules in unit tests
 	trafficRedirectionProvider redirecttraffic.TrafficRedirectionProvider
+
+	// ecsClient looks up the task definition to determine the consul-dataplane
+	// image version. Injectable for unit tests; constructed at runtime when nil.
+	ecsClient awsutil.ECSTaskDefinitionAPI
 
 	// etcResolvConfFile used to configure DNS via unit tests
 	etcResolvConfFile string
@@ -91,6 +98,16 @@ func (c *Command) realRun() error {
 	clusterARN, err := taskMeta.ClusterARN()
 	if err != nil {
 		return err
+	}
+
+	// Set up the ECS client
+	// Used to look up the consul-dataplane image version from the task definition.
+	if c.ecsClient == nil {
+		awsCfg, err := awsutil.NewAWSConfig(taskMeta, "mesh-init")
+		if err != nil {
+			return fmt.Errorf("constructing aws config: %w", err)
+		}
+		c.ecsClient = ecs.NewFromConfig(awsCfg)
 	}
 
 	serverConnMgrCfg, err := c.config.ConsulServerConnMgrConfig(taskMeta)
@@ -270,7 +287,7 @@ func (c *Command) constructServiceRegistration(taskMeta awsutil.ECSTaskMeta, clu
 
 	// Version metadata is owned by consul-ecs and applied after the user meta so
 	// it cannot be overridden.
-	setVersionMeta(fullMeta, taskMeta)
+	c.setVersionMeta(fullMeta, taskMeta)
 
 	service := c.config.Service.ToConsulType()
 	service.ID = serviceID
@@ -341,7 +358,7 @@ func (c *Command) constructGatewayProxyRegistration(taskMeta awsutil.ECSTaskMeta
 
 	// Version metadata is owned by consul-ecs and applied after the user meta so
 	// it cannot be overridden.
-	setVersionMeta(gatewaySvc.Meta, taskMeta)
+	c.setVersionMeta(gatewaySvc.Meta, taskMeta)
 
 	switch c.config.Gateway.Kind {
 	case api.ServiceKindMeshGateway:
@@ -565,30 +582,41 @@ func getNodeMeta() map[string]string {
 // Meta keys must not start with "consul-": that prefix is reserved for Consul's
 // internal use and Consul rejects such keys during service registration.
 // Refer: https://github.com/hashicorp/consul/blob/9a38fac228fae7960f12f5b2a45c7548c90e8224/agent/structs/structs.go#L182
-func setVersionMeta(meta map[string]string, taskMeta awsutil.ECSTaskMeta) {
+func (c *Command) setVersionMeta(meta map[string]string, taskMeta awsutil.ECSTaskMeta) {
 	meta["ecs-service-version"] = version.GetHumanVersion()
-	if dp := getDataplaneVersion(taskMeta); dp != "" {
+	if dp := c.getDataplaneVersion(taskMeta); dp != "" {
 		meta["dataplane-version"] = dp
 	}
 }
 
 // getDataplaneVersion returns the version of the consul-dataplane container,
-// derived from its image reference in the ECS task metadata.
-// This is the image tag when present, otherwise the raw image reference
-// (a bare repository or a digest-pinned image).
-// It returns "" when the container is absent from the task metadata, has no
-// image reference, or the derived value exceeds Consul's meta value limit.
-func getDataplaneVersion(taskMeta awsutil.ECSTaskMeta) string {
-	for _, container := range taskMeta.Containers {
-		if container.Name == config.ConsulDataplaneContainerName {
-			dpVersion := container.ImageVersion()
-			if len(dpVersion) > maxMetaValueLength {
-				return ""
-			}
-			return dpVersion
+// derived from its image reference in the task definition.
+//
+// The image is read from the task definition (not the ECS task metadata
+// endpoint) because consul-dataplane starts only after mesh-init exits.
+// At mesh-init time the consul-dataplane container is therefore absent
+// from the runtime metadata snapshot, whereas the task definition
+// always carries the complete, static container list.
+//
+// This is best-effort and never blocks registration.
+// It returns "" when the container is absent or the derived value exceeds Consul's meta value limit,
+// and additionally logs a warning when the task definition lookup itself fails.
+func (c *Command) getDataplaneVersion(taskMeta awsutil.ECSTaskMeta) string {
+	dpImage, err := awsutil.ContainerImage(context.Background(), c.ecsClient, taskMeta.TaskDefinitionID(), config.ConsulDataplaneContainerName)
+	if err != nil {
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "AccessDeniedException" {
+			c.log.Warn("dataplane-version will be omitted: the ECS task role is missing the ecs:DescribeTaskDefinition permission; grant it (Resource: \"*\") to populate dataplane-version", "error", err)
+		} else {
+			c.log.Warn("unable to determine consul-dataplane version from task definition", "error", err)
 		}
+		return ""
 	}
-	return ""
+	dpVersion := awsutil.ImageVersion(dpImage)
+	if len(dpVersion) > maxMetaValueLength {
+		return ""
+	}
+	return dpVersion
 }
 
 func makeServiceID(serviceName, taskID string) string {

@@ -4,6 +4,7 @@
 package meshinit
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/consul-ecs/awsutil"
@@ -32,6 +36,27 @@ type fileMeta struct {
 	name string
 	path string
 	mode int
+}
+
+// fakeECSClient is a test double for awsutil.ECSTaskDefinitionAPI. It returns a
+// task definition containing a single consul-dataplane container with the given
+// image (omitted when image is empty), or err when set.
+type fakeECSClient struct {
+	image string
+	err   error
+}
+
+func (f *fakeECSClient) DescribeTaskDefinition(_ context.Context, _ *ecs.DescribeTaskDefinitionInput, _ ...func(*ecs.Options)) (*ecs.DescribeTaskDefinitionOutput, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	td := &types.TaskDefinition{}
+	if f.image != "" {
+		td.ContainerDefinitions = []types.ContainerDefinition{
+			{Name: aws.String(config.ConsulDataplaneContainerName), Image: aws.String(f.image)},
+		}
+	}
+	return &ecs.DescribeTaskDefinitionOutput{TaskDefinition: td}, nil
 }
 
 func TestNoCLIFlagsSupported(t *testing.T) {
@@ -235,12 +260,6 @@ func TestRun(t *testing.T) {
 				TaskARN:          taskARN,
 				Family:           family,
 				AvailabilityZone: testZone,
-				Containers: []awsutil.ECSTaskMetaContainer{
-					{
-						Name:  config.ConsulDataplaneContainerName,
-						Image: "hashicorp/consul-dataplane:1.3.0",
-					},
-				},
 			}
 			taskMetaRespStr, err := constructTaskMetaResponseString(taskMetadataResponse)
 			require.NoError(t, err)
@@ -264,6 +283,7 @@ func TestRun(t *testing.T) {
 
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}
+			cmd.ecsClient = &fakeECSClient{image: "hashicorp/consul-dataplane:1.3.0"}
 
 			envoyBootstrapDir := testutil.TempDir(t)
 			dataplaneConfigJSONFile := filepath.Join(envoyBootstrapDir, dataplaneConfigFileName)
@@ -659,10 +679,6 @@ func TestGateway(t *testing.T) {
 							},
 						},
 					},
-					{
-						Name:  config.ConsulDataplaneContainerName,
-						Image: "hashicorp/consul-dataplane:1.3.0",
-					},
 				},
 			}
 
@@ -727,6 +743,7 @@ func TestGateway(t *testing.T) {
 
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}
+			cmd.ecsClient = &fakeECSClient{image: "hashicorp/consul-dataplane:1.3.0"}
 
 			code := cmd.Run(nil)
 			require.Equal(t, code, 0, ui.ErrorWriter.String())
@@ -843,55 +860,51 @@ func TestMakeProxyServiceIDAndName(t *testing.T) {
 
 func TestGetDataplaneVersion(t *testing.T) {
 	cases := map[string]struct {
-		containers []awsutil.ECSTaskMetaContainer
-		expected   string
+		// image is the consul-dataplane image in the task definition; empty means
+		// the container is absent from the task definition.
+		image     string
+		clientErr error
+		expected  string
 	}{
 		"dataplane present with tag": {
-			containers: []awsutil.ECSTaskMetaContainer{
-				{Name: config.ConsulDataplaneContainerName, Image: "hashicorp/consul-dataplane:1.3.0"},
-			},
+			image:    "hashicorp/consul-dataplane:1.3.0",
 			expected: "1.3.0",
 		},
 		"dataplane pinned by digest": {
-			containers: []awsutil.ECSTaskMetaContainer{
-				{Name: config.ConsulDataplaneContainerName, Image: "hashicorp/consul-dataplane@sha256:9b2cabcdef0123456789"},
-			},
+			image:    "hashicorp/consul-dataplane@sha256:9b2cabcdef0123456789",
 			expected: "hashicorp/consul-dataplane@sha256:9b2cabcdef0123456789",
 		},
-		"dataplane absent": {
-			containers: []awsutil.ECSTaskMetaContainer{
-				{Name: "app", Image: "my-app:1.0.0"},
-			},
+		"dataplane absent from task definition": {
+			image:    "",
 			expected: "",
 		},
-		"dataplane image reference exceeds meta value limit": {
+		"image reference exceeds meta value limit": {
 			// A digest-only reference longer than Consul's 512-char meta value
 			// limit is omitted rather than stored (which would fail registration).
-			containers: []awsutil.ECSTaskMetaContainer{
-				{Name: config.ConsulDataplaneContainerName, Image: "hashicorp/consul-dataplane@sha256:" + strings.Repeat("a", 600)},
-			},
+			image:    "hashicorp/consul-dataplane@sha256:" + strings.Repeat("a", 600),
 			expected: "",
 		},
-		"no containers": {
-			containers: nil,
-			expected:   "",
+		"task definition lookup fails": {
+			clientErr: fmt.Errorf("boom"),
+			expected:  "",
 		},
 	}
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			taskMeta := awsutil.ECSTaskMeta{Containers: c.containers}
-			require.Equal(t, c.expected, getDataplaneVersion(taskMeta))
+			cmd := &Command{
+				log:       hclog.NewNullLogger(),
+				ecsClient: &fakeECSClient{image: c.image, err: c.clientErr},
+			}
+			require.Equal(t, c.expected, cmd.getDataplaneVersion(awsutil.ECSTaskMeta{}))
 		})
 	}
 }
 
 func TestSetVersionMetaOverridesUserMeta(t *testing.T) {
-	taskMeta := awsutil.ECSTaskMeta{
-		TaskARN: "arn:aws:ecs:us-east-1:123456789:task/test/abcdef",
-		Containers: []awsutil.ECSTaskMetaContainer{
-			{Name: config.ConsulDataplaneContainerName, Image: "hashicorp/consul-dataplane:1.3.0"},
-		},
+	cmd := &Command{
+		log:       hclog.NewNullLogger(),
+		ecsClient: &fakeECSClient{image: "hashicorp/consul-dataplane:1.3.0"},
 	}
 
 	// User-supplied meta attempts to spoof the version fields and keep a custom one.
@@ -901,7 +914,7 @@ func TestSetVersionMetaOverridesUserMeta(t *testing.T) {
 		"custom":              "keep-me",
 	}
 
-	setVersionMeta(meta, taskMeta)
+	cmd.setVersionMeta(meta, awsutil.ECSTaskMeta{})
 
 	// consul-ecs owns the version keys, so its values win over the user's.
 	require.Equal(t, version.GetHumanVersion(), meta["ecs-service-version"])

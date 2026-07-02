@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	smithymiddleware "github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
@@ -40,13 +41,19 @@ type ECSTaskMeta struct {
 	Cluster          string                 `json:"Cluster"`
 	TaskARN          string                 `json:"TaskARN"`
 	Family           string                 `json:"Family"`
+	Revision         string                 `json:"Revision"`
 	Containers       []ECSTaskMetaContainer `json:"Containers"`
 	AvailabilityZone string                 `json:"AvailabilityZone"`
 }
 
+// ECSTaskDefinitionAPI is the subset of the ECS API used to read a task
+// definition. It is satisfied by *ecs.Client.
+type ECSTaskDefinitionAPI interface {
+	DescribeTaskDefinition(ctx context.Context, params *ecs.DescribeTaskDefinitionInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTaskDefinitionOutput, error)
+}
+
 type ECSTaskMetaContainer struct {
 	Name          string               `json:"Name"`
-	Image         string               `json:"Image"`
 	Health        ECSTaskMetaHealth    `json:"Health"`
 	DesiredStatus string               `json:"DesiredStatus"`
 	KnownStatus   string               `json:"KnownStatus"`
@@ -69,16 +76,25 @@ func (e ECSTaskMeta) TaskID() string {
 	return ParseTaskID(e.TaskARN)
 }
 
-// ImageVersion returns a version identifier derived from the
-// container's image reference. It prefers the image tag (e.g. "1.3.0").
-// When the image has no tag (it is pinned only by digest, or references a bare
-// repository), it returns the raw image reference unchanged, so the value is
-// still meaningful and can be used to pull the exact image.
-// It returns "" only when no image reference is available.
-func (c ECSTaskMetaContainer) ImageVersion() string {
-	imageRef := c.Image      // full reference, e.g. "localhost:5000/repo:1.3.0@sha256:..."
-	imageWithTag := imageRef // reference reduced to its final "repo:tag" segment
-	tag := ""                // the tag portion, if the image has one
+// TaskDefinitionID returns the task definition identifier ("family:revision")
+// for use with the ECS DescribeTaskDefinition API. It falls back to just the
+// family when the revision is unavailable.
+func (e ECSTaskMeta) TaskDefinitionID() string {
+	if e.Revision != "" {
+		return fmt.Sprintf("%s:%s", e.Family, e.Revision)
+	}
+	return e.Family
+}
+
+// ImageVersion returns a version identifier derived from a container image
+// reference. It prefers the image tag (e.g. "1.3.0"). When the image has no tag
+// (it is pinned only by digest, or references a bare repository), it returns
+// the raw image reference unchanged, so the value is still meaningful and can
+// be used to pull the exact image.
+// It returns "" only when image is empty.
+func ImageVersion(image string) string {
+	imageWithTag := image // reference reduced to its final "repo:tag" segment
+	tag := ""             // the tag portion, if the image has one
 
 	// Drop any digest ("@sha256:...") so it isn't mistaken for a tag.
 	if idx := strings.Index(imageWithTag, "@"); idx != -1 {
@@ -96,7 +112,33 @@ func (c ECSTaskMetaContainer) ImageVersion() string {
 		return tag
 	}
 	// No tag: return the raw reference (bare repo or digest-pinned) as-is.
-	return imageRef
+	return image
+}
+
+// ContainerImage returns the image reference declared for the named container
+// in the given task definition (accepts "family", "family:revision", or a full
+// task definition ARN).
+// It reads from the task definition rather than the task
+// metadata endpoint because the task definition always contains the complete,
+// static container list, regardless of container startup ordering at runtime
+// (the metadata endpoint can omit containers that have not started yet).
+// It returns "" (with no error) when the container is not present.
+func ContainerImage(ctx context.Context, client ECSTaskDefinitionAPI, taskDefinition, containerName string) (string, error) {
+	out, err := client.DescribeTaskDefinition(ctx, &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String(taskDefinition),
+	})
+	if err != nil {
+		return "", fmt.Errorf("describing task definition %q: %w", taskDefinition, err)
+	}
+	if out == nil || out.TaskDefinition == nil {
+		return "", fmt.Errorf("task definition %q not found", taskDefinition)
+	}
+	for _, cd := range out.TaskDefinition.ContainerDefinitions {
+		if aws.ToString(cd.Name) == containerName {
+			return aws.ToString(cd.Image), nil
+		}
+	}
+	return "", nil
 }
 
 func (e ECSTaskMeta) ClusterARN() (string, error) {

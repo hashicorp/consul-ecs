@@ -93,7 +93,7 @@ func TestECSTaskMeta(t *testing.T) {
 	require.Equal(t, "arn:aws:ecs:us-east-1:123456789:cluster/test", clusterArn)
 }
 
-func TestECSTaskMetaContainerImageVersion(t *testing.T) {
+func TestImageVersion(t *testing.T) {
 	cases := map[string]struct {
 		image    string
 		expected string
@@ -112,8 +112,7 @@ func TestECSTaskMetaContainerImageVersion(t *testing.T) {
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			container := ECSTaskMetaContainer{Image: c.image}
-			require.Equal(t, c.expected, container.ImageVersion())
+			require.Equal(t, c.expected, ImageVersion(c.image))
 		})
 	}
 }

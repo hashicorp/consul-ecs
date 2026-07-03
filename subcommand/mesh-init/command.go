@@ -43,9 +43,10 @@ type Command struct {
 	// Provider to be used for applying redirection rules in unit tests
 	trafficRedirectionProvider redirecttraffic.TrafficRedirectionProvider
 
-	// ecsClient looks up the task definition to determine the consul-dataplane
-	// image version. Injectable for unit tests; constructed at runtime when nil.
-	ecsClient awsutil.ECSTaskDefinitionAPI
+	// ecsClient looks up ECS task runtime state to determine the
+	// consul-dataplane image version. Injectable for unit tests; constructed at
+	// runtime when nil.
+	ecsClient awsutil.ECSTaskAPI
 
 	// etcResolvConfFile used to configure DNS via unit tests
 	etcResolvConfFile string
@@ -100,8 +101,7 @@ func (c *Command) realRun() error {
 		return err
 	}
 
-	// Set up the ECS client
-	// Used to look up the consul-dataplane image version from the task definition.
+	// Set up the ECS client used to read container image data from DescribeTasks.
 	if c.ecsClient == nil {
 		awsCfg, err := awsutil.NewAWSConfig(taskMeta, "mesh-init")
 		if err != nil {
@@ -590,25 +590,20 @@ func (c *Command) setVersionMeta(meta map[string]string, taskMeta awsutil.ECSTas
 }
 
 // getDataplaneVersion returns the version of the consul-dataplane container,
-// derived from its image reference in the task definition.
-//
-// The image is read from the task definition (not the ECS task metadata
-// endpoint) because consul-dataplane starts only after mesh-init exits.
-// At mesh-init time the consul-dataplane container is therefore absent
-// from the runtime metadata snapshot, whereas the task definition
-// always carries the complete, static container list.
+// derived from its image reference in ECS DescribeTasks runtime state.
 //
 // This is best-effort and never blocks registration.
-// It returns "" when the container is absent or the derived value exceeds Consul's meta value limit,
-// and additionally logs a warning when the task definition lookup itself fails.
+// It returns "" when the container is absent or the derived value exceeds
+// Consul's meta value limit, and additionally logs a warning when the task
+// lookup itself fails.
 func (c *Command) getDataplaneVersion(taskMeta awsutil.ECSTaskMeta) string {
-	dpImage, err := awsutil.ContainerImage(context.Background(), c.ecsClient, taskMeta.TaskDefinitionID(), config.ConsulDataplaneContainerName)
+	dpImage, err := awsutil.ContainerImage(context.Background(), c.ecsClient, taskMeta.Cluster, taskMeta.TaskARN, config.ConsulDataplaneContainerName)
 	if err != nil {
 		var apiErr smithy.APIError
 		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "AccessDeniedException" {
-			c.log.Warn("dataplane-version will be omitted: the ECS task role is missing the ecs:DescribeTaskDefinition permission; grant it (Resource: \"*\") to populate dataplane-version", "error", err)
+			c.log.Warn("dataplane-version will be omitted: the ECS task role is missing the ecs:DescribeTasks permission; grant it to populate dataplane-version", "error", err)
 		} else {
-			c.log.Warn("unable to determine consul-dataplane version from task definition", "error", err)
+			c.log.Warn("unable to determine consul-dataplane version from ECS DescribeTasks", "error", err)
 		}
 		return ""
 	}

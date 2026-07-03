@@ -38,25 +38,25 @@ type fileMeta struct {
 	mode int
 }
 
-// fakeECSClient is a test double for awsutil.ECSTaskDefinitionAPI. It returns a
-// task definition containing a single consul-dataplane container with the given
-// image (omitted when image is empty), or err when set.
+// fakeECSClient is a test double for awsutil.ECSTaskAPI. It returns a
+// DescribeTasks response containing a single task with a consul-dataplane
+// container image (omitted when image is empty), or err when set.
 type fakeECSClient struct {
 	image string
 	err   error
 }
 
-func (f *fakeECSClient) DescribeTaskDefinition(_ context.Context, _ *ecs.DescribeTaskDefinitionInput, _ ...func(*ecs.Options)) (*ecs.DescribeTaskDefinitionOutput, error) {
+func (f *fakeECSClient) DescribeTasks(_ context.Context, _ *ecs.DescribeTasksInput, _ ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	td := &types.TaskDefinition{}
+	task := types.Task{}
 	if f.image != "" {
-		td.ContainerDefinitions = []types.ContainerDefinition{
+		task.Containers = []types.Container{
 			{Name: aws.String(config.ConsulDataplaneContainerName), Image: aws.String(f.image)},
 		}
 	}
-	return &ecs.DescribeTaskDefinitionOutput{TaskDefinition: td}, nil
+	return &ecs.DescribeTasksOutput{Tasks: []types.Task{task}}, nil
 }
 
 func TestNoCLIFlagsSupported(t *testing.T) {
@@ -860,8 +860,8 @@ func TestMakeProxyServiceIDAndName(t *testing.T) {
 
 func TestGetDataplaneVersion(t *testing.T) {
 	cases := map[string]struct {
-		// image is the consul-dataplane image in the task definition; empty means
-		// the container is absent from the task definition.
+		// image is the consul-dataplane image in DescribeTasks output; empty means
+		// the container is absent from the task.
 		image     string
 		clientErr error
 		expected  string
@@ -874,7 +874,7 @@ func TestGetDataplaneVersion(t *testing.T) {
 			image:    "hashicorp/consul-dataplane@sha256:9b2cabcdef0123456789",
 			expected: "hashicorp/consul-dataplane@sha256:9b2cabcdef0123456789",
 		},
-		"dataplane absent from task definition": {
+		"dataplane absent from task": {
 			image:    "",
 			expected: "",
 		},
@@ -884,7 +884,7 @@ func TestGetDataplaneVersion(t *testing.T) {
 			image:    "hashicorp/consul-dataplane@sha256:" + strings.Repeat("a", 600),
 			expected: "",
 		},
-		"task definition lookup fails": {
+		"describe tasks lookup fails": {
 			clientErr: fmt.Errorf("boom"),
 			expected:  "",
 		},

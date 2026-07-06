@@ -246,9 +246,10 @@ func TestSyncChecksLogsOnlyOnCommittedWrite(t *testing.T) {
 		"the logged status must reflect the desired HEALTHY status")
 
 	// Tick 2: nothing changed, so the delta guard suppresses the write and no
-	// update line must be logged.
+	// update line must be logged. Reuse tick 1's currentStatuses (both HEALTHY)
+	// so this is a genuine delta-suppressed no-op; the return value is unused.
 	logBuf.Reset()
-	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
 	require.NotContains(t, logBuf.String(), "container health check updated in Consul",
 		"a delta-suppressed no-op tick must not log any update")
 }

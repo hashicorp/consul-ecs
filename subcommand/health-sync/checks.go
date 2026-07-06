@@ -77,6 +77,9 @@ func (c *Command) setChecksCritical(consulClient *api.Client, taskMeta awsutil.E
 			result = multierror.Append(result, err)
 			continue
 		}
+		if len(checks) == 0 {
+			continue
+		}
 		healthCheckBatch = append(healthCheckBatch, checks...)
 		stagedContainers = append(stagedContainers, containerName)
 	}
@@ -152,7 +155,9 @@ func (c *Command) syncChecks(consulClient *api.Client,
 				"err", err, "container", containerName)
 			continue
 		}
-
+		if len(checks) == 0 {
+			continue
+		}
 		healthCheckBatch = append(healthCheckBatch, checks...)
 		statusChangeBatch = append(statusChangeBatch, statusChange{
 			containerName:  containerName,
@@ -225,30 +230,42 @@ func computeOverallDataplaneHealth(resolvedStatuses map[string]string) string {
 //   - A gateway has a single registration (no sidecar proxy) with one
 //     consul-dataplane readiness check.
 //
-// As a result, the consul-dataplane container updates both the service check and
-// the sidecar proxy check, while every other container (and any gateway
-// container) updates a single service check.
+// As a result:
+//   - the consul-dataplane container of a typical service (non-gateway) maps to two checks:
+//     the service checks [serviceID-app + serviceID-consul-dataplane] and
+//     the sidecar proxy check [proxySvcID-consul-dataplane], kept in sync together;
+//   - the consul-dataplane container of a gateway service maps to a
+//     single service check [gwServiceID-consul-dataplane],
+//     because a gateway has no sidecar proxy registration; and
+//   - every other (application) container maps to a single service check [serviceID-app].
 func (c *Command) stageContainerHealthChecks(taskMeta awsutil.ECSTaskMeta, containerName, ecsHealthStatus string) (api.HealthChecks, error) {
 	serviceName := c.constructServiceName(taskMeta.Family)
 	serviceID := makeServiceID(serviceName, taskMeta.TaskID())
 
+	// Every container, regardless of type, has a check on the primary
+	// service (or gateway) registration.
 	serviceCheck, err := c.stageCheck(serviceID, containerName, ecsHealthStatus)
 	if err != nil {
 		return nil, err
 	}
 
-	// Only the consul-dataplane container of a non-gateway service
-	// has a second (sidecar proxy) check to keep in sync.
-	if containerName != config.ConsulDataplaneContainerName || c.config.IsGateway() {
-		return api.HealthChecks{serviceCheck}, nil
+	if containerName == config.ConsulDataplaneContainerName {
+		// A gateway has no sidecar proxy, so just the serviceCheck.
+		if c.config.IsGateway() {
+			return api.HealthChecks{serviceCheck}, nil
+		}
+
+		// A typical service has a sidecar proxy as well, so stage the proxyCheck too &
+		// return both serviceCheck and proxyCheck.
+		proxySvcID, _ := makeProxySvcIDAndName(serviceID, "")
+		proxyCheck, err := c.stageCheck(proxySvcID, containerName, ecsHealthStatus)
+		if err != nil {
+			return nil, err
+		}
+		return api.HealthChecks{serviceCheck, proxyCheck}, nil
 	}
 
-	proxySvcID, _ := makeProxySvcIDAndName(serviceID, "")
-	proxyCheck, err := c.stageCheck(proxySvcID, containerName, ecsHealthStatus)
-	if err != nil {
-		return nil, err
-	}
-	return api.HealthChecks{serviceCheck, proxyCheck}, nil
+	return api.HealthChecks{serviceCheck}, nil
 }
 
 // stageCheck mutates the in-memory copy of the check for the given service and
@@ -257,7 +274,7 @@ func (c *Command) stageContainerHealthChecks(taskMeta awsutil.ECSTaskMeta, conta
 func (c *Command) stageCheck(serviceID, containerName, ecsHealthStatus string) (*api.HealthCheck, error) {
 	checkID := constructCheckID(serviceID, containerName)
 	check, ok := c.checks[checkID]
-	if !ok {
+	if !ok || check == nil {
 		return nil, fmt.Errorf("unable to find check with ID %s", checkID)
 	}
 

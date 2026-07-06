@@ -4,6 +4,7 @@
 package healthsync
 
 import (
+	"bytes"
 	"sync/atomic"
 	"testing"
 
@@ -116,6 +117,140 @@ func TestSyncChecksDataplaneDeltaCheck(t *testing.T) {
 	_, meta, err = consulClient.Health().Checks(proxyServiceName, nil)
 	require.NoError(t, err)
 	require.Equal(t, indexAfterTick1, meta.LastIndex, "no Consul write should occur when dataplane status is unchanged")
+}
+
+// TestSyncChecksRegisterFailureLeavesStatusesUnchanged verifies that when the
+// Catalog.Register write fails, syncChecks does not advance currentStatuses, so
+// the next tick is free to retry the same transition.
+func TestSyncChecksRegisterFailureLeavesStatusesUnchanged(t *testing.T) {
+	serviceName := "register-fail-svc"
+	proxyServiceName := serviceName + "-sidecar-proxy"
+	taskARN := "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+
+	taskMeta := &awsutil.ECSTaskMeta{Cluster: "test", TaskARN: taskARN, Family: serviceName}
+
+	var currentTaskMetaResp atomic.Value
+	taskMeta.Containers = []awsutil.ECSTaskMetaContainer{
+		constructContainerResponse(config.ConsulDataplaneContainerName, string(types.HealthStatusHealthy)),
+	}
+	s, err := constructTaskMetaResponseString(taskMeta)
+	require.NoError(t, err)
+	currentTaskMetaResp.Store(s)
+	testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
+		return currentTaskMetaResp.Load().(string)
+	}))
+
+	cmd, consulClient, clusterARN := setupSyncChecksCmd(t, serviceName, nil, taskMeta)
+	healthSyncContainers := []string{config.ConsulDataplaneContainerName}
+
+	// Two clients:
+	// consulClient is the reachable Consul used to set up and to
+	// observe what actually got committed;
+	// failingClient points at an address with nothing listening,
+	// so its Catalog.Register write fails.
+	failingClient, err := api.NewClient(&api.Config{Address: "127.0.0.1:1"})
+	require.NoError(t, err)
+
+	// Capture the catalog index before the failing tick so we can prove nothing
+	// was committed.
+	proxyChecksBefore, meta, err := consulClient.Health().Checks(proxyServiceName, nil)
+	require.NoError(t, err)
+	require.Len(t, proxyChecksBefore, 1)
+	idxBeforeFailingTick := meta.LastIndex
+	proxyModifyIdxBeforeFailingTick := proxyChecksBefore[0].ModifyIndex
+
+	// Failing tick: the write fails, so currentStatuses must not advance.
+	// Seed a stale prior status (UNHEALTHY) that differs from the desired
+	// HEALTHY, so the tick actually builds a non-empty healthCheckBatch and
+	// reaches the (failing) register step. Snapshot it so we can prove the map
+	// is byte-for-byte unchanged afterwards.
+	currentStatuses := map[string]string{
+		config.ConsulDataplaneContainerName: string(types.HealthStatusUnhealthy),
+	}
+	statusesBefore := make(map[string]string, len(currentStatuses))
+	for k, v := range currentStatuses {
+		statusesBefore[k] = v
+	}
+
+	updatedStatuses := cmd.syncChecks(failingClient, currentStatuses, clusterARN, healthSyncContainers)
+	require.Equal(t, statusesBefore, updatedStatuses,
+		"currentStatuses must be unchanged when the Consul write fails")
+
+	// Observable evidence: the reachable Consul confirms nothing was committed.
+	proxyChecksAfterFail, meta, err := consulClient.Health().Checks(proxyServiceName, nil)
+	require.NoError(t, err)
+	require.Len(t, proxyChecksAfterFail, 1)
+	require.Equal(t, idxBeforeFailingTick, meta.LastIndex,
+		"no Consul write should be committed when Catalog.Register fails")
+	require.Equal(t, proxyModifyIdxBeforeFailingTick, proxyChecksAfterFail[0].ModifyIndex,
+		"the dataplane check's ModifyIndex must not advance when the write fails")
+
+	// Recovery tick on the reachable client: the same UNHEALTHY -> HEALTHY
+	// transition now succeeds and is committed to Consul.
+	updatedStatuses = cmd.syncChecks(consulClient, updatedStatuses, clusterARN, healthSyncContainers)
+	require.Equal(t, string(types.HealthStatusHealthy), updatedStatuses[config.ConsulDataplaneContainerName])
+
+	proxyChecks, _, err := consulClient.Health().Checks(proxyServiceName, nil)
+	require.NoError(t, err)
+	require.Len(t, proxyChecks, 1)
+	require.Equal(t, api.HealthPassing, proxyChecks[0].Status,
+		"the retried tick must commit the dataplane check as passing")
+	require.Greater(t, proxyChecks[0].ModifyIndex, proxyModifyIdxBeforeFailingTick,
+		"the recovery write must advance the dataplane check's ModifyIndex")
+}
+
+// TestSyncChecksLogsOnlyOnCommittedWrite verifies the observable log evidence:
+// syncChecks emits one "container health check updated in Consul" line per
+// changed container ONLY after a write is committed to Consul, and logs nothing
+// on a delta-suppressed no-op tick.
+func TestSyncChecksLogsOnlyOnCommittedWrite(t *testing.T) {
+	serviceName := "log-evidence-svc"
+	taskARN := "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
+	appContainer := "app-container"
+
+	taskMeta := &awsutil.ECSTaskMeta{Cluster: "test", TaskARN: taskARN, Family: serviceName}
+
+	var currentTaskMetaResp atomic.Value
+	taskMeta.Containers = []awsutil.ECSTaskMetaContainer{
+		constructContainerResponse(config.ConsulDataplaneContainerName, string(types.HealthStatusHealthy)),
+		constructContainerResponse(appContainer, string(types.HealthStatusHealthy)),
+	}
+	s, err := constructTaskMetaResponseString(taskMeta)
+	require.NoError(t, err)
+	currentTaskMetaResp.Store(s)
+	testutil.TaskMetaServer(t, testutil.TaskMetaHandlerFn(t, func() string {
+		return currentTaskMetaResp.Load().(string)
+	}))
+
+	cmd, consulClient, clusterARN := setupSyncChecksCmd(t, serviceName, []string{appContainer}, taskMeta)
+	healthSyncContainers := []string{appContainer, config.ConsulDataplaneContainerName}
+
+	// Redirect the command's logger into a buffer so we can assert on the
+	// emitted log lines.
+	var logBuf bytes.Buffer
+	cmd.log = hclog.New(&hclog.LoggerOptions{Output: &logBuf, Level: hclog.Info})
+
+	currentStatuses := make(map[string]string)
+
+	// Tick 1: "" -> HEALTHY for both containers. The write is committed, so one
+	// log line per changed container must be emitted.
+	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	tick1Logs := logBuf.String()
+	require.Contains(t, tick1Logs, "container health check updated in Consul",
+		"a committed write must log the update")
+	require.Contains(t, tick1Logs, "container="+appContainer,
+		"the app container transition must be logged")
+	require.Contains(t, tick1Logs, "container="+config.ConsulDataplaneContainerName,
+		"the dataplane container transition must be logged")
+	require.Contains(t, tick1Logs, "status="+string(types.HealthStatusHealthy),
+		"the logged status must reflect the desired HEALTHY status")
+
+	// Tick 2: nothing changed, so the delta guard suppresses the write and no
+	// update line must be logged.
+	logBuf.Reset()
+	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	require.NotContains(t, logBuf.String(), "container health check updated in Consul",
+		"a delta-suppressed no-op tick must not log any update")
 }
 
 // TestSyncChecksDataplaneDoubleWriteWhenMissing verifies that when consul-dataplane
@@ -381,11 +516,14 @@ func TestSyncChecksAppBecomesUnhealthyMidOperation(t *testing.T) {
 	require.Equal(t, api.HealthPassing, proxyChecks[0].Status, "proxy check must recover to passing")
 }
 
-// TestSyncChecksBatchesRegisterInOneCall verifies that all of a tick's changed
-// checks are written by a single Catalog.Register. When the app and dataplane
-// containers both transition "" -> HEALTHY, the app service check, the dataplane
-// service check, and the dataplane proxy check must share one ModifyIndex,
-// proving they landed in a single atomic write.
+// TestSyncChecksBatchesRegisterInOneCall verifies three things:
+//  1. All of a tick's changed checks are written by a single Catalog.Register.
+//  2. When the app and dataplane containers both transition "" -> HEALTHY,
+//     the app service check, the dataplane service check, and
+//     the dataplane proxy check must share one ModifyIndex,
+//     proving they landed in a single atomic write.
+//  3. Fresh mesh-init catalog state before health-sync runs (all relevant checks
+//     exist and start CRITICAL),
 func TestSyncChecksBatchesRegisterInOneCall(t *testing.T) {
 	serviceName := "batch-register-svc"
 	proxyServiceName := serviceName + "-sidecar-proxy"
@@ -410,15 +548,51 @@ func TestSyncChecksBatchesRegisterInOneCall(t *testing.T) {
 	healthSyncContainers := []string{appContainer, config.ConsulDataplaneContainerName}
 	currentStatuses := make(map[string]string)
 
-	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
-	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[appContainer])
-	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[config.ConsulDataplaneContainerName])
+	// Fresh catalog state from mesh-init (before any health-sync tick):
+	// app + dataplane service checks plus dataplane proxy check are present
+	// and start as critical.
+	require.Len(t, cmd.checks, 3)
 
 	serviceChecks, _, err := consulClient.Health().Checks(serviceName, nil)
 	require.NoError(t, err)
 	require.Len(t, serviceChecks, 2) // app service check + dataplane service check
+	for _, ch := range serviceChecks {
+		require.Equal(t, api.HealthCritical, ch.Status,
+			"mesh-init should register service checks as critical before health-sync runs")
+	}
 
 	proxyChecks, _, err := consulClient.Health().Checks(proxyServiceName, nil)
+	require.NoError(t, err)
+	require.Len(t, proxyChecks, 1) // dataplane proxy check
+	require.Equal(t, api.HealthCritical, proxyChecks[0].Status,
+		"mesh-init should register the proxy check as critical before health-sync runs")
+
+	// Capture logs so we can confirm both changed containers are logged for the
+	// single committed write.
+	var logBuf bytes.Buffer
+	cmd.log = hclog.New(&hclog.LoggerOptions{Output: &logBuf, Level: hclog.Info})
+
+	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[appContainer])
+	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[config.ConsulDataplaneContainerName])
+
+	// Both containers transitioned "" -> HEALTHY in one tick, so each must be
+	// logged as updated once the write is committed.
+	logs := logBuf.String()
+	require.Contains(t, logs, "container health check updated in Consul",
+		"the committed write must log the update")
+	require.Contains(t, logs, "container="+appContainer,
+		"the app container transition must be logged")
+	require.Contains(t, logs, "container="+config.ConsulDataplaneContainerName,
+		"the dataplane container transition must be logged")
+	require.Contains(t, logs, "status="+string(types.HealthStatusHealthy),
+		"the logged status must reflect the desired HEALTHY status")
+
+	serviceChecks, _, err = consulClient.Health().Checks(serviceName, nil)
+	require.NoError(t, err)
+	require.Len(t, serviceChecks, 2) // app service check + dataplane service check
+
+	proxyChecks, _, err = consulClient.Health().Checks(proxyServiceName, nil)
 	require.NoError(t, err)
 	require.Len(t, proxyChecks, 1) // dataplane proxy check
 
@@ -464,6 +638,12 @@ func TestSyncChecksDataplaneFailsLeavesAppCheckUntouched(t *testing.T) {
 	healthSyncContainers := []string{appContainer, config.ConsulDataplaneContainerName}
 	currentStatuses := make(map[string]string)
 
+	// Capture logs so we can corroborate the ModifyIndex-based asymmetry with a
+	// second, independent signal: only the dataplane transition should be logged
+	// on tick 2, never the delta-skipped app container.
+	var logBuf bytes.Buffer
+	cmd.log = hclog.New(&hclog.LoggerOptions{Output: &logBuf, Level: hclog.Info})
+
 	serviceID := makeServiceID(serviceName, taskMeta.TaskID())
 	appCheckID := constructCheckID(serviceID, appContainer)
 	dpCheckID := constructCheckID(serviceID, config.ConsulDataplaneContainerName)
@@ -504,11 +684,25 @@ func TestSyncChecksDataplaneFailsLeavesAppCheckUntouched(t *testing.T) {
 	require.NoError(t, err)
 	currentTaskMetaResp.Store(s)
 
+	// Drop tick 1's log output so the assertions below only see tick 2.
+	logBuf.Reset()
 	currentStatuses = cmd.syncChecks(consulClient, currentStatuses, clusterARN, healthSyncContainers)
 	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[appContainer],
 		"app's own status is unchanged")
 	require.Equal(t, string(types.HealthStatusUnhealthy), currentStatuses[config.ConsulDataplaneContainerName],
 		"aggregate goes critical because the dataplane container is unhealthy")
+
+	// Log evidence for the asymmetry: only the dataplane container's transition
+	// is logged; the delta-skipped app container is never mentioned.
+	tick2Logs := logBuf.String()
+	require.Contains(t, tick2Logs, "container health check updated in Consul",
+		"the dataplane transition must be logged")
+	require.Contains(t, tick2Logs, "container="+config.ConsulDataplaneContainerName,
+		"the dataplane container transition must be logged")
+	require.Contains(t, tick2Logs, "status="+string(types.HealthStatusUnhealthy),
+		"the logged status must reflect the dataplane going UNHEALTHY")
+	require.NotContains(t, tick2Logs, "container="+appContainer,
+		"the delta-skipped app container must NOT be logged")
 
 	// The app check must be skipped: same status, same ModifyIndex.
 	appAfterTick2 := serviceCheckByID(appCheckID)
@@ -562,8 +756,23 @@ func TestSetChecksCriticalBatchesInOneCall(t *testing.T) {
 	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[appContainer])
 	require.Equal(t, string(types.HealthStatusHealthy), currentStatuses[config.ConsulDataplaneContainerName])
 
+	// Capture only the shutdown-path logs (swap in a buffer logger after the
+	// initial sync so we don't pick up the sync's own log lines).
+	var logBuf bytes.Buffer
+	cmd.log = hclog.New(&hclog.LoggerOptions{Output: &logBuf, Level: hclog.Info})
+
 	// Run the shutdown path directly (what the SIGTERM handler calls).
 	require.NoError(t, cmd.setChecksCritical(consulClient, *taskMeta, clusterARN, healthSyncContainers))
+
+	// Log evidence: setChecksCritical logs one "set Consul health status to
+	// critical" line per tracked container, after the write succeeds.
+	criticalLogs := logBuf.String()
+	require.Contains(t, criticalLogs, "set Consul health status to critical",
+		"the shutdown path must log the critical transition")
+	require.Contains(t, criticalLogs, "container="+appContainer,
+		"the app container must be logged as set critical")
+	require.Contains(t, criticalLogs, "container="+config.ConsulDataplaneContainerName,
+		"the dataplane container must be logged as set critical")
 
 	// Verify that all checks are critical and share one ModifyIndex.
 	serviceChecks, _, err := consulClient.Health().Checks(serviceName, nil)
@@ -582,6 +791,43 @@ func TestSetChecksCriticalBatchesInOneCall(t *testing.T) {
 			"every container's check must be critical after setChecksCritical")
 		require.Equal(t, idx, ch.ModifyIndex,
 			"setChecksCritical must write all checks in a single Catalog.Register (same ModifyIndex)")
+	}
+}
+
+// TestStageCheckReturnsErrorWhenCheckMissingOrNil verifies both halves of
+// stageCheck's lookup guard:
+// 1) check ID exists but maps to nil, and
+// 2) check ID is missing from cmd.checks.
+func TestStageCheckReturnsErrorWhenCheckMissingOrNil(t *testing.T) {
+	serviceID := "test-service-id"
+	containerName := "app-container"
+	checkID := constructCheckID(serviceID, containerName)
+
+	tests := []struct {
+		name   string
+		checks map[string]*api.HealthCheck
+	}{
+		{
+			name: "check entry is nil",
+			checks: map[string]*api.HealthCheck{
+				checkID: nil,
+			},
+		},
+		{
+			name:   "check is missing",
+			checks: map[string]*api.HealthCheck{},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := &Command{checks: tc.checks}
+
+			staged, err := cmd.stageCheck(serviceID, containerName, string(types.HealthStatusHealthy))
+			require.Nil(t, staged)
+			require.EqualError(t, err, "unable to find check with ID "+checkID)
+		})
 	}
 }
 

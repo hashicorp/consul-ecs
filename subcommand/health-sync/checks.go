@@ -62,21 +62,37 @@ func (c *Command) fetchHealthChecks(consulClient *api.Client, taskMeta awsutil.E
 	return healthCheckMap, nil
 }
 
-// setChecksCritical sets checks for all of the containers to critical
+// setChecksCritical stages every container's check as critical and writes them
+// to Consul in a single Catalog.Register call.
 func (c *Command) setChecksCritical(consulClient *api.Client, taskMeta awsutil.ECSTaskMeta, clusterARN string, parsedContainerNames []string) error {
 	var result error
+	var healthCheckBatch api.HealthChecks
+	var stagedContainers []string
 
 	for _, containerName := range parsedContainerNames {
-		err := c.writeContainerHealth(consulClient, taskMeta, clusterARN, containerName, string(types.HealthStatusUnhealthy))
-		if err == nil {
-			c.log.Info("set Consul health status to critical",
-				"container", containerName)
-		} else {
+		checks, err := c.stageContainerHealthChecks(taskMeta, containerName, string(types.HealthStatusUnhealthy))
+		if err != nil {
 			c.log.Warn("failed to set Consul health status to critical",
-				"err", err,
-				"container", containerName)
+				"err", err, "container", containerName)
 			result = multierror.Append(result, err)
+			continue
 		}
+		if len(checks) == 0 {
+			continue
+		}
+		healthCheckBatch = append(healthCheckBatch, checks...)
+		stagedContainers = append(stagedContainers, containerName)
+	}
+
+	if err := c.registerChecks(consulClient, clusterARN, healthCheckBatch); err != nil {
+		return multierror.Append(result, err)
+	}
+
+	// Log only after the write succeeds, so we never report a critical status
+	// that was not actually committed to Consul.
+	for _, containerName := range stagedContainers {
+		c.log.Info("set Consul health status to critical",
+			"container", containerName)
 	}
 
 	return result
@@ -86,7 +102,8 @@ func (c *Command) setChecksCritical(consulClient *api.Client, taskMeta awsutil.E
 // the containers in parsedContainerNames. Containers absent from task metadata
 // are treated as UNHEALTHY. The consul-dataplane check reports the aggregate
 // of every tracked container's status. Only checks whose status changed since
-// the last tick are written, to minimise Catalog.Register traffic.
+// the last tick are written, and all of a tick's changed checks are written in
+// a single atomic Catalog.Register call.
 func (c *Command) syncChecks(consulClient *api.Client,
 	currentStatuses map[string]string,
 	clusterARN string,
@@ -115,31 +132,67 @@ func (c *Command) syncChecks(consulClient *api.Client,
 
 	resolvedStatuses[config.ConsulDataplaneContainerName] = computeOverallDataplaneHealth(resolvedStatuses)
 
-	for _, name := range parsedContainerNames {
-		desired := resolvedStatuses[name]
-		if desired == currentStatuses[name] {
+	// Stage every changed container's health checks in memory, accumulate them into a
+	// single healthCheckBatch, then issue one Catalog.Register for the whole tick.
+	type statusChange struct {
+		containerName  string
+		desiredStatus  string
+		previousStatus string
+	}
+	var (
+		healthCheckBatch  api.HealthChecks // For writing (or registering) health checks (updates) to Consul
+		statusChangeBatch []statusChange   // For logging containers status change after a successful write
+	)
+	for _, containerName := range parsedContainerNames {
+		desiredStatus := resolvedStatuses[containerName]
+		if desiredStatus == currentStatuses[containerName] {
 			continue
 		}
 
-		if err := c.writeContainerHealth(consulClient, taskMeta, clusterARN, name, desired); err != nil {
-			c.log.Warn("failed to update Consul health status",
-				"err", err, "container", name)
+		checks, err := c.stageContainerHealthChecks(taskMeta, containerName, desiredStatus)
+		if err != nil {
+			c.log.Warn("failed to stage Consul health status",
+				"err", err, "container", containerName)
 			continue
 		}
+		if len(checks) == 0 {
+			continue
+		}
+		healthCheckBatch = append(healthCheckBatch, checks...)
+		statusChangeBatch = append(statusChangeBatch, statusChange{
+			containerName:  containerName,
+			desiredStatus:  desiredStatus,
+			previousStatus: currentStatuses[containerName],
+		})
+	}
 
+	if len(healthCheckBatch) == 0 {
+		return currentStatuses
+	}
+
+	// Commit the whole tick's staged healthCheckBatch to Consul in one atomic Catalog.Register.
+	// On failure we leave currentStatuses untouched so the next tick retries.
+	if err := c.registerChecks(consulClient, clusterARN, healthCheckBatch); err != nil {
+		c.log.Warn("failed to update Consul health status", "err", err)
+		return currentStatuses
+	}
+
+	// A single Consul write happened this tick.
+	// Log one line per changed container so each transition is on its own line.
+	for _, change := range statusChangeBatch {
 		logFields := []any{
-			"container", name,
-			"status", desired,
-			"previous", currentStatuses[name],
+			"container", change.containerName,
+			"status", change.desiredStatus,
+			"previous", change.previousStatus,
 		}
-		if container, ok := foundContainers[name]; ok {
+		if container, ok := foundContainers[change.containerName]; ok {
 			logFields = append(logFields,
 				"statusSince", container.Health.StatusSince,
 				"exitCode", container.Health.ExitCode,
 			)
 		}
 		c.log.Info("container health check updated in Consul", logFields...)
-		currentStatuses[name] = desired
+		currentStatuses[change.containerName] = change.desiredStatus
 	}
 
 	return currentStatuses
@@ -166,57 +219,83 @@ func computeOverallDataplaneHealth(resolvedStatuses map[string]string) string {
 	return string(types.HealthStatusHealthy)
 }
 
-// writeContainerHealth dispatches a single container's status to the right
-// Consul check(s). consul-dataplane updates both the service check and the
-// sidecar proxy check; every other container updates one service check.
-func (c *Command) writeContainerHealth(consulClient *api.Client, taskMeta awsutil.ECSTaskMeta, clusterARN, name, status string) error {
+// stageContainerHealthChecks stages the Consul check(s) that a single container's
+// status maps to and returns them, without writing to Consul.
+//
+// Consul registrations differ by service type:
+//   - A typical service has two registrations: the service (kind "typical"),
+//     which holds one check per app container plus a consul-dataplane readiness
+//     check, and the sidecar proxy (kind "connect-proxy"), which holds one
+//     consul-dataplane readiness check.
+//   - A gateway has a single registration (no sidecar proxy) with one
+//     consul-dataplane readiness check.
+//
+// As a result:
+//   - the consul-dataplane container of a typical service (non-gateway) maps to two checks:
+//     the service checks [serviceID-app + serviceID-consul-dataplane] and
+//     the sidecar proxy check [proxySvcID-consul-dataplane], kept in sync together;
+//   - the consul-dataplane container of a gateway service maps to a
+//     single service check [gwServiceID-consul-dataplane],
+//     because a gateway has no sidecar proxy registration; and
+//   - every other (application) container maps to a single service check [serviceID-app].
+func (c *Command) stageContainerHealthChecks(taskMeta awsutil.ECSTaskMeta, containerName, ecsHealthStatus string) (api.HealthChecks, error) {
 	serviceName := c.constructServiceName(taskMeta.Family)
-	if name == config.ConsulDataplaneContainerName {
-		return c.handleHealthForDataplaneContainer(consulClient, taskMeta.TaskID(), serviceName, clusterARN, name, status)
-	}
 	serviceID := makeServiceID(serviceName, taskMeta.TaskID())
-	return c.updateConsulHealthStatus(consulClient, constructCheckID(serviceID, name), clusterARN, status)
-}
 
-// handleHealthForDataplaneContainer takes care of the special handling needed for syncing
-// the health of consul-dataplane container. We register two checks (one for the service
-// and the other for proxy) when registering a typical service to the catalog. Updates
-// should also happen twice in such cases.
-func (c *Command) handleHealthForDataplaneContainer(consulClient *api.Client, taskID, serviceName, clusterARN, containerName, ecsHealthStatus string) error {
-	var checkID string
-	serviceID := makeServiceID(serviceName, taskID)
-	if c.config.IsGateway() {
-		checkID = constructCheckID(serviceID, containerName)
-		return c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecsHealthStatus)
-	}
-
-	checkID = constructCheckID(serviceID, containerName)
-	err := c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecsHealthStatus)
+	// Every container, regardless of type, has a check on the primary
+	// service (or gateway) registration.
+	serviceCheck, err := c.stageCheck(serviceID, containerName, ecsHealthStatus)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	proxySvcID, _ := makeProxySvcIDAndName(serviceID, "")
-	checkID = constructCheckID(proxySvcID, containerName)
-	return c.updateConsulHealthStatus(consulClient, checkID, clusterARN, ecsHealthStatus)
+	// Gateway service: dataplane container maps to a single service check
+	if containerName == config.ConsulDataplaneContainerName && c.config.IsGateway() {
+		return api.HealthChecks{serviceCheck}, nil
+	}
+
+	// Typical service (non-gateway): dataplane container maps to serviceCheck and proxyCheck
+	if containerName == config.ConsulDataplaneContainerName && !c.config.IsGateway() {
+		proxySvcID, _ := makeProxySvcIDAndName(serviceID, serviceName)
+		proxyCheck, err := c.stageCheck(proxySvcID, containerName, ecsHealthStatus)
+		if err != nil {
+			return nil, err
+		}
+		return api.HealthChecks{serviceCheck, proxyCheck}, nil
+	}
+
+	// Non-gateway service, non-dataplane: app container maps to a single serviceCheck
+	return api.HealthChecks{serviceCheck}, nil
 }
 
-func (c *Command) updateConsulHealthStatus(consulClient *api.Client, checkID string, clusterARN string, ecsHealthStatus string) error {
-	consulHealthStatus := ecsHealthToConsulHealth(ecsHealthStatus)
-
+// stageCheck mutates the in-memory copy of the check for the given service and
+// container to reflect ecsHealthStatus and returns it. It performs no network
+// I/O; the caller registers the staged checks with Consul.
+func (c *Command) stageCheck(serviceID, containerName, ecsHealthStatus string) (*api.HealthCheck, error) {
+	checkID := constructCheckID(serviceID, containerName)
 	check, ok := c.checks[checkID]
-	if !ok {
-		return fmt.Errorf("unable to find check with ID %s", checkID)
+	if !ok || check == nil {
+		return nil, fmt.Errorf("unable to find check with ID %s", checkID)
 	}
 
-	check.Status = consulHealthStatus
+	check.Status = ecsHealthToConsulHealth(ecsHealthStatus)
 	check.Output = fmt.Sprintf("ECS health status is %q for container %q", ecsHealthStatus, checkID)
-	c.checks[checkID] = check
+	return check, nil
+}
+
+// registerChecks writes the given health checks to the Consul catalog in a
+// single Catalog.Register call. Each check carries its own ServiceID, so checks
+// belonging to the service and the sidecar proxy can be registered together. It
+// is a no-op when checks is empty.
+func (c *Command) registerChecks(consulClient *api.Client, clusterARN string, checks api.HealthChecks) error {
+	if len(checks) == 0 {
+		return nil
+	}
 
 	updateCheckReq := &api.CatalogRegistration{
 		Node:           clusterARN,
 		SkipNodeUpdate: true,
-		Checks:         api.HealthChecks{check},
+		Checks:         checks,
 	}
 
 	_, err := consulClient.Catalog().Register(updateCheckReq, nil)

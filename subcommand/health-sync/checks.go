@@ -249,15 +249,14 @@ func (c *Command) stageContainerHealthChecks(taskMeta awsutil.ECSTaskMeta, conta
 		return nil, err
 	}
 
-	if containerName == config.ConsulDataplaneContainerName {
-		// A gateway has no sidecar proxy, so just the serviceCheck.
-		if c.config.IsGateway() {
-			return api.HealthChecks{serviceCheck}, nil
-		}
+	// Gateway service: dataplane container maps to a single service check
+	if containerName == config.ConsulDataplaneContainerName && c.config.IsGateway() {
+		return api.HealthChecks{serviceCheck}, nil
+	}
 
-		// A typical service has a sidecar proxy as well, so stage the proxyCheck too &
-		// return both serviceCheck and proxyCheck.
-		proxySvcID, _ := makeProxySvcIDAndName(serviceID, "")
+	// Typical service (non-gateway): dataplane container maps to serviceCheck and proxyCheck
+	if containerName == config.ConsulDataplaneContainerName && !c.config.IsGateway() {
+		proxySvcID, _ := makeProxySvcIDAndName(serviceID, serviceName)
 		proxyCheck, err := c.stageCheck(proxySvcID, containerName, ecsHealthStatus)
 		if err != nil {
 			return nil, err
@@ -265,6 +264,7 @@ func (c *Command) stageContainerHealthChecks(taskMeta awsutil.ECSTaskMeta, conta
 		return api.HealthChecks{serviceCheck, proxyCheck}, nil
 	}
 
+	// Non-gateway service, non-dataplane: app container maps to a single serviceCheck
 	return api.HealthChecks{serviceCheck}, nil
 }
 

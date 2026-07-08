@@ -1,3 +1,22 @@
+## Unreleased
+SECURITY
+* Upgrade `golang.org/x/crypto`, `golang.org/x/net`, and `golang.org/x/sys` to address CVEs in transitive dependencies. [[GH-345](https://github.com/hashicorp/consul-ecs/pull/345)]
+* Update `go-discover` to `v1.3.0` in Dockerfile to mitigate CVEs in dependencies. [[GH-348](https://github.com/hashicorp/consul-ecs/pull/348)]
+
+FEATURES
+* Add `consecutive5xx`, `enforcingConsecutiveGatewayFailure`, and `maxEjectionPercent` fields to the outlier detection configuration schema, enabling gateway failure detection and fine-grained ejection percentage control for passive health checks. [[GH-321](https://github.com/hashicorp/consul-ecs/pull/321)]
+
+BUG FIXES
+* Fix health-sync logic to correctly accumulate and apply health check statuses for all registered containers, including the `consul-dataplane` container. [[GH-320](https://github.com/hashicorp/consul-ecs/pull/320)]
+
+IMPROVEMENTS
+* health-sync: batch all Consul health check updates into a single atomic `Catalog.Register` call instead of issuing one request per check, reducing write amplification and improving consistency. [[GH-338](https://github.com/hashicorp/consul-ecs/pull/338) / HEAD]
+* Bump Go version to `1.26.4`. [[GH-348](https://github.com/hashicorp/consul-ecs/pull/348)]
+* Bump `go-discover` to `v1.3.0`. [[GH-348](https://github.com/hashicorp/consul-ecs/pull/348)]
+* Upgrade `consul-api` to 1.34.4 and `serf` to 0.10.4. [[GH-356](https://github.com/hashicorp/consul-ecs/pull/356)]
+* Upgrade AWS SDK v2 dependencies to latest versions. [[GH-357](https://github.com/hashicorp/consul-ecs/pull/357)]
+* Expand test matrix to include latest Consul CE and Enterprise versions for compatibility testing. [[GH-346](https://github.com/hashicorp/consul-ecs/pull/346)]
+
 ## 0.9.4 (March 16, 2026)
 SECURITY
 * Update Dockerfile to use Alpine 3.23 and run full `apk upgrade` to mitigate multiple vulnerable packages including curl, gnupg, openssl, sqlite-libs, busybox, and others identified by Wiz security scan ([CVE-2025-14819], [CVE-2025-14524], [CVE-2025-14017], [CVE-2025-30258], and related CVEs).

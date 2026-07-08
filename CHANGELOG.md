@@ -1,7 +1,8 @@
-## Unreleased
+## 0.10.0 (July 9, 2026)
 SECURITY
 * Upgrade `golang.org/x/crypto`, `golang.org/x/net`, and `golang.org/x/sys` to address CVEs in transitive dependencies. [[GH-345](https://github.com/hashicorp/consul-ecs/pull/345)]
 * Update `go-discover` to `v1.3.0` in Dockerfile to mitigate CVEs in dependencies. [[GH-348](https://github.com/hashicorp/consul-ecs/pull/348)]
+* Update Dockerfile to use Alpine 3.24 to mitigate multiple vulnerable packages including curl, libcrypt and others identified by security scan ([CVE-2026-41989] and related CVEs)
 
 FEATURES
 * Add `consecutive5xx`, `enforcingConsecutiveGatewayFailure`, and `maxEjectionPercent` fields to the outlier detection configuration schema, enabling gateway failure detection and fine-grained ejection percentage control for passive health checks. [[GH-321](https://github.com/hashicorp/consul-ecs/pull/321)]

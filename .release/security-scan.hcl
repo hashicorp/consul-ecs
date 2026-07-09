@@ -27,7 +27,9 @@ binary {
 
 	triage {
 		suppress {
-			vulnerabilities = []
+			vulnerabilities = [
+				"GO-2026-5932", // suppressing this vulnerability as fix is not available at the moment. Hence suppressing it for now
+			]
 		}
 	}
 }

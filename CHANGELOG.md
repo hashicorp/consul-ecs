@@ -1,4 +1,4 @@
-## Unreleased
+## 0.10.0 (July 9, 2026)
 SECURITY
 * Upgrade `golang.org/x/crypto`, `golang.org/x/net`, and `golang.org/x/sys` to address CVEs in transitive dependencies. [[GH-345](https://github.com/hashicorp/consul-ecs/pull/345)]
 * Update `go-discover` to `v1.3.0` in Dockerfile to mitigate CVEs in dependencies. [[GH-348](https://github.com/hashicorp/consul-ecs/pull/348)]

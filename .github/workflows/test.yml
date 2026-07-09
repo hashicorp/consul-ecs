@@ -16,7 +16,7 @@ env:
   CONSUL_LICENSE: ${{ secrets.CONSUL_LICENSE }}
   # Latest CE version, also present in the test matrix below — used by unit-tests-coverage.
   # ENT variants need CONSUL_LICENSE and cannot be used in the coverage job.
-  CONSUL_CE_VERSION: "2.0.2"
+  CONSUL_CE_VERSION: "2.0.1"
 
 jobs:
   get-go-version:
@@ -54,8 +54,8 @@ jobs:
         consul-version:
           - 1.22.7
           - 1.22.8+ent
-          - 2.0.2
-          - 2.0.2+ent
+          - 2.0.1
+          - 2.0.1+ent
     env:
       TEST_RESULTS_DIR: /tmp/test-results
       GOTESTSUM_VERSION: 1.8.2

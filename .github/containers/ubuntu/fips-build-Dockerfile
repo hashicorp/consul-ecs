@@ -18,12 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
     zip
 
-# Conditionally install cross-compiler for arm64 only
-RUN if [ "$GOARCH" = "arm64" ]; then \
-      apt-get update && \
-      apt-get install -y --no-install-recommends crossbuild-essential-arm64 gcc-aarch64-linux-gnu; \
-    fi
-
 # Install Go
 RUN curl -L https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C /opt -zxv
 
@@ -42,12 +36,10 @@ WORKDIR /build
 # Copy source code into container
 COPY . /build
 
-# Build the FIPS-enabled binary for the target arch
+# Build the FIPS 140-3 binary for the target arch using the pure-Go in-tree Go
+# Cryptographic Module. GOFIPS140=v1.0.0 pins the CMVP-validated module (Certificate #5247).
+# CGO_ENABLED=0 means no cgo and no cross-compiler is needed for arm64.
 RUN cd /build && \
     /opt/go/bin/go version && \
     /opt/go/bin/go env && \
-    if [ "$GOARCH" = "arm64" ]; then \
-      env GOOS=linux GOARCH=arm64 CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
-    else \
-      env GOOS=linux GOARCH=amd64 CGO_ENABLED=1 GOEXPERIMENT=boringcrypto /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .; \
-    fi
+    env GOOS=linux GOARCH=$GOARCH CGO_ENABLED=0 GOFIPS140=v1.0.0 /opt/go/bin/go build -tags="$GO_TAGS" -ldflags="$LDFLAGS" -o /bin/$BIN_NAME .

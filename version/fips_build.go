@@ -5,12 +5,18 @@
 
 package version
 
-// This validates during compilation that we are being built with a FIPS enabled go toolchain
-import (
-	_ "crypto/tls/fipsonly"
-)
+// consul-ecs FIPS builds link against the in-tree Go Cryptographic Module
+// (FIPS 140-3), selected at build time with GOFIPS140 and activated at run time
+// with GODEBUG=fips140=on (baked into the binary via //go:debug fips140=on in
+// fips140.go). In FIPS Mode the module constrains the security-relevant
+// operations (including restricting TLS to FIPS-approved settings) and runs its
+// pre-operational and conditional self-tests, aborting the process on failure.
+//
+// Note: unlike the former FIPS 140-2 boringcrypto build, crypto/tls/fipsonly is
+// intentionally not imported here — that package only exists under
+// GOEXPERIMENT=boringcrypto. TLS restriction is provided by the native module.
 
-// IsFIPS returns true if consul-ecs is operating in FIPS-140-2 mode.
+// IsFIPS returns true if consul-ecs is operating in FIPS-140-3 mode.
 func IsFIPS() bool {
 	return true
 }

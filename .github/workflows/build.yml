@@ -68,23 +68,18 @@ jobs:
           - {goos: "linux", goarch: "arm64"}
           - {goos: "linux", goarch: "386"}
           - {goos: "linux", goarch: "amd64"}
-          - {goos: "linux", goarch: "arm64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto CC=aarch64-linux-gnu-gcc", fips: "+fips1402"}
-          - {goos: "linux", goarch: "amd64", gotags: "fips", env: "CGO_ENABLED=1 GOEXPERIMENT=boringcrypto", fips: "+fips1402"}
+          - {goos: "linux", goarch: "arm64", gotags: "fips", env: "GOFIPS140=v1.0.0", fips: "+fips1403"}
+          - {goos: "linux", goarch: "amd64", gotags: "fips", env: "GOFIPS140=v1.0.0", fips: "+fips1403"}
 
     name: Go ${{ needs.get-go-version.outputs.go-version }} ${{ matrix.goos }} ${{ matrix.goarch }} ${{ matrix.fips }} build
 
     steps:
       - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
       - name: Setup go
-        if: ${{ !(matrix.gotags == 'fips') }}
         uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
           go-version: ${{ needs.get-go-version.outputs.go-version }}
-      - name: Set up QEMU for cross-arch builds (only for Docker)
-        if: ${{ matrix.gotags == 'fips' }}
-        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # V3.6.0
       - name: Build (runner)
-        if: ${{ !(matrix.gotags == 'fips') }}
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -100,34 +95,6 @@ jobs:
             bin=$(find dist -name consul-ecs)
             $bin version
           fi
-      - name: Build FIPS (Docker)
-        # NOTE: We use an older Ubuntu image for FIPS builds to ensure the resulting CGO-linked binary
-        # is compatible with a wide range of Linux hosts, especially for arm64. Newer Ubuntu versions
-        # may use a newer glibc, which can break mesh-init or remote execution scenarios where the binary
-        # is copied to a host with an older glibc. See: https://groups.google.com/g/pat-users/c/dawmYvN4DBc
-        if: ${{ matrix.gotags == 'fips' }}
-        run: |
-          set -e
-          # No global cross-compiler install here; handled in Dockerfile
-          mkdir -p dist/linux/${{ matrix.goarch }} out
-          # Build the FIPS binary using Ubuntu-based Dockerfile for glibc compatibility
-          docker buildx build \
-            --platform linux/${{ matrix.goarch }} \
-            --build-arg GO_VERSION=${{ needs.get-go-version.outputs.go-version }} \
-            --build-arg GO_TAGS=fips \
-            --build-arg LDFLAGS="${{ needs.get-product-version.outputs.ldflags }}" \
-            --build-arg BIN_NAME=consul-ecs \
-            --build-arg GOARCH=${{ matrix.goarch }} \
-            -f .github/containers/ubuntu/fips-build-Dockerfile \
-            -t consul-ecs-fips-${{ matrix.goarch }}:build .
-          # Extract the binary from the image for packaging (match Dockerfile path)
-          id=$(docker create consul-ecs-fips-${{ matrix.goarch }}:build)
-          docker cp $id:/bin/consul-ecs ./consul-ecs
-          docker rm $id
-          mkdir -p dist/linux/${{ matrix.goarch }}
-          mv consul-ecs dist/linux/${{ matrix.goarch }}/consul-ecs
-          cp LICENSE dist/LICENSE.txt
-          zip -j out/consul-ecs_${{ needs.get-product-version.outputs.product-version }}+fips1402_linux_${{ matrix.goarch }}.zip dist/linux/${{ matrix.goarch }}/consul-ecs dist/LICENSE.txt
       - name: Upload artifact (binary)
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
@@ -184,7 +151,7 @@ jobs:
           - { arch: "amd64" }
     env:
       repo: ${{ github.event.repository.name }}
-      version: ${{ needs.get-product-version.outputs.product-version }}+fips1402
+      version: ${{ needs.get-product-version.outputs.product-version }}+fips1403
 
     steps:
       - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4

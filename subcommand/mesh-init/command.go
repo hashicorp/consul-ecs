@@ -601,7 +601,7 @@ func (c *Command) getDataplaneVersion(taskMeta awsutil.ECSTaskMeta) string {
 	if err != nil {
 		var apiErr smithy.APIError
 		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "AccessDeniedException" {
-			c.log.Warn("dataplane-version will be omitted: the ECS task role is missing the ecs:DescribeTasks permission; grant it to populate dataplane-version", "error", err)
+			c.log.Warn("omitting dataplane-version from ServiceMeta: ECS task role lacks ecs:DescribeTasks; grant it to populate dataplane-version", "phase", "service-registration", "error", err)
 		} else {
 			c.log.Warn("unable to determine consul-dataplane version from ECS DescribeTasks", "error", err)
 		}

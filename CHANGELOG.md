@@ -1,3 +1,9 @@
+## Unreleased
+
+IMPROVEMENTS
+* mesh-init: Add `ecs-service-version` and `dataplane-version` to Consul `ServiceMeta` during service registration. Populating `dataplane-version` requires the `ecs:DescribeTasks` permission on the task role. [[GH-353](https://github.com/hashicorp/consul-ecs/pull/353)]
+
+
 ## 0.10.0 (July 9, 2026)
 SECURITY
 * Upgrade `golang.org/x/crypto`, `golang.org/x/net`, and `golang.org/x/sys` to address CVEs in transitive dependencies. [[GH-345](https://github.com/hashicorp/consul-ecs/pull/345)]

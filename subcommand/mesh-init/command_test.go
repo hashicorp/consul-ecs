@@ -4,6 +4,7 @@
 package meshinit
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,12 +14,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/consul-ecs/awsutil"
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul-ecs/internal/dataplane"
 	"github.com/hashicorp/consul-ecs/testutil"
+	"github.com/hashicorp/consul-ecs/version"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/sdk/iptables"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
@@ -31,6 +36,27 @@ type fileMeta struct {
 	name string
 	path string
 	mode int
+}
+
+// fakeECSClient is a test double for awsutil.ECSTaskAPI. It returns a
+// DescribeTasks response containing a single task with a consul-dataplane
+// container image (omitted when image is empty), or err when set.
+type fakeECSClient struct {
+	image string
+	err   error
+}
+
+func (f *fakeECSClient) DescribeTasks(_ context.Context, _ *ecs.DescribeTasksInput, _ ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	task := types.Task{}
+	if f.image != "" {
+		task.Containers = []types.Container{
+			{Name: aws.String(config.ConsulDataplaneContainerName), Image: aws.String(f.image)},
+		}
+	}
+	return &ecs.DescribeTasksOutput{Tasks: []types.Task{task}}, nil
 }
 
 func TestNoCLIFlagsSupported(t *testing.T) {
@@ -174,9 +200,11 @@ func TestRun(t *testing.T) {
 			var (
 				taskARN          = "arn:aws:ecs:us-east-1:123456789:task/test/abcdef"
 				expectedTaskMeta = map[string]string{
-					"task-id":  "abcdef",
-					"task-arn": taskARN,
-					"source":   "consul-ecs",
+					"task-id":             "abcdef",
+					"task-arn":            taskARN,
+					"source":              "consul-ecs",
+					"ecs-service-version": version.GetHumanVersion(),
+					"dataplane-version":   "1.3.0",
 				}
 				expectedServiceName = strings.ToLower(family)
 				expectedPartition   = ""
@@ -255,6 +283,7 @@ func TestRun(t *testing.T) {
 
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}
+			cmd.ecsClient = &fakeECSClient{image: "hashicorp/consul-dataplane:1.3.0"}
 
 			envoyBootstrapDir := testutil.TempDir(t)
 			dataplaneConfigJSONFile := filepath.Join(envoyBootstrapDir, dataplaneConfigFileName)
@@ -458,9 +487,11 @@ func TestGateway(t *testing.T) {
 		publicIP         = "255.1.2.3"
 		taskDNSName      = "test-dns-name"
 		expectedTaskMeta = map[string]string{
-			"task-id":  "abcdef",
-			"task-arn": taskARN,
-			"source":   "consul-ecs",
+			"task-id":             "abcdef",
+			"task-arn":            taskARN,
+			"source":              "consul-ecs",
+			"ecs-service-version": version.GetHumanVersion(),
+			"dataplane-version":   "1.3.0",
 		}
 	)
 	// Simulate mesh gateway registration:
@@ -712,6 +743,7 @@ func TestGateway(t *testing.T) {
 
 			ui := cli.NewMockUi()
 			cmd := Command{UI: ui}
+			cmd.ecsClient = &fakeECSClient{image: "hashicorp/consul-dataplane:1.3.0"}
 
 			code := cmd.Run(nil)
 			require.Equal(t, code, 0, ui.ErrorWriter.String())
@@ -824,6 +856,101 @@ func TestMakeProxyServiceIDAndName(t *testing.T) {
 	actualID, actualName := makeProxySvcIDAndName("test-service-12345", "test-service")
 	require.Equal(t, expectedID, actualID)
 	require.Equal(t, expectedName, actualName)
+}
+
+func TestGetDataplaneVersion(t *testing.T) {
+	cases := map[string]struct {
+		// image is the consul-dataplane image in DescribeTasks output; empty means
+		// the container is absent from the task.
+		image     string
+		clientErr error
+		expected  string
+	}{
+		"dataplane present with tag": {
+			image:    "hashicorp/consul-dataplane:1.3.0",
+			expected: "1.3.0",
+		},
+		"dataplane pinned by digest": {
+			image:    "hashicorp/consul-dataplane@sha256:9b2cabcdef0123456789",
+			expected: "hashicorp/consul-dataplane@sha256:9b2cabcdef0123456789",
+		},
+		"dataplane absent from task": {
+			image:    "",
+			expected: "",
+		},
+		"image reference exceeds meta value limit": {
+			// A digest-only reference longer than Consul's 512-char meta value
+			// limit is omitted rather than stored (which would fail registration).
+			image:    "hashicorp/consul-dataplane@sha256:" + strings.Repeat("a", 600),
+			expected: "",
+		},
+		"describe tasks lookup fails": {
+			clientErr: fmt.Errorf("boom"),
+			expected:  "",
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			cmd := &Command{
+				log:       hclog.NewNullLogger(),
+				ecsClient: &fakeECSClient{image: c.image, err: c.clientErr},
+			}
+			require.Equal(t, c.expected, cmd.getDataplaneVersion(awsutil.ECSTaskMeta{}))
+		})
+	}
+}
+
+func TestSetVersionMetaOverridesUserMeta(t *testing.T) {
+	cmd := &Command{
+		log:       hclog.NewNullLogger(),
+		ecsClient: &fakeECSClient{image: "hashicorp/consul-dataplane:1.3.0"},
+	}
+
+	// User-supplied meta attempts to spoof the version fields and keep a custom one.
+	meta := map[string]string{
+		"ecs-service-version": "spoofed",
+		"dataplane-version":   "spoofed",
+		"custom":              "keep-me",
+	}
+
+	cmd.setVersionMeta(meta, awsutil.ECSTaskMeta{})
+
+	// consul-ecs owns the version keys, so its values win over the user's.
+	require.Equal(t, version.GetHumanVersion(), meta["ecs-service-version"])
+	require.Equal(t, "1.3.0", meta["dataplane-version"])
+	// Non-version user keys are left untouched.
+	require.Equal(t, "keep-me", meta["custom"])
+}
+
+// TestGetDataplaneVersionNilClient ensures that when the ECS client could not be
+// constructed (e.g. AWS config resolution failed), the best-effort lookup is
+// skipped rather than panicking on a nil client.
+func TestGetDataplaneVersionNilClient(t *testing.T) {
+	cmd := &Command{log: hclog.NewNullLogger()} // ecsClient intentionally nil
+	require.Equal(t, "", cmd.getDataplaneVersion(awsutil.ECSTaskMeta{}))
+}
+
+// TestSetVersionMetaNilClient ensures registration meta is still populated with
+// ecs-service-version and simply omits dataplane-version when the ECS client is
+// unavailable, keeping the version reporting strictly best-effort. It also
+// asserts that a user-supplied dataplane-version cannot be spoofed when ours is
+// omitted.
+func TestSetVersionMetaNilClient(t *testing.T) {
+	cmd := &Command{log: hclog.NewNullLogger()} // ecsClient intentionally nil
+
+	meta := map[string]string{
+		"ecs-service-version": "spoofed",
+		"dataplane-version":   "spoofed",
+		"custom":              "keep-me",
+	}
+	cmd.setVersionMeta(meta, awsutil.ECSTaskMeta{})
+
+	require.Equal(t, version.GetHumanVersion(), meta["ecs-service-version"])
+	require.NotEqual(t, "spoofed", meta["ecs-service-version"], "ecs-service-version must not be spoofable via user meta")
+	_, ok := meta["dataplane-version"]
+	require.False(t, ok, "dataplane-version should be omitted (not spoofable) when the ECS client is nil")
+	require.Equal(t, "keep-me", meta["custom"])
 }
 
 func TestWriteCACertToVolume(t *testing.T) {

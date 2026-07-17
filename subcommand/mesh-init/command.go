@@ -592,11 +592,17 @@ func getNodeMeta() map[string]string {
 // internal use and Consul rejects such keys during service registration.
 // Refer: https://github.com/hashicorp/consul/blob/9a38fac228fae7960f12f5b2a45c7548c90e8224/agent/structs/structs.go#L182
 func (c *Command) setVersionMeta(meta map[string]string, taskMeta awsutil.ECSTaskMeta) {
+	// consul-ecs owns these keys. Clear any user-supplied values first so they
+	// cannot be spoofed via service.meta/gateway.meta when we omit our own value
+	// (e.g. dataplane-version could not be determined).
+	delete(meta, "ecs-service-version")
+	delete(meta, "dataplane-version")
+
 	if ecsVersion := version.GetHumanVersion(); len(ecsVersion) <= maxMetaValueLength {
 		meta["ecs-service-version"] = ecsVersion
 	}
-	if dp := c.getDataplaneVersion(taskMeta); dp != "" {
-		meta["dataplane-version"] = dp
+	if dpVersion := c.getDataplaneVersion(taskMeta); dpVersion != "" {
+		meta["dataplane-version"] = dpVersion
 	}
 }
 

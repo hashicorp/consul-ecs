@@ -933,16 +933,24 @@ func TestGetDataplaneVersionNilClient(t *testing.T) {
 
 // TestSetVersionMetaNilClient ensures registration meta is still populated with
 // ecs-service-version and simply omits dataplane-version when the ECS client is
-// unavailable, keeping the version reporting strictly best-effort.
+// unavailable, keeping the version reporting strictly best-effort. It also
+// asserts that a user-supplied dataplane-version cannot be spoofed when ours is
+// omitted.
 func TestSetVersionMetaNilClient(t *testing.T) {
 	cmd := &Command{log: hclog.NewNullLogger()} // ecsClient intentionally nil
 
-	meta := map[string]string{}
+	meta := map[string]string{
+		"ecs-service-version": "spoofed",
+		"dataplane-version":   "spoofed",
+		"custom":              "keep-me",
+	}
 	cmd.setVersionMeta(meta, awsutil.ECSTaskMeta{})
 
 	require.Equal(t, version.GetHumanVersion(), meta["ecs-service-version"])
+	require.NotEqual(t, "spoofed", meta["ecs-service-version"], "ecs-service-version must not be spoofable via user meta")
 	_, ok := meta["dataplane-version"]
-	require.False(t, ok, "dataplane-version should be omitted when the ECS client is nil")
+	require.False(t, ok, "dataplane-version should be omitted (not spoofable) when the ECS client is nil")
+	require.Equal(t, "keep-me", meta["custom"])
 }
 
 func TestWriteCACertToVolume(t *testing.T) {

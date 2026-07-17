@@ -923,6 +923,28 @@ func TestSetVersionMetaOverridesUserMeta(t *testing.T) {
 	require.Equal(t, "keep-me", meta["custom"])
 }
 
+// TestGetDataplaneVersionNilClient ensures that when the ECS client could not be
+// constructed (e.g. AWS config resolution failed), the best-effort lookup is
+// skipped rather than panicking on a nil client.
+func TestGetDataplaneVersionNilClient(t *testing.T) {
+	cmd := &Command{log: hclog.NewNullLogger()} // ecsClient intentionally nil
+	require.Equal(t, "", cmd.getDataplaneVersion(awsutil.ECSTaskMeta{}))
+}
+
+// TestSetVersionMetaNilClient ensures registration meta is still populated with
+// ecs-service-version and simply omits dataplane-version when the ECS client is
+// unavailable, keeping the version reporting strictly best-effort.
+func TestSetVersionMetaNilClient(t *testing.T) {
+	cmd := &Command{log: hclog.NewNullLogger()} // ecsClient intentionally nil
+
+	meta := map[string]string{}
+	cmd.setVersionMeta(meta, awsutil.ECSTaskMeta{})
+
+	require.Equal(t, version.GetHumanVersion(), meta["ecs-service-version"])
+	_, ok := meta["dataplane-version"]
+	require.False(t, ok, "dataplane-version should be omitted when the ECS client is nil")
+}
+
 func TestWriteCACertToVolume(t *testing.T) {
 	cases := map[string]struct {
 		serverConfig               config.ConsulServers

@@ -62,6 +62,11 @@ const (
 	// retry, hanging).
 	// Refer: https://github.com/hashicorp/consul/blob/9a38fac228fae7960f12f5b2a45c7548c90e8224/agent/structs/structs.go#L191
 	maxMetaValueLength = 512
+
+	// describeTasksTimeout bounds the best-effort ECS DescribeTasks call used to
+	// derive dataplane-version, so a slow or retrying AWS API cannot stall
+	// service registration.
+	describeTasksTimeout = 5 * time.Second
 )
 
 func (c *Command) Run(args []string) int {
@@ -102,12 +107,16 @@ func (c *Command) realRun() error {
 	}
 
 	// Set up the ECS client used to read container image data from DescribeTasks.
+	// This only powers the best-effort dataplane-version ServiceMeta field, so a
+	// failure here must not block service registration: on error we log and leave
+	// ecsClient nil, and getDataplaneVersion handles a nil client gracefully.
 	if c.ecsClient == nil {
 		awsCfg, err := awsutil.NewAWSConfig(taskMeta, "mesh-init")
 		if err != nil {
-			return fmt.Errorf("constructing aws config: %w", err)
+			c.log.Warn("omitting dataplane-version from ServiceMeta: unable to construct AWS config for ECS DescribeTasks", "error", err)
+		} else {
+			c.ecsClient = ecs.NewFromConfig(awsCfg)
 		}
-		c.ecsClient = ecs.NewFromConfig(awsCfg)
 	}
 
 	serverConnMgrCfg, err := c.config.ConsulServerConnMgrConfig(taskMeta)
@@ -583,7 +592,9 @@ func getNodeMeta() map[string]string {
 // internal use and Consul rejects such keys during service registration.
 // Refer: https://github.com/hashicorp/consul/blob/9a38fac228fae7960f12f5b2a45c7548c90e8224/agent/structs/structs.go#L182
 func (c *Command) setVersionMeta(meta map[string]string, taskMeta awsutil.ECSTaskMeta) {
-	meta["ecs-service-version"] = version.GetHumanVersion()
+	if ecsVersion := version.GetHumanVersion(); len(ecsVersion) <= maxMetaValueLength {
+		meta["ecs-service-version"] = ecsVersion
+	}
 	if dp := c.getDataplaneVersion(taskMeta); dp != "" {
 		meta["dataplane-version"] = dp
 	}
@@ -593,18 +604,34 @@ func (c *Command) setVersionMeta(meta map[string]string, taskMeta awsutil.ECSTas
 // derived from its image reference in ECS DescribeTasks runtime state.
 //
 // This is best-effort and never blocks registration.
-// It returns "" when the container is absent or the derived value exceeds
-// Consul's meta value limit, and additionally logs a warning when the task
-// lookup itself fails.
+// It returns "" when the ECS client is unavailable, the container is absent, or
+// the derived value exceeds Consul's meta value limit, and additionally logs a
+// warning when the task lookup itself fails.
 func (c *Command) getDataplaneVersion(taskMeta awsutil.ECSTaskMeta) string {
-	dpImage, err := awsutil.ContainerImage(context.Background(), c.ecsClient, taskMeta.Cluster, taskMeta.TaskARN, config.ConsulDataplaneContainerName)
+	// The ECS client may be nil if AWS config construction failed earlier; skip
+	// rather than panic, keeping dataplane-version strictly best-effort.
+	if c.ecsClient == nil {
+		return ""
+	}
+
+	// Bound the call so a slow or retrying DescribeTasks cannot stall registration.
+	ctx, cancel := context.WithTimeout(context.Background(), describeTasksTimeout)
+	defer cancel()
+
+	dpImage, err := awsutil.ContainerImage(ctx, c.ecsClient, taskMeta.Cluster, taskMeta.TaskARN, config.ConsulDataplaneContainerName)
 	if err != nil {
 		var apiErr smithy.APIError
 		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "AccessDeniedException" {
 			c.log.Warn("omitting dataplane-version from ServiceMeta: ECS task role lacks ecs:DescribeTasks; grant it to populate dataplane-version", "phase", "service-registration", "error", err)
 		} else {
-			c.log.Warn("unable to determine consul-dataplane version from ECS DescribeTasks", "error", err)
+			c.log.Debug("unable to determine consul-dataplane version from ECS DescribeTasks", "error", err)
 		}
+		return ""
+	}
+	if dpImage == "" {
+		// The container was not found in the task (e.g. a custom task definition
+		// that names the dataplane container differently). Omit best-effort.
+		c.log.Debug("omitting dataplane-version from ServiceMeta: consul-dataplane container not found in ECS task", "container", config.ConsulDataplaneContainerName)
 		return ""
 	}
 	dpVersion := awsutil.ImageVersion(dpImage)

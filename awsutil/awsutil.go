@@ -112,7 +112,7 @@ func ContainerImage(ctx context.Context, client ECSTaskAPI, cluster, taskARN, co
 		Tasks:   []string{taskARN},
 	})
 	if err != nil {
-		return "", fmt.Errorf("describing task %q: %w", taskARN, err)
+		return "", fmt.Errorf("describing ECS task %q: %w", taskARN, err)
 	}
 	if out == nil || len(out.Tasks) == 0 {
 		return "", fmt.Errorf("task %q not found", taskARN)

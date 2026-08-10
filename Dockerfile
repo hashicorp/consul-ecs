@@ -11,7 +11,7 @@
 FROM golang:1.26.4-alpine AS go-discover
 RUN CGO_ENABLED=0 go install github.com/hashicorp/go-discover/cmd/discover@v1.3.0
 
-FROM docker.mirror.hashicorp.services/alpine:3.23 AS release-default
+FROM docker.mirror.hashicorp.services/alpine:3.24 AS release-default
 
 ARG BIN_NAME=consul-ecs
 ARG PRODUCT_VERSION

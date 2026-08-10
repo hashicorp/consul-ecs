@@ -1,0 +1,84 @@
+# Copyright IBM Corp. 2024, 2026
+# SPDX-License-Identifier: BUSL-1.1
+
+# Selectively auto-approves Dependabot PRs:
+#   - PATCH updates   → auto-approved + auto-merged (lowest risk: bug-fixes only)
+#   - MINOR updates   → auto-approved, but NOT auto-merged (new features, needs CI gate)
+#   - MAJOR updates   → no automation, require human review (breaking changes likely)
+#
+# Auto-merge is intentionally scoped to patch only. A supply-chain attack or
+# unintended breakage on a minor/major bump would otherwise be silently merged.
+
+name: Dependabot Auto-Approve
+
+on: pull_request_target
+
+permissions:
+  contents: write       # needed for auto-merge
+  pull-requests: write  # needed for approval + labelling
+
+jobs:
+  dependabot-auto-approve:
+    runs-on: ubuntu-latest
+    # Only run for PRs opened by Dependabot itself.
+    if: github.actor == 'dependabot[bot]'
+
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      # Apply a semver-severity label so triage is instant at a glance.
+      # For grouped PRs, fetch-metadata reports the HIGHEST update type in the
+      # group (e.g. a group containing both patch and minor deps → "minor").
+      # Labels must already exist in the repo (create once via Settings → Labels).
+      - name: Label as patch
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr edit "$PR_URL" --add-label "patch,pr/no-changelog"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Label as minor
+        if: steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr edit "$PR_URL" --add-label "minor,pr/no-changelog"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Label as major
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+        run: gh pr edit "$PR_URL" --add-label "major"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Approve patch updates — very low risk (semver contract: no API changes).
+      - name: Approve patch updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr review --approve "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Auto-merge patch updates once all required CI checks pass.
+      # Uses squash so the git history stays clean.
+      - name: Auto-merge patch updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Approve minor updates so they are not blocked, but require a human
+      # to explicitly merge (new APIs / behaviour could affect Consul integration).
+      - name: Approve minor updates (no auto-merge)
+        if: steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr review --approve "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Major updates: no action taken — a human must review and approve.

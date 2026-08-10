@@ -1,0 +1,81 @@
+# Copyright IBM Corp. 2024, 2026
+# SPDX-License-Identifier: BUSL-1.1
+
+# For every Dependabot PR that is a MAJOR version bump:
+#   1. Detects the update type via dependabot/fetch-metadata.
+#   2. Creates a changelog entry in .changelog/ describing the dependency,
+#      old version, and new version.
+#   3. Pushes that file onto the Dependabot PR branch via the GitHub Contents
+#      API — no code checkout required.
+#
+# The file is placed under .changelog/ (repo root) which is the existing
+# convention in this repository for tracking notable changes per PR.
+#
+# Dependabot creates branches inside the target repository (not a fork), so
+# pull_request grants write access without the security risks of
+# pull_request_target. The workflow never checks out or executes PR code.
+
+name: Dependabot Major Version Changelog
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  add-major-changelog:
+    runs-on: ubuntu-latest
+    # Only run for PRs opened or reopened by Dependabot itself.
+    if: github.actor == 'dependabot[bot]'
+    permissions:
+      contents: write      # push changelog file to PR branch via API
+      pull-requests: read  # read PR metadata
+
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Create major version changelog via GitHub API
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+        env:
+          PR_NUMBER:   ${{ github.event.pull_request.number }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          DEP_NAMES:   ${{ steps.metadata.outputs.dependency-names }}
+          FROM_VER:    ${{ steps.metadata.outputs.previous-version }}
+          TO_VER:      ${{ steps.metadata.outputs.new-version }}
+          GH_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CHANGELOG_FILE="_${PR_NUMBER}.txt"
+          FILE_PATH=".changelog/${CHANGELOG_FILE}"
+
+          # Use %s to treat all variables as plain data, preventing format-string
+          # injection from externally-sourced dependency names and versions.
+          FILE_CONTENT=$(printf '```release-note:improvement\nchore: Update of %s from %s to %s\n```\n' \
+            "$DEP_NAMES" "$FROM_VER" "$TO_VER")
+
+          # Base64-encode content for the GitHub Contents API.
+          # `tr -d '\n'` strips newlines instead of `base64 -w 0` (GNU-only flag),
+          # making this portable across both Linux and macOS runners.
+          CONTENT_B64=$(printf '%s' "$FILE_CONTENT" | base64 | tr -d '\n')
+
+          # Fetch the current blob SHA if the file already exists (makes the PUT idempotent).
+          EXISTING_SHA=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/contents/${FILE_PATH}?ref=${PR_HEAD_REF}" \
+            --jq '.sha' 2>/dev/null || true)
+
+          if [[ -n "$EXISTING_SHA" ]]; then
+            gh api "repos/${GITHUB_REPOSITORY}/contents/${FILE_PATH}" \
+              --method PUT \
+              --raw-field "message=chore(deps): update major version changelog for PR #${PR_NUMBER} [skip ci]" \
+              --raw-field "content=${CONTENT_B64}" \
+              --raw-field "branch=${PR_HEAD_REF}" \
+              --raw-field "sha=${EXISTING_SHA}"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/contents/${FILE_PATH}" \
+              --method PUT \
+              --raw-field "message=chore(deps): add major version changelog for PR #${PR_NUMBER} [skip ci]" \
+              --raw-field "content=${CONTENT_B64}" \
+              --raw-field "branch=${PR_HEAD_REF}"
+          fi

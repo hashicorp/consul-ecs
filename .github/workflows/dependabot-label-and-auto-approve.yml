@@ -22,6 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     # Only run for PRs opened by Dependabot itself.
     if: github.actor == 'dependabot[bot]'
+    env:
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Fetch Dependabot metadata
@@ -37,48 +40,30 @@ jobs:
       - name: Label as patch
         if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
         run: gh pr edit "$PR_URL" --add-label "patch,pr/no-changelog"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Label as minor
         if: steps.metadata.outputs.update-type == 'version-update:semver-minor'
         run: gh pr edit "$PR_URL" --add-label "minor,pr/no-changelog"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Label as major
         if: steps.metadata.outputs.update-type == 'version-update:semver-major'
         run: gh pr edit "$PR_URL" --add-label "major"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Approve patch updates — very low risk (semver contract: no API changes).
       - name: Approve patch updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
         run: gh pr review --approve "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Auto-merge patch updates once all required CI checks pass.
       # Uses squash so the git history stays clean.
       - name: Auto-merge patch updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
         run: gh pr merge --auto --squash "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Approve minor updates so they are not blocked, but require a human
       # to explicitly merge (new APIs / behaviour could affect Consul integration).
       - name: Approve minor updates (no auto-merge)
         if: steps.metadata.outputs.update-type == 'version-update:semver-minor'
         run: gh pr review --approve "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Major updates: no action taken — a human must review and approve.

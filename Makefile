@@ -29,8 +29,11 @@ dev: dist
 	GOARCH=$(ARCH) GOOS=$(OS) go build -ldflags "$(LD_FLAGS)" -o $(BIN)
 .PHONY: dev
 
+# FIPS 140-3 build: pure-Go in-tree Go Cryptographic Module (no cgo, no boringcrypto).
+# GOFIPS140=v1.0.0 pins the CMVP-validated module (Certificate #5247).
+# Runtime activation is baked into the binary via //go:debug fips140=on (see fips140.go).
 dev-fips: dist
-	GOARCH=$(ARCH) GOOS=$(OS) CGO_ENABLED=1 GOEXPERIMENT=boringcrypto go build -tags=fips  -ldflags "$(LD_FLAGS)" -o $(BIN)
+	GOARCH=$(ARCH) GOOS=$(OS) CGO_ENABLED=0 GOFIPS140=v1.0.0 go build -tags=fips -ldflags "$(LD_FLAGS)" -o $(BIN)
 .PHONY: dev-fips
 
 # Docker Stuff.

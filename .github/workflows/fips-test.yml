@@ -1,0 +1,141 @@
+name: fips-test
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+    branches:
+      - main
+
+# cancel existing runs of the same workflow on the same ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CONSUL_LICENSE: ${{ secrets.CONSUL_LICENSE }}
+  # Consul CE version used to back the unit tests. FIPS here refers to the
+  # consul-ecs binary under test; the Consul agent it talks to need not be FIPS.
+  CONSUL_CE_VERSION: "2.0.1"
+  # Pinned CMVP-validated Go Cryptographic Module (Certificate #5247).
+  GOFIPS140_VERSION: "v1.0.0"
+
+jobs:
+  get-go-version:
+    uses: ./.github/workflows/reusable-get-go-version.yml
+
+  # Native-module lane: recompile and run the full unit suite against the in-tree
+  # Go Cryptographic Module in FIPS Mode (permissive). Replaces the old
+  # GOEXPERIMENT=boringcrypto premise; pure Go means no cgo/cross-compiler.
+  fips-unit-test:
+    needs:
+      - get-go-version
+    name: fips unit test (native module, fips140=on)
+    runs-on: ubuntu-22.04
+    env:
+      CGO_ENABLED: "0"
+      GOFIPS140: v1.0.0
+      GODEBUG: fips140=on
+    steps:
+      - name: Checkout
+        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+        with:
+          go-version: ${{ needs.get-go-version.outputs.go-version }}
+      - name: Install Consul
+        shell: bash
+        run: |
+          CONSUL_VERSION="${{ env.CONSUL_CE_VERSION }}"
+          curl -sSLO "https://releases.hashicorp.com/consul/${CONSUL_VERSION}/consul_${CONSUL_VERSION}_linux_amd64.zip"
+          unzip -o "consul_${CONSUL_VERSION}_linux_amd64.zip" consul -d /usr/local/bin
+          rm "consul_${CONSUL_VERSION}_linux_amd64.zip"
+          consul version
+      - name: Test (fips tag, native module)
+        run: |
+          PACKAGE_NAMES=$(go list ./... | grep -v 'mocks\|hack\|testing' | tr '\n' ' ')
+          echo "Testing $(echo $PACKAGE_NAMES | wc -w) packages under FIPS 140-3"
+          go test -tags=fips $PACKAGE_NAMES
+
+  # Strict Approved-Only lane: any use of a non-approved algorithm errors instead
+  # of silently degrading. Scoped to deterministic crypto-relevant packages; the
+  # full suite is not run here because some tests perform external TLS I/O with
+  # non-approved curves (e.g. X25519), which is not shipped behavior.
+  fips-strict:
+    needs:
+      - get-go-version
+    name: fips strict (fips140=only)
+    runs-on: ubuntu-22.04
+    env:
+      CGO_ENABLED: "0"
+      GOFIPS140: v1.0.0
+      GODEBUG: fips140=only
+    steps:
+      - name: Checkout
+        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+        with:
+          go-version: ${{ needs.get-go-version.outputs.go-version }}
+      - name: Test (strict, approved-only)
+        run: |
+          go test -tags=fips ./version/... ./internal/...
+
+  # Module-in-use assertion: prove the built artifact records the pinned module
+  # and bakes fips140=on, and that the version metadata reads +fips1403. Pure Go
+  # lets us build arm64 with no cross-compiler; arm64 is build/verify-only here
+  # since the runner is amd64.
+  fips-verify-module:
+    needs:
+      - get-go-version
+    name: fips verify module (${{ matrix.goarch }})
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        goarch: ["amd64", "arm64"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+        with:
+          go-version: ${{ needs.get-go-version.outputs.go-version }}
+      - name: Build FIPS binary
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          GOFIPS140: v1.0.0
+        run: |
+          go build -tags=fips -o consul-ecs-fips .
+      - name: Assert pinned module and baked GODEBUG
+        run: |
+          set -euo pipefail
+          info=$(go version -m consul-ecs-fips)
+          echo "$info" | grep -F "GOFIPS140=${GOFIPS140_VERSION}" || \
+            { echo "FAIL: binary does not record GOFIPS140=${GOFIPS140_VERSION}"; exit 1; }
+          echo "$info" | grep -F "DefaultGODEBUG=fips140=on" || \
+            { echo "FAIL: binary does not bake DefaultGODEBUG=fips140=on"; exit 1; }
+          echo "PASS: module pin and fips140=on recorded in binary"
+      - name: Assert +fips1403 version metadata
+        if: ${{ matrix.goarch == 'amd64' }}
+        run: |
+          set -euo pipefail
+          out=$(./consul-ecs-fips version)
+          echo "version output: $out"
+          echo "$out" | grep -F "+fips1403" || \
+            { echo "FAIL: version does not carry +fips1403"; exit 1; }
+          echo "PASS: version reports +fips1403"
+
+  # Aggregator for branch protection: fans in all FIPS jobs.
+  fips-test-success:
+    needs:
+      - fips-unit-test
+      - fips-strict
+      - fips-verify-module
+    runs-on: ubuntu-22.04
+    if: always()
+    steps:
+      - name: evaluate upstream job results
+        run: |
+          if printf '${{ toJSON(needs) }}' | grep -E -i '"result": "(failure|cancelled)"'; then
+            printf "FIPS tests failed or workflow cancelled:\n\n${{ toJSON(needs) }}"
+            exit 1
+          fi

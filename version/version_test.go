@@ -10,6 +10,12 @@ import (
 )
 
 func TestVersion(t *testing.T) {
+	// FIPS builds append a build-metadata suffix to the version. The suffix is
+	// inserted after any prerelease marker and before the git commit.
+	fipsSuffix := ""
+	if IsFIPS() {
+		fipsSuffix = "+fips1403"
+	}
 	cases := map[string]struct {
 		commit     string
 		prerelease string
@@ -17,20 +23,20 @@ func TestVersion(t *testing.T) {
 		expVersion string
 	}{
 		"no commit and no prerelease": {
-			expVersion: "v" + Version,
+			expVersion: "v" + Version + fipsSuffix,
 		},
 		"commit but no prerelease": {
 			commit:     "asdf",
-			expVersion: "v" + Version + " (asdf)",
+			expVersion: "v" + Version + fipsSuffix + " (asdf)",
 		},
 		"prerelease but no commit": {
 			prerelease: "beta1",
-			expVersion: "v" + Version + "-beta1",
+			expVersion: "v" + Version + "-beta1" + fipsSuffix,
 		},
 		"commit and prerelease": {
 			commit:     "asdf",
 			prerelease: "beta1",
-			expVersion: "v" + Version + "-beta1 (asdf)",
+			expVersion: "v" + Version + "-beta1" + fipsSuffix + " (asdf)",
 		},
 	}
 	for name, c := range cases {

@@ -1,3 +1,8 @@
+## Unreleased
+
+IMPROVEMENTS
+* FIPS: Migrate FIPS builds from FIPS 140-2 (BoringCrypto via `GOEXPERIMENT=boringcrypto`/cgo) to FIPS 140-3 using the in-tree Go Cryptographic Module. FIPS builds now use `CGO_ENABLED=0 GOFIPS140=v1.0.0` (CMVP Certificate #5247) with `GODEBUG=fips140=on` baked into the binary, dropping cgo and the arm64 cross-compiler. The build metadata suffix changes from `+fips1402` to `+fips1403`.
+
 ## 0.10.0 (July 9, 2026)
 SECURITY
 * Upgrade `golang.org/x/crypto`, `golang.org/x/net`, and `golang.org/x/sys` to address CVEs in transitive dependencies. [[GH-345](https://github.com/hashicorp/consul-ecs/pull/345)]

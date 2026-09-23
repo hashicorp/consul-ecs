@@ -6,6 +6,8 @@ on:
   pull_request:
     branches:
       - main
+    # ready_for_review lets coverage run when a draft is marked ready.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 # cancel existing runs of the same workflow on the same ref
 concurrency:
@@ -105,6 +107,8 @@ jobs:
   unit-tests-coverage:
     needs:
       - get-go-version
+    # Skip coverage on draft PRs; runs when the PR is marked ready for review.
+    if: ${{ !github.event.pull_request.draft }}
     name: unit-tests-coverage
     runs-on: ubuntu-22.04
     steps:

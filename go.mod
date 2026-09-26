@@ -1,6 +1,6 @@
 module github.com/hashicorp/consul-ecs
 
-go 1.26
+go 1.26.7
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.42.1
@@ -14,14 +14,14 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/hashicorp/consul-awsauth v0.0.0-20260217094118-6b9b26380433
 	github.com/hashicorp/consul-server-connection-manager v0.1.12
-	github.com/hashicorp/consul/api v1.34.4
-	github.com/hashicorp/consul/sdk v0.18.1
+	github.com/hashicorp/consul/api v1.34.5
+	github.com/hashicorp/consul/sdk v0.18.2
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-rootcerts v1.0.2
-	github.com/hashicorp/go-uuid v1.0.3
+	github.com/hashicorp/go-uuid v1.0.4
 	github.com/hashicorp/serf v0.10.4
-	github.com/miekg/dns v1.1.72
+	github.com/miekg/dns v1.1.73
 	github.com/mitchellh/cli v1.1.5
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/stretchr/testify v1.11.1
@@ -86,14 +86,11 @@ require (
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	go.mongodb.org/mongo-driver v1.17.9 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
-	golang.org/x/crypto v0.53.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
-	golang.org/x/mod v0.37.0 // indirect
-	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
-	golang.org/x/tools v0.47.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
 	google.golang.org/grpc v1.83.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect

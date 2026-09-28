@@ -10,7 +10,7 @@ import (
 
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/consul/sdk/iptables"
+	"github.com/hashicorp/consul/sdk/nftables"
 	"github.com/mitchellh/mapstructure"
 )
 
@@ -36,24 +36,24 @@ type TrafficRedirectionCfg struct {
 	ExcludeOutboundCIDRs []string
 	ExcludeUIDs          []string
 
-	iptablesCfg iptables.Config
+	iptablesCfg nftables.Config
 
 	// Fields used only for unit tests
-	iptablesProvider iptables.Provider
+	iptablesProvider nftables.Provider
 }
 
 type TrafficRedirectionProvider interface {
-	// Apply applies the traffic redirection with iptables
+	// Apply applies the traffic redirection with nftables
 	Apply() error
 
-	// Config returns the resultant iptables config that gets
+	// Config returns the resultant nftables config that gets
 	// applied by the provider
-	Config() iptables.Config
+	Config() nftables.Config
 }
 
 type TrafficRedirectionOpts func(*TrafficRedirectionCfg)
 
-func WithIPTablesProvider(provider iptables.Provider) TrafficRedirectionOpts {
+func WithIPTablesProvider(provider nftables.Provider) TrafficRedirectionOpts {
 	return func(c *TrafficRedirectionCfg) {
 		c.iptablesProvider = provider
 	}
@@ -79,9 +79,9 @@ func New(cfg *config.Config, proxySvc *api.AgentService, additionalInboundPortsT
 }
 
 // applyTrafficRedirectionRules creates and applies traffic redirection rules with
-// the help of iptables
+// the help of nftables
 //
-// iptables.Config:
+// nftables.Config:
 //
 //	ConsulDNSIP: Consul Dataplane's DNS server (i.e. localhost)
 //	ConsulDNSPort: Consul Dataplane's DNS server's bind port
@@ -103,10 +103,10 @@ func (c *TrafficRedirectionCfg) Apply() error {
 		return fmt.Errorf("failed parsing proxy service's Proxy.Config: %w", err)
 	}
 
-	c.iptablesCfg = iptables.Config{
+	c.iptablesCfg = nftables.Config{
 		ProxyUserID:       strconv.Itoa(defaultProxyUserID),
 		ProxyInboundPort:  c.ProxySvc.Port,
-		ProxyOutboundPort: iptables.DefaultTProxyOutboundPort,
+		ProxyOutboundPort: nftables.DefaultTProxyOutboundPort,
 	}
 
 	// Override proxyInboundPort with bind_port
@@ -172,14 +172,37 @@ func (c *TrafficRedirectionCfg) Apply() error {
 	}
 
 	if c.iptablesProvider != nil {
-		c.iptablesCfg.IptablesProvider = c.iptablesProvider
+		c.iptablesCfg.NftablesProvider = c.iptablesProvider
 	}
 
-	addAdditionalRulesFn := func(iptablesProvider iptables.Provider) {
-		iptablesProvider.AddRule("iptables", "-t", "nat", "--policy", "POSTROUTING", "ACCEPT")
+	// This rule works around a Docker/ECS-optimized-AMI-specific problem where the
+	// host's real, shared "nat" table's POSTROUTING chain policy ends up as something
+	// other than ACCEPT, which silently breaks Docker's own container SNAT/MASQUERADE
+	// rule (also in that same POSTROUTING chain) once transparent proxy redirection is
+	// enabled -- causing redirected traffic to time out. See the original fix and its
+	// rationale: https://github.com/hashicorp/consul/pull/20232.
+	//
+	// Despite the SDK migrating its own managed chains from the shared iptables "nat"
+	// table to a private nftables table ("inet consul_tproxy", see the SDK's tproxyTable
+	// constant), this particular rule is NOT about the SDK's own chains -- neither the
+	// old nor new SDK ever creates a POSTROUTING chain of its own (only inbound/outbound
+	// hooks). It exists solely to fix Docker's real, global "nat" table, which Docker
+	// still manages the same way (still via the "ip" family, since Docker itself issues
+	// iptables/iptables-nft commands, unaffected by our SDK's internal table rename).
+	// So this rule must keep targeting that same real "ip nat" table, not "consul_tproxy"
+	// -- pointing it at our own private table would be a no-op that leaves the original
+	// ECS EC2 timeout bug unfixed.
+	//
+	// Docker guarantees this chain already exists by the time mesh-init runs (it's a
+	// prerequisite for any container network to work at all), so we use nft's `chain`
+	// subcommand to update only the existing chain's policy -- mirroring `iptables
+	// --policy`, which likewise only ever updates an existing built-in chain's policy
+	// and never creates one.
+	addAdditionalRulesFn := func(nftablesProvider nftables.Provider) {
+		nftablesProvider.AddRule("nft", "add", "chain", "ip", "nat", "POSTROUTING", "{ policy accept ; }")
 	}
 
-	err := iptables.SetupWithAdditionalRules(c.iptablesCfg, addAdditionalRulesFn, false)
+	err := nftables.SetupWithAdditionalRules(c.iptablesCfg, addAdditionalRulesFn, false)
 	if err != nil {
 		return fmt.Errorf("failed to setup traffic redirection rules %w", err)
 	}
@@ -187,6 +210,6 @@ func (c *TrafficRedirectionCfg) Apply() error {
 	return nil
 }
 
-func (c *TrafficRedirectionCfg) Config() iptables.Config {
+func (c *TrafficRedirectionCfg) Config() nftables.Config {
 	return c.iptablesCfg
 }

@@ -1,6 +1,7 @@
 ## Unreleased
 
 IMPROVEMENTS
+* Migrate traffic redirection from `iptables` to `nftables`, adapting to the corresponding upstream migration in `github.com/hashicorp/consul/sdk`. Requires the `nft` binary instead of `iptables`/`ip6tables` on hosts running `consul-ecs` (Linux 5.2+ or distro backports).
 * FIPS: Migrate FIPS builds from FIPS 140-2 (BoringCrypto via `GOEXPERIMENT=boringcrypto`/cgo) to FIPS 140-3 using the in-tree Go Cryptographic Module. FIPS builds now use `CGO_ENABLED=0 GOFIPS140=v1.0.0` (CMVP Certificate #5247) with `GODEBUG=fips140=on` baked into the binary, dropping cgo and the arm64 cross-compiler. The build metadata suffix changes from `+fips1402` to `+fips1403`.
 
 ## 0.10.0 (July 9, 2026)

@@ -10,7 +10,7 @@ import (
 
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/consul/sdk/iptables"
+	"github.com/hashicorp/consul/sdk/nftables"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +19,7 @@ func TestApply(t *testing.T) {
 		wantErr              bool
 		proxySvc             *api.AgentService
 		cfg                  *config.Config
-		assertIptablesConfig func(t *testing.T, actual iptables.Config)
+		assertIptablesConfig func(t *testing.T, actual nftables.Config)
 	}{
 		"proxy service is nil": {
 			cfg:     &config.Config{},
@@ -35,9 +35,9 @@ func TestApply(t *testing.T) {
 				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {
+			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
 				require.Equal(t, 20000, cfg.ProxyInboundPort)
-				require.Equal(t, iptables.DefaultTProxyOutboundPort, cfg.ProxyOutboundPort)
+				require.Equal(t, nftables.DefaultTProxyOutboundPort, cfg.ProxyOutboundPort)
 				require.Equal(t, strconv.Itoa(defaultProxyUserID), cfg.ProxyUserID)
 			},
 		},
@@ -55,7 +55,7 @@ func TestApply(t *testing.T) {
 					},
 				},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {
+			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
 				require.Equal(t, 12000, cfg.ProxyInboundPort)
 			},
 		},
@@ -73,7 +73,7 @@ func TestApply(t *testing.T) {
 					},
 				},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {
+			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
 				require.Equal(t, 12000, cfg.ProxyOutboundPort)
 			},
 		},
@@ -103,7 +103,7 @@ func TestApply(t *testing.T) {
 					},
 				},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {
+			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
 				expectedPorts := []string{
 					"1234",
 					"5678",
@@ -130,7 +130,7 @@ func TestApply(t *testing.T) {
 				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {
+			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
 				expectedPorts := []string{
 					"1234",
 					"5678",
@@ -152,7 +152,7 @@ func TestApply(t *testing.T) {
 				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {
+			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
 				expectedUIDs := []string{
 					"1234",
 					"5678",
@@ -174,7 +174,7 @@ func TestApply(t *testing.T) {
 				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {
+			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
 				expectedCIDRs := []string{
 					"1.1.1.1/24",
 					"2.2.2.2/24",
@@ -197,7 +197,7 @@ func TestApply(t *testing.T) {
 				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg iptables.Config) {
+			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
 				require.Equal(t, config.ConsulDataplaneDNSBindHost, cfg.ConsulDNSIP)
 				require.Equal(t, config.ConsulDataplaneDNSBindPort, cfg.ConsulDNSPort)
 			},

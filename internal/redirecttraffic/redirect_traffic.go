@@ -36,10 +36,10 @@ type TrafficRedirectionCfg struct {
 	ExcludeOutboundCIDRs []string
 	ExcludeUIDs          []string
 
-	iptablesCfg nftables.Config
+	nftablesCfg nftables.Config
 
 	// Fields used only for unit tests
-	iptablesProvider nftables.Provider
+	nftablesProvider nftables.Provider
 }
 
 type TrafficRedirectionProvider interface {
@@ -53,9 +53,9 @@ type TrafficRedirectionProvider interface {
 
 type TrafficRedirectionOpts func(*TrafficRedirectionCfg)
 
-func WithIPTablesProvider(provider nftables.Provider) TrafficRedirectionOpts {
+func WithNftablesProvider(provider nftables.Provider) TrafficRedirectionOpts {
 	return func(c *TrafficRedirectionCfg) {
-		c.iptablesProvider = provider
+		c.nftablesProvider = provider
 	}
 }
 
@@ -103,7 +103,7 @@ func (c *TrafficRedirectionCfg) Apply() error {
 		return fmt.Errorf("failed parsing proxy service's Proxy.Config: %w", err)
 	}
 
-	c.iptablesCfg = nftables.Config{
+	c.nftablesCfg = nftables.Config{
 		ProxyUserID:       strconv.Itoa(defaultProxyUserID),
 		ProxyInboundPort:  c.ProxySvc.Port,
 		ProxyOutboundPort: nftables.DefaultTProxyOutboundPort,
@@ -111,18 +111,18 @@ func (c *TrafficRedirectionCfg) Apply() error {
 
 	// Override proxyInboundPort with bind_port
 	if trCfg.BindPort != 0 {
-		c.iptablesCfg.ProxyInboundPort = trCfg.BindPort
+		c.nftablesCfg.ProxyInboundPort = trCfg.BindPort
 	}
 
 	// Override the outbound port if the outbound port present in the proxy registration
 	if c.ProxySvc.Proxy.TransparentProxy != nil && c.ProxySvc.Proxy.TransparentProxy.OutboundListenerPort != 0 {
-		c.iptablesCfg.ProxyOutboundPort = c.ProxySvc.Proxy.TransparentProxy.OutboundListenerPort
+		c.nftablesCfg.ProxyOutboundPort = c.ProxySvc.Proxy.TransparentProxy.OutboundListenerPort
 	}
 
 	// Inbound ports
 	{
 		for _, port := range c.ExcludeInboundPorts {
-			c.iptablesCfg.ExcludeInboundPorts = append(c.iptablesCfg.ExcludeInboundPorts, strconv.Itoa(port))
+			c.nftablesCfg.ExcludeInboundPorts = append(c.nftablesCfg.ExcludeInboundPorts, strconv.Itoa(port))
 		}
 
 		// Exclude envoy_prometheus_bind_addr port from inbound redirection rules.
@@ -132,7 +132,7 @@ func (c *TrafficRedirectionCfg) Apply() error {
 				return fmt.Errorf("failed parsing host and port from envoy_prometheus_bind_addr: %w", err)
 			}
 
-			c.iptablesCfg.ExcludeInboundPorts = append(c.iptablesCfg.ExcludeInboundPorts, port)
+			c.nftablesCfg.ExcludeInboundPorts = append(c.nftablesCfg.ExcludeInboundPorts, port)
 		}
 
 		// Exclude envoy_stats_bind_addr port from inbound redirection rules.
@@ -142,67 +142,44 @@ func (c *TrafficRedirectionCfg) Apply() error {
 				return fmt.Errorf("failed parsing host and port from envoy_stats_bind_addr: %w", err)
 			}
 
-			c.iptablesCfg.ExcludeInboundPorts = append(c.iptablesCfg.ExcludeInboundPorts, port)
+			c.nftablesCfg.ExcludeInboundPorts = append(c.nftablesCfg.ExcludeInboundPorts, port)
 		}
 
 		// Exclude expose path ports from inbound traffic redirection
 		for _, exposePath := range c.ProxySvc.Proxy.Expose.Paths {
 			if exposePath.ListenerPort != 0 {
-				c.iptablesCfg.ExcludeInboundPorts = append(c.iptablesCfg.ExcludeInboundPorts, strconv.Itoa(exposePath.ListenerPort))
+				c.nftablesCfg.ExcludeInboundPorts = append(c.nftablesCfg.ExcludeInboundPorts, strconv.Itoa(exposePath.ListenerPort))
 			}
 		}
 	}
 
 	// Outbound ports
 	for _, port := range c.ExcludeOutboundPorts {
-		c.iptablesCfg.ExcludeOutboundPorts = append(c.iptablesCfg.ExcludeOutboundPorts, strconv.Itoa(port))
+		c.nftablesCfg.ExcludeOutboundPorts = append(c.nftablesCfg.ExcludeOutboundPorts, strconv.Itoa(port))
 	}
 
 	// Outbound CIDRs
-	c.iptablesCfg.ExcludeOutboundCIDRs = append(c.iptablesCfg.ExcludeOutboundCIDRs, c.ExcludeOutboundCIDRs...)
+	c.nftablesCfg.ExcludeOutboundCIDRs = append(c.nftablesCfg.ExcludeOutboundCIDRs, c.ExcludeOutboundCIDRs...)
 
 	// UIDs
-	c.iptablesCfg.ExcludeUIDs = append(c.iptablesCfg.ExcludeUIDs, c.ExcludeUIDs...)
-	c.iptablesCfg.ExcludeUIDs = append(c.iptablesCfg.ExcludeUIDs, defaultHealthSyncProcessUID)
+	c.nftablesCfg.ExcludeUIDs = append(c.nftablesCfg.ExcludeUIDs, c.ExcludeUIDs...)
+	c.nftablesCfg.ExcludeUIDs = append(c.nftablesCfg.ExcludeUIDs, defaultHealthSyncProcessUID)
 
 	// Consul DNS
 	if c.EnableConsulDNS {
-		c.iptablesCfg.ConsulDNSIP = config.ConsulDataplaneDNSBindHost
-		c.iptablesCfg.ConsulDNSPort = config.ConsulDataplaneDNSBindPort
+		c.nftablesCfg.ConsulDNSIP = config.ConsulDataplaneDNSBindHost
+		c.nftablesCfg.ConsulDNSPort = config.ConsulDataplaneDNSBindPort
 	}
 
-	if c.iptablesProvider != nil {
-		c.iptablesCfg.NftablesProvider = c.iptablesProvider
+	if c.nftablesProvider != nil {
+		c.nftablesCfg.NftablesProvider = c.nftablesProvider
 	}
 
-	// This rule works around a Docker/ECS-optimized-AMI-specific problem where the
-	// host's real, shared "nat" table's POSTROUTING chain policy ends up as something
-	// other than ACCEPT, which silently breaks Docker's own container SNAT/MASQUERADE
-	// rule (also in that same POSTROUTING chain) once transparent proxy redirection is
-	// enabled -- causing redirected traffic to time out. See the original fix and its
-	// rationale: https://github.com/hashicorp/consul/pull/20232.
-	//
-	// Despite the SDK migrating its own managed chains from the shared iptables "nat"
-	// table to a private nftables table ("inet consul_tproxy", see the SDK's tproxyTable
-	// constant), this particular rule is NOT about the SDK's own chains -- neither the
-	// old nor new SDK ever creates a POSTROUTING chain of its own (only inbound/outbound
-	// hooks). It exists solely to fix Docker's real, global "nat" table, which Docker
-	// still manages the same way (still via the "ip" family, since Docker itself issues
-	// iptables/iptables-nft commands, unaffected by our SDK's internal table rename).
-	// So this rule must keep targeting that same real "ip nat" table, not "consul_tproxy"
-	// -- pointing it at our own private table would be a no-op that leaves the original
-	// ECS EC2 timeout bug unfixed.
-	//
-	// Docker guarantees this chain already exists by the time mesh-init runs (it's a
-	// prerequisite for any container network to work at all), so we use nft's `chain`
-	// subcommand to update only the existing chain's policy -- mirroring `iptables
-	// --policy`, which likewise only ever updates an existing built-in chain's policy
-	// and never creates one.
 	addAdditionalRulesFn := func(nftablesProvider nftables.Provider) {
 		nftablesProvider.AddRule("nft", "add", "chain", "ip", "nat", "POSTROUTING", "{ policy accept ; }")
 	}
 
-	err := nftables.SetupWithAdditionalRules(c.iptablesCfg, addAdditionalRulesFn, false)
+	err := nftables.SetupWithAdditionalRules(c.nftablesCfg, addAdditionalRulesFn, false)
 	if err != nil {
 		return fmt.Errorf("failed to setup traffic redirection rules %w", err)
 	}
@@ -211,5 +188,5 @@ func (c *TrafficRedirectionCfg) Apply() error {
 }
 
 func (c *TrafficRedirectionCfg) Config() nftables.Config {
-	return c.iptablesCfg
+	return c.nftablesCfg
 }

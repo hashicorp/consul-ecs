@@ -19,7 +19,7 @@ func TestApply(t *testing.T) {
 		wantErr              bool
 		proxySvc             *api.AgentService
 		cfg                  *config.Config
-		assertIptablesConfig func(t *testing.T, actual nftables.Config)
+		assertNftablesConfig func(t *testing.T, actual nftables.Config)
 	}{
 		"proxy service is nil": {
 			cfg:     &config.Config{},
@@ -35,7 +35,7 @@ func TestApply(t *testing.T) {
 				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
+			assertNftablesConfig: func(t *testing.T, cfg nftables.Config) {
 				require.Equal(t, 20000, cfg.ProxyInboundPort)
 				require.Equal(t, nftables.DefaultTProxyOutboundPort, cfg.ProxyOutboundPort)
 				require.Equal(t, strconv.Itoa(defaultProxyUserID), cfg.ProxyUserID)
@@ -55,7 +55,7 @@ func TestApply(t *testing.T) {
 					},
 				},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
+			assertNftablesConfig: func(t *testing.T, cfg nftables.Config) {
 				require.Equal(t, 12000, cfg.ProxyInboundPort)
 			},
 		},
@@ -73,7 +73,7 @@ func TestApply(t *testing.T) {
 					},
 				},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
+			assertNftablesConfig: func(t *testing.T, cfg nftables.Config) {
 				require.Equal(t, 12000, cfg.ProxyOutboundPort)
 			},
 		},
@@ -103,7 +103,7 @@ func TestApply(t *testing.T) {
 					},
 				},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
+			assertNftablesConfig: func(t *testing.T, cfg nftables.Config) {
 				expectedPorts := []string{
 					"1234",
 					"5678",
@@ -130,7 +130,7 @@ func TestApply(t *testing.T) {
 				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
+			assertNftablesConfig: func(t *testing.T, cfg nftables.Config) {
 				expectedPorts := []string{
 					"1234",
 					"5678",
@@ -152,7 +152,7 @@ func TestApply(t *testing.T) {
 				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
+			assertNftablesConfig: func(t *testing.T, cfg nftables.Config) {
 				expectedUIDs := []string{
 					"1234",
 					"5678",
@@ -174,7 +174,7 @@ func TestApply(t *testing.T) {
 				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
+			assertNftablesConfig: func(t *testing.T, cfg nftables.Config) {
 				expectedCIDRs := []string{
 					"1.1.1.1/24",
 					"2.2.2.2/24",
@@ -197,7 +197,7 @@ func TestApply(t *testing.T) {
 				Port:  20000,
 				Proxy: &api.AgentServiceConnectProxyConfig{},
 			},
-			assertIptablesConfig: func(t *testing.T, cfg nftables.Config) {
+			assertNftablesConfig: func(t *testing.T, cfg nftables.Config) {
 				require.Equal(t, config.ConsulDataplaneDNSBindHost, cfg.ConsulDNSIP)
 				require.Equal(t, config.ConsulDataplaneDNSBindPort, cfg.ConsulDNSPort)
 			},
@@ -206,11 +206,11 @@ func TestApply(t *testing.T) {
 
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			iptablesProvider := &mockIptablesProvider{}
+			nftablesProvider := &mockNftablesProvider{}
 			provider := New(c.cfg,
 				c.proxySvc,
 				[]int{22000},
-				WithIPTablesProvider(iptablesProvider),
+				WithNftablesProvider(nftablesProvider),
 			)
 
 			err := provider.Apply()
@@ -218,34 +218,34 @@ func TestApply(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				require.Truef(t, iptablesProvider.applyCalled, "redirect traffic rules were not applied")
+				require.Truef(t, nftablesProvider.applyCalled, "redirect traffic rules were not applied")
 
-				if c.assertIptablesConfig != nil {
-					c.assertIptablesConfig(t, provider.Config())
+				if c.assertNftablesConfig != nil {
+					c.assertNftablesConfig(t, provider.Config())
 				}
 			}
 		})
 	}
 }
 
-type mockIptablesProvider struct {
+type mockNftablesProvider struct {
 	applyCalled bool
 	rules       []string
 }
 
-func (f *mockIptablesProvider) AddRule(_ string, args ...string) {
+func (f *mockNftablesProvider) AddRule(_ string, args ...string) {
 	f.rules = append(f.rules, strings.Join(args, " "))
 }
 
-func (f *mockIptablesProvider) ApplyRules(_ string) error {
+func (f *mockNftablesProvider) ApplyRules(_ string) error {
 	f.applyCalled = true
 	return nil
 }
 
-func (f *mockIptablesProvider) Rules() []string {
+func (f *mockNftablesProvider) Rules() []string {
 	return f.rules
 }
 
-func (f *mockIptablesProvider) ClearAllRules() {
+func (f *mockNftablesProvider) ClearAllRules() {
 	f.rules = nil
 }

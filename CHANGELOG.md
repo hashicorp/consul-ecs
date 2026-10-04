@@ -1,3 +1,13 @@
+## Unreleased
+
+SECURITY
+* Upgrade Go from `1.25.8` to `1.26.8` to address CVEs in the Go standard library, including CVE-2026-39822 in `os`. Go 1.25 is no longer supported upstream.
+* Upgrade `golang.org/x/crypto` to `v0.57.0` to address CVE-2026-56854, CVE-2026-56855, CVE-2026-78662 and other CVEs.
+* Upgrade `golang.org/x/net` to `v0.58.0` to address CVE-2026-33814, CVE-2026-46600 and other CVEs.
+* Upgrade `golang.org/x/text` to `v0.42.0` to address CVE-2026-56852.
+* Upgrade `google.golang.org/grpc` from `v1.56.3` to `v1.83.2` to address CVE-2026-84304, CVE-2026-84445 and other CVEs.
+* Update `go-discover` to `v1.5.0` in Dockerfile to address CVEs in the bundled `discover` binary.
+
 ## 0.9.4 (March 16, 2026)
 SECURITY
 * Update Dockerfile to use Alpine 3.23 and run full `apk upgrade` to mitigate multiple vulnerable packages including curl, gnupg, openssl, sqlite-libs, busybox, and others identified by Wiz security scan ([CVE-2025-14819], [CVE-2025-14524], [CVE-2025-14017], [CVE-2025-30258], and related CVEs).

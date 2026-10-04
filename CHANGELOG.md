@@ -1,3 +1,13 @@
+## Unreleased
+
+SECURITY
+* Upgrade Go to `1.26.8` to address CVEs in the Go standard library, including CVE-2026-39822 in `os`.
+* Upgrade `golang.org/x/crypto` to `v0.57.0` to address CVE-2026-56854, CVE-2026-56855 and CVE-2026-78662.
+* Upgrade `golang.org/x/text` to `v0.42.0` to address CVE-2026-56852.
+* Upgrade `google.golang.org/grpc` to `v1.83.2` to address CVE-2026-84304 and CVE-2026-84445.
+* Upgrade `go.mongodb.org/mongo-driver` to `v1.17.10` to address CVE-2026-88031.
+* Update `go-discover` to `v1.5.0` in Dockerfile to address CVE-2026-84304 and CVE-2026-84445 in the bundled `discover` binary.
+
 ## 0.10.0 (July 9, 2026)
 SECURITY
 * Upgrade `golang.org/x/crypto`, `golang.org/x/net`, and `golang.org/x/sys` to address CVEs in transitive dependencies. [[GH-345](https://github.com/hashicorp/consul-ecs/pull/345)]

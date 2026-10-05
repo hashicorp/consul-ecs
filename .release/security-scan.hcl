@@ -43,7 +43,11 @@ binary {
 
   triage {
     suppress {
-      vulnerabilities = []
+      vulnerabilities = [
+        // golang.org/x/crypto/openpgp is deprecated/unmaintained; the advisory affects all
+        // x/crypto versions and has no fix. consul-ecs does not import openpgp.
+        "GO-2026-5932",
+      ]
     }
   }
 }

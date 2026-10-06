@@ -1,15 +1,15 @@
-## Unreleased
+## 0.10.1 (October 6, 2026)
 
 SECURITY
-* Upgrade Go to `1.26.8` to address CVEs in the Go standard library, including CVE-2026-39822 in `os`.
-* Upgrade `golang.org/x/crypto` to `v0.57.0` to address CVE-2026-56854, CVE-2026-56855 and CVE-2026-78662.
-* Upgrade `golang.org/x/text` to `v0.42.0` to address CVE-2026-56852.
-* Upgrade `google.golang.org/grpc` to `v1.83.2` to address CVE-2026-84304 and CVE-2026-84445.
-* Upgrade `go.mongodb.org/mongo-driver` to `v1.17.10` to address CVE-2026-88031.
-* Update `go-discover` to `v1.5.0` in Dockerfile to address CVE-2026-84304 and CVE-2026-84445 in the bundled `discover` binary.
+* Upgrade Go to `1.26.8` to address CVEs in the Go standard library, including CVE-2026-39821, CVE-2026-39822 and CVE-2026-42505. [[GH-387](https://github.com/hashicorp/consul-ecs/pull/387)]
+* Upgrade `golang.org/x/crypto` to `v0.57.0` to address CVE-2026-56854, CVE-2026-56855 and CVE-2026-78662. [[GH-387](https://github.com/hashicorp/consul-ecs/pull/387)]
+* Upgrade `golang.org/x/text` to `v0.42.0` to address CVE-2026-56852. [[GH-387](https://github.com/hashicorp/consul-ecs/pull/387)]
+* Upgrade `google.golang.org/grpc` to `v1.83.2` to address CVE-2026-84304 and CVE-2026-84445. [[GH-387](https://github.com/hashicorp/consul-ecs/pull/387)]
+* Upgrade `go.mongodb.org/mongo-driver` to `v1.17.10` to address CVE-2026-88031. [[GH-387](https://github.com/hashicorp/consul-ecs/pull/387)]
+* Update `go-discover` to `v1.5.0` in Dockerfile to address CVE-2026-84304 and CVE-2026-84445 in the bundled `discover` binary. [[GH-387](https://github.com/hashicorp/consul-ecs/pull/387)]
 
 IMPROVEMENTS
-* FIPS: Migrate FIPS builds from FIPS 140-2 (BoringCrypto via `GOEXPERIMENT=boringcrypto`/cgo) to FIPS 140-3 using the in-tree Go Cryptographic Module. FIPS builds now use `CGO_ENABLED=0 GOFIPS140=v1.0.0` (CMVP Certificate #5247) with `GODEBUG=fips140=on` baked into the binary, dropping cgo and the arm64 cross-compiler. The build metadata suffix changes from `+fips1402` to `+fips1403`.
+* FIPS: Migrate FIPS builds from FIPS 140-2 (BoringCrypto via `GOEXPERIMENT=boringcrypto`/cgo) to FIPS 140-3 using the in-tree Go Cryptographic Module. FIPS builds now use `CGO_ENABLED=0 GOFIPS140=v1.0.0` (CMVP Certificate #5247) with `GODEBUG=fips140=on` baked into the binary, dropping cgo and the arm64 cross-compiler. The build metadata suffix changes from `+fips1402` to `+fips1403`. [[GH-368](https://github.com/hashicorp/consul-ecs/pull/368)]
 
 ## 0.10.0 (July 9, 2026)
 SECURITY

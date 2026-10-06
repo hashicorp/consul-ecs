@@ -7,7 +7,7 @@ project "consul-ecs" {
   // the team key is not used by CRT currently
   team = "consul-ecs"
   slack {
-    notification_channel = "C01J8QV0EF8" # team-consul-ecs
+    notification_channel = "C09KX8B2KC6" # feed-consul-ci
   }
   github {
     organization = "hashicorp"

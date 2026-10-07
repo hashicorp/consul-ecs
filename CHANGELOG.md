@@ -1,7 +1,12 @@
 ## Unreleased
 
+BREAKING CHANGES
+* Transparent proxy: Traffic redirection now uses `nftables` instead of `iptables` (`github.com/hashicorp/consul/sdk` v0.19.0). [[GH-385](https://github.com/hashicorp/consul-ecs/pull/385)]
+  - ECS container instances must run Linux kernel 5.2 or later. Use the Amazon ECS-optimized Amazon Linux 2023 AMI or the Amazon Linux 2 kernel 5.10 AMI. On kernel 4.14 instances, such as older Amazon ECS-optimized Amazon Linux 2 AMIs, `mesh-init` fails and the task does not start.
+  - The `consul-ecs` image now ships `nft` instead of `iptables`. Custom images that bundle the `consul-ecs` binary must install the `nftables` package.
+  - `transparentProxy.excludeUIDs` accepts only numeric user IDs (no names or ranges), and `transparentProxy.excludeOutboundCIDRs` accepts only IP addresses or CIDRs (no host names). Invalid values now fail `mesh-init`.
+
 IMPROVEMENTS
-* Migrate traffic redirection from `iptables` to `nftables`, adapting to the corresponding upstream migration in `github.com/hashicorp/consul/sdk`. Requires the `nft` binary instead of `iptables`/`ip6tables` on hosts running `consul-ecs` (Linux 5.2+ or distro backports).
 * FIPS: Migrate FIPS builds from FIPS 140-2 (BoringCrypto via `GOEXPERIMENT=boringcrypto`/cgo) to FIPS 140-3 using the in-tree Go Cryptographic Module. FIPS builds now use `CGO_ENABLED=0 GOFIPS140=v1.0.0` (CMVP Certificate #5247) with `GODEBUG=fips140=on` baked into the binary, dropping cgo and the arm64 cross-compiler. The build metadata suffix changes from `+fips1402` to `+fips1403`.
 
 ## 0.10.0 (July 9, 2026)

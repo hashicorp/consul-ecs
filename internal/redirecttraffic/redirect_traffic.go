@@ -175,19 +175,13 @@ func (c *TrafficRedirectionCfg) Apply() error {
 		c.nftablesCfg.NftablesProvider = c.nftablesProvider
 	}
 
-	//Unlike legacy iptables (whose
-	// built-in nat/POSTROUTING chain is auto-created in every network namespace),
-	// nftables pre-creates nothing, so the table and chain must be created explicitly
-	// here before their policy can be set, or "add chain" fails with "No such file or
-	// directory" because the referenced table doesn't exist yet (confirmed on a real
-	// ECS EC2 instance).
-	addAdditionalRulesFn := func(nftablesProvider nftables.Provider) {
-		nftablesProvider.AddRule("nft", "add", "table", "ip", "nat")
-		nftablesProvider.AddRule("nft", "add", "chain", "ip", "nat", "POSTROUTING",
-			"{ type nat hook postrouting priority 100 ; policy accept ; }")
-	}
-
-	err := nftables.SetupWithAdditionalRules(c.nftablesCfg, addAdditionalRulesFn, false)
+	// ECS used to add `iptables -t nat --policy POSTROUTING ACCEPT` here. With the
+	// nf_tables iptables backend that forced a NAT postrouting chain to exist,
+	// which kernels older than 4.18 (ECS-optimized AL2, kernel 4.14) needed in
+	// order to translate reply packets. The nftables SDK requires kernel 5.2+
+	// (inet NAT), where the NAT core translates replies by itself, so ECS needs
+	// no extra rules.
+	err := nftables.Setup(c.nftablesCfg, false)
 	if err != nil {
 		return fmt.Errorf("failed to setup traffic redirection rules %w", err)
 	}

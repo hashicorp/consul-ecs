@@ -220,14 +220,9 @@ func TestApply(t *testing.T) {
 				require.NoError(t, err)
 				require.Truef(t, nftablesProvider.applyCalled, "redirect traffic rules were not applied")
 
-				// Regression guard: nftables (unlike legacy iptables) doesn't
-				// pre-create any tables/chains, so the "ip nat" table must be
-				// created before its POSTROUTING chain is added. Omitting the
-				// "add table" step fails at runtime with "No such file or
-				// directory" (confirmed against a real ECS EC2 instance).
-				require.Contains(t, nftablesProvider.Rules(), "add table ip nat")
-				require.Contains(t, nftablesProvider.Rules(),
-					"add chain ip nat POSTROUTING { type nat hook postrouting priority 100 ; policy accept ; }")
+				// The legacy iptables POSTROUTING policy workaround is not needed
+				// with the nftables SDK (kernel 5.2+), so no extra rules are added.
+				require.NotContains(t, nftablesProvider.Rules(), "add table ip nat")
 
 				if c.assertNftablesConfig != nil {
 					c.assertNftablesConfig(t, provider.Config())

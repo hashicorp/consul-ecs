@@ -32,7 +32,7 @@ jobs:
       && (github.actor != 'dependabot[bot]') && (github.actor != 'hc-github-team-consul-core') }}
 
     steps:
-      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -40,7 +40,7 @@ jobs:
           go-version: ${{ needs.get-go-version.outputs.go-version }}
 
       - name: Clone Security Scanner repo
-        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: hashicorp/security-scanner
           token: ${{ secrets.PRODSEC_SCANNER_READ_ONLY }}
@@ -60,6 +60,6 @@ jobs:
           cat results.sarif | jq
 
       - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@8fcfedf57053e09257688fce7a0beeb18b1b9ae3 # codeql-bundle-v2.17.2
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: results.sarif

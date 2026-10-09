@@ -10,7 +10,7 @@ import (
 
 	"github.com/hashicorp/consul-ecs/config"
 	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/consul/sdk/iptables"
+	"github.com/hashicorp/consul/sdk/nftables"
 	"github.com/mitchellh/mapstructure"
 )
 
@@ -36,26 +36,26 @@ type TrafficRedirectionCfg struct {
 	ExcludeOutboundCIDRs []string
 	ExcludeUIDs          []string
 
-	iptablesCfg iptables.Config
+	nftablesCfg nftables.Config
 
 	// Fields used only for unit tests
-	iptablesProvider iptables.Provider
+	nftablesProvider nftables.Provider
 }
 
 type TrafficRedirectionProvider interface {
-	// Apply applies the traffic redirection with iptables
+	// Apply applies the traffic redirection with nftables
 	Apply() error
 
-	// Config returns the resultant iptables config that gets
+	// Config returns the resultant nftables config that gets
 	// applied by the provider
-	Config() iptables.Config
+	Config() nftables.Config
 }
 
 type TrafficRedirectionOpts func(*TrafficRedirectionCfg)
 
-func WithIPTablesProvider(provider iptables.Provider) TrafficRedirectionOpts {
+func WithNftablesProvider(provider nftables.Provider) TrafficRedirectionOpts {
 	return func(c *TrafficRedirectionCfg) {
-		c.iptablesProvider = provider
+		c.nftablesProvider = provider
 	}
 }
 
@@ -79,9 +79,9 @@ func New(cfg *config.Config, proxySvc *api.AgentService, additionalInboundPortsT
 }
 
 // applyTrafficRedirectionRules creates and applies traffic redirection rules with
-// the help of iptables
+// the help of nftables
 //
-// iptables.Config:
+// nftables.Config:
 //
 //	ConsulDNSIP: Consul Dataplane's DNS server (i.e. localhost)
 //	ConsulDNSPort: Consul Dataplane's DNS server's bind port
@@ -103,26 +103,26 @@ func (c *TrafficRedirectionCfg) Apply() error {
 		return fmt.Errorf("failed parsing proxy service's Proxy.Config: %w", err)
 	}
 
-	c.iptablesCfg = iptables.Config{
+	c.nftablesCfg = nftables.Config{
 		ProxyUserID:       strconv.Itoa(defaultProxyUserID),
 		ProxyInboundPort:  c.ProxySvc.Port,
-		ProxyOutboundPort: iptables.DefaultTProxyOutboundPort,
+		ProxyOutboundPort: nftables.DefaultTProxyOutboundPort,
 	}
 
 	// Override proxyInboundPort with bind_port
 	if trCfg.BindPort != 0 {
-		c.iptablesCfg.ProxyInboundPort = trCfg.BindPort
+		c.nftablesCfg.ProxyInboundPort = trCfg.BindPort
 	}
 
 	// Override the outbound port if the outbound port present in the proxy registration
 	if c.ProxySvc.Proxy.TransparentProxy != nil && c.ProxySvc.Proxy.TransparentProxy.OutboundListenerPort != 0 {
-		c.iptablesCfg.ProxyOutboundPort = c.ProxySvc.Proxy.TransparentProxy.OutboundListenerPort
+		c.nftablesCfg.ProxyOutboundPort = c.ProxySvc.Proxy.TransparentProxy.OutboundListenerPort
 	}
 
 	// Inbound ports
 	{
 		for _, port := range c.ExcludeInboundPorts {
-			c.iptablesCfg.ExcludeInboundPorts = append(c.iptablesCfg.ExcludeInboundPorts, strconv.Itoa(port))
+			c.nftablesCfg.ExcludeInboundPorts = append(c.nftablesCfg.ExcludeInboundPorts, strconv.Itoa(port))
 		}
 
 		// Exclude envoy_prometheus_bind_addr port from inbound redirection rules.
@@ -132,7 +132,7 @@ func (c *TrafficRedirectionCfg) Apply() error {
 				return fmt.Errorf("failed parsing host and port from envoy_prometheus_bind_addr: %w", err)
 			}
 
-			c.iptablesCfg.ExcludeInboundPorts = append(c.iptablesCfg.ExcludeInboundPorts, port)
+			c.nftablesCfg.ExcludeInboundPorts = append(c.nftablesCfg.ExcludeInboundPorts, port)
 		}
 
 		// Exclude envoy_stats_bind_addr port from inbound redirection rules.
@@ -142,44 +142,46 @@ func (c *TrafficRedirectionCfg) Apply() error {
 				return fmt.Errorf("failed parsing host and port from envoy_stats_bind_addr: %w", err)
 			}
 
-			c.iptablesCfg.ExcludeInboundPorts = append(c.iptablesCfg.ExcludeInboundPorts, port)
+			c.nftablesCfg.ExcludeInboundPorts = append(c.nftablesCfg.ExcludeInboundPorts, port)
 		}
 
 		// Exclude expose path ports from inbound traffic redirection
 		for _, exposePath := range c.ProxySvc.Proxy.Expose.Paths {
 			if exposePath.ListenerPort != 0 {
-				c.iptablesCfg.ExcludeInboundPorts = append(c.iptablesCfg.ExcludeInboundPorts, strconv.Itoa(exposePath.ListenerPort))
+				c.nftablesCfg.ExcludeInboundPorts = append(c.nftablesCfg.ExcludeInboundPorts, strconv.Itoa(exposePath.ListenerPort))
 			}
 		}
 	}
 
 	// Outbound ports
 	for _, port := range c.ExcludeOutboundPorts {
-		c.iptablesCfg.ExcludeOutboundPorts = append(c.iptablesCfg.ExcludeOutboundPorts, strconv.Itoa(port))
+		c.nftablesCfg.ExcludeOutboundPorts = append(c.nftablesCfg.ExcludeOutboundPorts, strconv.Itoa(port))
 	}
 
 	// Outbound CIDRs
-	c.iptablesCfg.ExcludeOutboundCIDRs = append(c.iptablesCfg.ExcludeOutboundCIDRs, c.ExcludeOutboundCIDRs...)
+	c.nftablesCfg.ExcludeOutboundCIDRs = append(c.nftablesCfg.ExcludeOutboundCIDRs, c.ExcludeOutboundCIDRs...)
 
 	// UIDs
-	c.iptablesCfg.ExcludeUIDs = append(c.iptablesCfg.ExcludeUIDs, c.ExcludeUIDs...)
-	c.iptablesCfg.ExcludeUIDs = append(c.iptablesCfg.ExcludeUIDs, defaultHealthSyncProcessUID)
+	c.nftablesCfg.ExcludeUIDs = append(c.nftablesCfg.ExcludeUIDs, c.ExcludeUIDs...)
+	c.nftablesCfg.ExcludeUIDs = append(c.nftablesCfg.ExcludeUIDs, defaultHealthSyncProcessUID)
 
 	// Consul DNS
 	if c.EnableConsulDNS {
-		c.iptablesCfg.ConsulDNSIP = config.ConsulDataplaneDNSBindHost
-		c.iptablesCfg.ConsulDNSPort = config.ConsulDataplaneDNSBindPort
+		c.nftablesCfg.ConsulDNSIP = config.ConsulDataplaneDNSBindHost
+		c.nftablesCfg.ConsulDNSPort = config.ConsulDataplaneDNSBindPort
 	}
 
-	if c.iptablesProvider != nil {
-		c.iptablesCfg.IptablesProvider = c.iptablesProvider
+	if c.nftablesProvider != nil {
+		c.nftablesCfg.NftablesProvider = c.nftablesProvider
 	}
 
-	addAdditionalRulesFn := func(iptablesProvider iptables.Provider) {
-		iptablesProvider.AddRule("iptables", "-t", "nat", "--policy", "POSTROUTING", "ACCEPT")
-	}
-
-	err := iptables.SetupWithAdditionalRules(c.iptablesCfg, addAdditionalRulesFn, false)
+	// ECS used to add `iptables -t nat --policy POSTROUTING ACCEPT` here. With the
+	// nf_tables iptables backend that forced a NAT postrouting chain to exist,
+	// which kernels older than 4.18 (ECS-optimized AL2, kernel 4.14) needed in
+	// order to translate reply packets. The nftables SDK requires kernel 5.2+
+	// (inet NAT), where the NAT core translates replies by itself, so ECS needs
+	// no extra rules.
+	err := nftables.Setup(c.nftablesCfg, false)
 	if err != nil {
 		return fmt.Errorf("failed to setup traffic redirection rules %w", err)
 	}
@@ -187,6 +189,6 @@ func (c *TrafficRedirectionCfg) Apply() error {
 	return nil
 }
 
-func (c *TrafficRedirectionCfg) Config() iptables.Config {
-	return c.iptablesCfg
+func (c *TrafficRedirectionCfg) Config() nftables.Config {
+	return c.nftablesCfg
 }

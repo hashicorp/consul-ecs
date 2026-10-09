@@ -1,3 +1,12 @@
+## Unreleased
+
+BREAKING CHANGES
+* Transparent proxy: Traffic redirection now uses `nftables` instead of `iptables` (`github.com/hashicorp/consul/sdk` v0.19.0). [[GH-385](https://github.com/hashicorp/consul-ecs/pull/385)]
+  - ECS container instances must run Linux kernel 5.2 or later. Use the Amazon ECS-optimized Amazon Linux 2023 AMI or the Amazon Linux 2 kernel 5.10 AMI. On kernel 4.14 instances, such as older Amazon ECS-optimized Amazon Linux 2 AMIs, `mesh-init` fails and the task does not start.
+  - The `consul-ecs` image now ships `nft` instead of `iptables`. Custom images that bundle the `consul-ecs` binary must install the `nftables` package.
+  - `transparentProxy.excludeUIDs` accepts only numeric user IDs (no names or ranges), and `transparentProxy.excludeOutboundCIDRs` accepts only IP addresses or CIDRs (no host names). Invalid values now fail `mesh-init`.
+
+
 ## 0.10.1 (October 6, 2026)
 
 SECURITY

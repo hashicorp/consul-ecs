@@ -58,7 +58,7 @@ VOLUME [ "/consul" ]
 # Set up certificates, base tools, and software.
 RUN apk update && \
     apk upgrade --no-cache && \
-    apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils iptables gcompat libc6-compat libstdc++ && \
+    apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils nftables gcompat libc6-compat libstdc++ && \
     rm -rf /var/cache/apk/*
 
 # for FIPS CGO glibc compatibility in alpine

@@ -20,7 +20,7 @@ import (
 	"github.com/hashicorp/consul-ecs/internal/dataplane"
 	"github.com/hashicorp/consul-ecs/testutil"
 	"github.com/hashicorp/consul/api"
-	"github.com/hashicorp/consul/sdk/iptables"
+	"github.com/hashicorp/consul/sdk/nftables"
 	"github.com/hashicorp/consul/sdk/testutil/retry"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
@@ -1076,8 +1076,8 @@ func (m *mockTrafficRedirectionProvider) Apply() error {
 	return nil
 }
 
-func (m *mockTrafficRedirectionProvider) Config() iptables.Config {
-	return iptables.Config{}
+func (m *mockTrafficRedirectionProvider) Config() nftables.Config {
+	return nftables.Config{}
 }
 
 // TestRegisterServiceDefaults tests the registerServiceDefaults method with various scenarios

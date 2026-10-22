@@ -6,6 +6,9 @@ BREAKING CHANGES
   - The `consul-ecs` image now ships `nft` instead of `iptables`. Custom images that bundle the `consul-ecs` binary must install the `nftables` package.
   - `transparentProxy.excludeUIDs` accepts only numeric user IDs (no names or ranges), and `transparentProxy.excludeOutboundCIDRs` accepts only IP addresses or CIDRs (no host names). Invalid values now fail `mesh-init`.
 
+SECURITY
+* Upgrade Go to `1.26.10` to address CVEs in the Go standard library including GO-2026-6617, GO-2026-6611, GO-2026-6610, and GO-2026-6612. [[GH-399](https://github.com/hashicorp/consul-ecs/pull/399)]
+
 
 ## 0.10.1 (October 6, 2026)
 

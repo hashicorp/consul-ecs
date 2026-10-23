@@ -1,4 +1,4 @@
-## Unreleased
+## 0.11.0 (October 23,2026)
 
 BREAKING CHANGES
 * Transparent proxy: Traffic redirection now uses `nftables` instead of `iptables` (`github.com/hashicorp/consul/sdk` v0.19.0). [[GH-385](https://github.com/hashicorp/consul-ecs/pull/385)]

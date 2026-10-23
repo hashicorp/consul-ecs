@@ -27,6 +27,7 @@ jobs:
     - get-go-version
     runs-on: ubuntu-22.04
     permissions:
+      contents: read
       security-events: write
     # The first check ensures this doesn't run on community-contributed PRs, who
     # won't have the permissions to run this job.

@@ -5,6 +5,15 @@ container {
 	dependencies = true
 	alpine_secdb = true
 	secrets      = true
+
+	triage {
+		suppress {
+			vulnerabilities = [
+				# False positive: fixed upstream in gnupg 2.4.8; Alpine ships 2.4.9-r1 but its secdb doesn't record the fix.
+				"CVE-2025-30258",
+			]
+		}
+	}
 }
 
 binary {
@@ -16,7 +25,9 @@ binary {
 
 	triage {
 		suppress {
-			vulnerabilities = []
+			vulnerabilities = [
+				"GO-2026-5932",
+			]
 		}
 	}
 }

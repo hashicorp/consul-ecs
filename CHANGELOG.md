@@ -1,3 +1,47 @@
+## Unreleased
+
+BREAKING CHANGES
+* Transparent proxy: Traffic redirection now uses `nftables` instead of `iptables` (`github.com/hashicorp/consul/sdk` v0.19.0). [[GH-385](https://github.com/hashicorp/consul-ecs/pull/385)]
+  - ECS container instances must run Linux kernel 5.2 or later. Use the Amazon ECS-optimized Amazon Linux 2023 AMI or the Amazon Linux 2 kernel 5.10 AMI. On kernel 4.14 instances, such as older Amazon ECS-optimized Amazon Linux 2 AMIs, `mesh-init` fails and the task does not start.
+  - The `consul-ecs` image now ships `nft` instead of `iptables`. Custom images that bundle the `consul-ecs` binary must install the `nftables` package.
+  - `transparentProxy.excludeUIDs` accepts only numeric user IDs (no names or ranges), and `transparentProxy.excludeOutboundCIDRs` accepts only IP addresses or CIDRs (no host names). Invalid values now fail `mesh-init`.
+
+SECURITY
+* Upgrade Go to `1.26.10` to address CVEs in the Go standard library including GO-2026-6617, GO-2026-6611, GO-2026-6610, and GO-2026-6612. [[GH-399](https://github.com/hashicorp/consul-ecs/pull/399)]
+
+
+## 0.10.1 (October 6, 2026)
+
+SECURITY
+* Upgrade Go to `1.26.8` to address CVEs in the Go standard library, including CVE-2026-39821, CVE-2026-39822 and CVE-2026-42505. [[GH-387](https://github.com/hashicorp/consul-ecs/pull/387)]
+* Upgrade `golang.org/x/crypto` to `v0.57.0` to address CVE-2026-56854, CVE-2026-56855 and CVE-2026-78662. [[GH-387](https://github.com/hashicorp/consul-ecs/pull/387)]
+* Upgrade `golang.org/x/text` to `v0.42.0` to address CVE-2026-56852. [[GH-387](https://github.com/hashicorp/consul-ecs/pull/387)]
+* Upgrade `google.golang.org/grpc` to `v1.83.2` to address CVE-2026-84304 and CVE-2026-84445. [[GH-387](https://github.com/hashicorp/consul-ecs/pull/387)]
+* Upgrade `go.mongodb.org/mongo-driver` to `v1.17.10` to address CVE-2026-88031. [[GH-387](https://github.com/hashicorp/consul-ecs/pull/387)]
+* Update `go-discover` to `v1.5.0` in Dockerfile to address CVE-2026-84304 and CVE-2026-84445 in the bundled `discover` binary. [[GH-387](https://github.com/hashicorp/consul-ecs/pull/387)]
+
+IMPROVEMENTS
+* FIPS: Migrate FIPS builds from FIPS 140-2 (BoringCrypto via `GOEXPERIMENT=boringcrypto`/cgo) to FIPS 140-3 using the in-tree Go Cryptographic Module. FIPS builds now use `CGO_ENABLED=0 GOFIPS140=v1.0.0` (CMVP Certificate #5247) with `GODEBUG=fips140=on` baked into the binary, dropping cgo and the arm64 cross-compiler. The build metadata suffix changes from `+fips1402` to `+fips1403`. [[GH-368](https://github.com/hashicorp/consul-ecs/pull/368)]
+
+## 0.10.0 (July 9, 2026)
+SECURITY
+* Upgrade `golang.org/x/crypto`, `golang.org/x/net`, and `golang.org/x/sys` to address CVEs in transitive dependencies. [[GH-345](https://github.com/hashicorp/consul-ecs/pull/345)]
+* Update `go-discover` to `v1.3.0` in Dockerfile to mitigate CVEs in dependencies. [[GH-348](https://github.com/hashicorp/consul-ecs/pull/348)]
+
+FEATURES
+* Add `consecutive5xx`, `enforcingConsecutiveGatewayFailure`, and `maxEjectionPercent` fields to the outlier detection configuration schema, enabling gateway failure detection and fine-grained ejection percentage control for passive health checks. [[GH-321](https://github.com/hashicorp/consul-ecs/pull/321)]
+
+BUG FIXES
+* Fix health-sync logic to correctly accumulate and apply health check statuses for all registered containers, including the `consul-dataplane` container. [[GH-320](https://github.com/hashicorp/consul-ecs/pull/320)]
+
+IMPROVEMENTS
+* health-sync: batch all Consul health check updates into a single atomic `Catalog.Register` call instead of issuing one request per check, reducing write amplification and improving consistency. [[GH-338](https://github.com/hashicorp/consul-ecs/pull/338) / HEAD]
+* Bump Go version to `1.26.4`. [[GH-348](https://github.com/hashicorp/consul-ecs/pull/348)]
+* Bump `go-discover` to `v1.3.0`. [[GH-348](https://github.com/hashicorp/consul-ecs/pull/348)]
+* Upgrade `consul-api` to 1.34.4 and `serf` to 0.10.4. [[GH-356](https://github.com/hashicorp/consul-ecs/pull/356)]
+* Upgrade AWS SDK v2 dependencies to latest versions. [[GH-357](https://github.com/hashicorp/consul-ecs/pull/357)]
+* Expand test matrix to include latest Consul CE and Enterprise versions for compatibility testing. [[GH-346](https://github.com/hashicorp/consul-ecs/pull/346)]
+
 ## 0.9.4 (March 16, 2026)
 SECURITY
 * Update Dockerfile to use Alpine 3.23 and run full `apk upgrade` to mitigate multiple vulnerable packages including curl, gnupg, openssl, sqlite-libs, busybox, and others identified by Wiz security scan ([CVE-2025-14819], [CVE-2025-14524], [CVE-2025-14017], [CVE-2025-30258], and related CVEs).

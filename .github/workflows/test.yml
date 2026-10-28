@@ -6,6 +6,8 @@ on:
   pull_request:
     branches:
       - main
+    # ready_for_review lets coverage run when a draft is marked ready.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 # cancel existing runs of the same workflow on the same ref
 concurrency:
@@ -16,7 +18,7 @@ env:
   CONSUL_LICENSE: ${{ secrets.CONSUL_LICENSE }}
   # Latest CE version, also present in the test matrix below — used by unit-tests-coverage.
   # ENT variants need CONSUL_LICENSE and cannot be used in the coverage job.
-  CONSUL_CE_VERSION: "2.0.0"
+  CONSUL_CE_VERSION: "2.0.1"
 
 jobs:
   get-go-version:
@@ -28,8 +30,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Checkout
-      uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
-    - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: ${{ needs.get-go-version.outputs.go-version }}
     - name: golangci-lint
@@ -54,16 +56,16 @@ jobs:
         consul-version:
           - 1.22.7
           - 1.22.8+ent
-          - 2.0.0
-          - 2.0.0+ent
+          - 2.0.1
+          - 2.0.1+ent
     env:
       TEST_RESULTS_DIR: /tmp/test-results
       GOTESTSUM_VERSION: 1.8.2
     runs-on: ubuntu-22.04
     steps:
     - name: Checkout
-      uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
-    - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: ${{ needs.get-go-version.outputs.go-version }}
     - name: Install Consul
@@ -97,7 +99,7 @@ jobs:
           --jsonfile $TEST_RESULTS_DIR/${{ matrix.consul-version }}/json/go-test-race.log \
           --junitfile $TEST_RESULTS_DIR/${{ matrix.consul-version }}/gotestsum-report.xml \
           -- $PACKAGE_NAMES $TAGS -- $FLAGS
-    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ${{ matrix.consul-version }}-test-results
         path: ${{ env.TEST_RESULTS_DIR }}/${{ matrix.consul-version }}
@@ -105,12 +107,14 @@ jobs:
   unit-tests-coverage:
     needs:
       - get-go-version
+    # Skip coverage on draft PRs; runs when the PR is marked ready for review.
+    if: ${{ !github.event.pull_request.draft }}
     name: unit-tests-coverage
     runs-on: ubuntu-22.04
     steps:
     - name: Checkout
-      uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
-    - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         # Use go-version-file to install the version declared in go.mod (go 1.26),
         # avoiding a toolchain mismatch when .go-version and go.mod differ.
@@ -129,7 +133,7 @@ jobs:
         go test -p 1 -coverprofile=coverage.txt -covermode=set $PACKAGE_NAMES
     - name: Upload coverage profile
       if: always()
-      uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ecs-coverage
         path: coverage.txt
@@ -153,7 +157,7 @@ jobs:
     # Patch coverage measures the lines a PR adds/modifies, so it only applies
     # to pull requests. Pushes to main run coverage-report for the badge but
     # have no "patch" to evaluate. Only gate when the report succeeded.
-    if: "!cancelled() && github.event_name == 'pull_request' && needs.coverage-report.result == 'success'"
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.coverage-report.result == 'success' }}
     runs-on: ubuntu-22.04
     env:
       # Minimum required coverage of the lines a PR adds/modifies (patch
@@ -196,9 +200,7 @@ jobs:
             exit 0
           fi
 
-          PCT="${PATCH%\%}"
-
-          if awk -v pct="${PCT}" -v threshold="${PATCH_THRESHOLD}" 'BEGIN { exit !(pct >= threshold) }'; then
+          if awk -v covered="${COVERED}" -v coverable="${COVERABLE}" -v threshold="${PATCH_THRESHOLD}" 'BEGIN { exit !(covered*100 >= threshold*coverable) }'; then
             echo "::notice::Patch coverage ${PATCH} meets the ${PATCH_THRESHOLD}% threshold."
             {
               echo "### ✅ Coverage gate passed"

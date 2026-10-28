@@ -8,10 +8,10 @@
 # when building.
 
 # go-discover builds the discover binary
-FROM golang:1.26.4-alpine AS go-discover
-RUN CGO_ENABLED=0 go install github.com/hashicorp/go-discover/cmd/discover@v1.3.0
+FROM golang:1.26.10-alpine AS go-discover
+RUN CGO_ENABLED=0 go install github.com/hashicorp/go-discover/cmd/discover@v1.5.0
 
-FROM docker.mirror.hashicorp.services/alpine:3.23 AS release-default
+FROM docker.mirror.hashicorp.services/alpine:3.24 AS release-default
 
 ARG BIN_NAME=consul-ecs
 ARG PRODUCT_VERSION
@@ -58,7 +58,7 @@ VOLUME [ "/consul" ]
 # Set up certificates, base tools, and software.
 RUN apk update && \
     apk upgrade --no-cache && \
-    apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils iptables gcompat libc6-compat libstdc++ && \
+    apk add --no-cache ca-certificates curl gnupg libcap openssl su-exec iputils nftables gcompat libc6-compat libstdc++ && \
     rm -rf /var/cache/apk/*
 
 # for FIPS CGO glibc compatibility in alpine

@@ -1,0 +1,58 @@
+# Copyright IBM Corp. 2024, 2026
+# SPDX-License-Identifier: BUSL-1.1
+
+version: 2
+updates:
+  - package-ecosystem: gomod
+    # Limit is the maximum number of open PRs Dependabot will create. We use this
+    # as a safeguard to prevent accidental overload, but with grouping (below) we
+    # expect far fewer in practice.
+    open-pull-requests-limit: 10
+    directory: "/"
+    labels:
+      - "go"
+      - "dependencies"
+      - "pr/no-changelog"
+    schedule:
+      # Weekly checks on Sunday mornings. Go module ecosystem moves faster than
+      # GitHub Actions, but weekly is still low-frequency enough to reduce noise.
+      interval: weekly
+      day: sunday
+    # Group dependencies to reduce PR noise and test burden.
+    # - Patch updates (bug-fixes, low risk) → one combined PR per week
+    # - Minor updates (new features, medium risk) → one combined PR per week
+    # - Major updates are intentionally left ungrouped so each gets its own PR
+    #   and receives dedicated human review (breaking changes are likely).
+    groups:
+      go-patch-updates:
+        update-types:
+          - "patch"
+      go-minor-updates:
+        update-types:
+          - "minor"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  - package-ecosystem: github-actions
+    # Monthly cadence: GitHub Actions change very slowly; monthly checks avoid
+    # burning CI cycles on redundant updates. With grouping, expect ~1 PR/month.
+    open-pull-requests-limit: 5
+    directory: /
+    labels:
+      - "github_actions"
+      - "dependencies"
+      - "pr/no-changelog"
+    schedule:
+      interval: monthly
+    # Group all GitHub Actions updates (patch + minor) into one PR. GitHub Actions
+    # rarely have breaking changes for patch/minor bumps, so combining them is safe.
+    # Major updates (rare) still get their own PR for review.
+    groups:
+      github-actions-all-updates:
+        update-types:
+          - "patch"
+          - "minor"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"

@@ -16,7 +16,7 @@ var (
 	//
 	// Version must conform to the format expected by
 	// github.com/hashicorp/go-version for tests to work.
-	Version = "0.9.4"
+	Version = "0.11.0"
 
 	// A pre-release marker for the version. If this is "" (empty string)
 	// then it means that it is a final release. Otherwise, this is a pre-release
@@ -34,7 +34,7 @@ func GetHumanVersion() string {
 	}
 
 	if IsFIPS() {
-		version += "+fips1402"
+		version += "+fips1403"
 	}
 
 	if GitCommit != "" {

@@ -1,3 +1,8 @@
+## 0.11.1 (Unreleased)
+
+SECURITY
+* Remove the unused `gnupg` package from the container image to resolve CVE-2025-30258.
+
 ## 0.11.0 (October 23,2026)
 
 BREAKING CHANGES

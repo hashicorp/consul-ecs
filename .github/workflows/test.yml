@@ -35,7 +35,7 @@ jobs:
       with:
         go-version: ${{ needs.get-go-version.outputs.go-version }}
     - name: golangci-lint
-      uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+      uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
       with:
         version: v2.12.2
         args: |
@@ -99,7 +99,7 @@ jobs:
           --jsonfile $TEST_RESULTS_DIR/${{ matrix.consul-version }}/json/go-test-race.log \
           --junitfile $TEST_RESULTS_DIR/${{ matrix.consul-version }}/gotestsum-report.xml \
           -- $PACKAGE_NAMES $TAGS -- $FLAGS
-    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ matrix.consul-version }}-test-results
         path: ${{ env.TEST_RESULTS_DIR }}/${{ matrix.consul-version }}
@@ -133,7 +133,7 @@ jobs:
         go test -p 1 -coverprofile=coverage.txt -covermode=set $PACKAGE_NAMES
     - name: Upload coverage profile
       if: always()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ecs-coverage
         path: coverage.txt

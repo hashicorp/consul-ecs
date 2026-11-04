@@ -7,9 +7,19 @@
 # Every target has a BIN_NAME argument that must be provided via --build-arg=BIN_NAME=<name>
 # when building.
 
-# go-discover builds the discover binary
-FROM golang:1.26.10-alpine AS go-discover
-RUN CGO_ENABLED=0 go install github.com/hashicorp/go-discover/cmd/discover@v1.5.0
+# go-discover builds the discover binary. The stage is pinned to the build host
+# and cross-compiles for the target platform, because compiling under QEMU
+# emulation for arm/arm64 is extremely slow.
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine AS go-discover
+ARG TARGETOS TARGETARCH TARGETVARIANT
+# GOARM is only valid for 32-bit arm. A cross-compiled `go install` writes the
+# binary to /go/bin/<os>_<arch>/, so move it to /go/bin/.
+RUN if [ "$TARGETARCH" = "arm" ]; then export GOARM="${TARGETVARIANT#v}"; fi && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go install github.com/hashicorp/go-discover/cmd/discover@v1.5.0 && \
+    if [ -f "/go/bin/${TARGETOS}_${TARGETARCH}/discover" ]; then \
+      mv "/go/bin/${TARGETOS}_${TARGETARCH}/discover" /go/bin/discover; \
+    fi
 
 FROM docker.mirror.hashicorp.services/alpine:3.24 AS release-default
 

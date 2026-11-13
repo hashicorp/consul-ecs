@@ -1,3 +1,8 @@
+## Unreleased
+
+SECURITY
+* Upgrade `golang.org/x/net` to `0.62.0` to address CVE-2026-78661 and CVE-2026-97045.
+
 ## 0.10.1 (October 6, 2026)
 
 SECURITY

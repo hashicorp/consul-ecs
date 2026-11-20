@@ -24,10 +24,12 @@ type ConsulConfig struct {
 	Credentials     *CredentialsConfig `json:"credentials,omitempty"`
 }
 
+// TLSConfig is written to consul-dataplane's -config-file, so the JSON keys
+// must match the ones consul-dataplane reads (consul.tls.serverName).
 type TLSConfig struct {
 	Disabled       bool   `json:"disabled"`
 	GRPCCACertPath string `json:"caCertsPath,omitempty"`
-	TLSServerName  string `json:"tlsServerName,omitempty"`
+	TLSServerName  string `json:"serverName,omitempty"`
 }
 
 type CredentialsConfig struct {

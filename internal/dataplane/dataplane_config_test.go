@@ -98,7 +98,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				  "tls": {
 					"disabled": false,
 					"caCertsPath": "/consul/ca-cert.pem",
-					"tlsServerName": "consul.dc1"
+					"serverName": "consul.dc1"
 				  }
 				},
 				"proxy": {
@@ -239,7 +239,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				  "tls": {
 					"disabled": false,
 					"caCertsPath": "/consul/ca-cert.pem",
-					"tlsServerName": "consul.dc1"
+					"serverName": "consul.dc1"
 				  },
 				  "credentials": {
 					"type": "login",
@@ -317,7 +317,7 @@ func TestGetDataplaneConfigJSON(t *testing.T) {
 				  "tls": {
 					"disabled": false,
 					"caCertsPath": "/consul/ca-cert.pem",
-					"tlsServerName": "consul.dc1"
+					"serverName": "consul.dc1"
 				  },
 				  "credentials": {
 					"type": "login",
